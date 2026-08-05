@@ -8,7 +8,8 @@ public class DuckovLike : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 	
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput" });
+		// InventoryCore는 Model 계층이다. 의존은 이 방향(게임 -> Model)만 존재한다.
+		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "InventoryCore" });
 
 		PrivateDependencyModuleNames.AddRange(new string[] {  });
 
