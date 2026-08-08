@@ -76,3 +76,8 @@ Plugins/**/Intermediate/*
 
 # Cache files for the editor to use
 DerivedDataCache/*
+
+# Two-CLI workflow artifacts (Architect <-> Builder file bus)
+HANDOFF*.md
+RESULT.md
+INPUT.md
