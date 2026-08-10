@@ -81,7 +81,7 @@
 | ID | 제안 | 선택 이유 | 상태 |
 | --- | --- | --- | --- |
 | A1 | Definition은 `UPrimaryDataAsset` | 에셋 참조와 AssetManager 흐름을 설명하기 좋음 | Proposed |
-| A2 | Instance는 `UObject` + `FGuid` | UI 매핑, 가변 상태, 저장 식별자에 적합 | Proposed |
+| A2 | Instance는 `UObject` + `FGuid` | UI 매핑, 가변 상태, 저장 식별자에 적합 | 식별자는 ADR-009가 정한 전역 카운터 `int32`, 단 `UObject` 여부는 미결정 |
 | A3 | 아이템 목록을 진실로 두고 셀 맵은 재생성 가능한 캐시 | 저장 친화성과 빠른 셀 질의를 함께 확보 | Proposed |
 | A4 | Container는 `UObject`, Component는 Actor 어댑터 | Actor가 아닌 스태시도 같은 방식으로 처리 | Proposed |
 | B1 | Operation Service / Request-Result 계층 | 횡단 연산과 실패 이유를 한 곳에서 관리 | Proposed |
@@ -233,7 +233,7 @@
 | 이동 | 동일 컨테이너, 다른 컨테이너, 실패 원자성 |
 | 스택 | 완전/부분 병합, 최대치, 서로 다른 상태 |
 | 정렬 | 결정론, 실패 시 원상 보존, 회전 허용 정책 |
-| 저장 | 포맷 버전, Definition 참조, GUID, 위치/회전/수량 동일성 |
+| 저장 | 포맷 버전, Definition 참조, Instance 번호, 위치/회전/수량 동일성 |
 | 리사이즈 | 축소 거부, 확대 |
 | UI | 드래그 취소, 빠른 연속 입력, 컨테이너 종료 |
 | 성능 | 20x20 셀, 아이템 100개, 상시 Tick 0, 이벤트 폭주 여부 |
@@ -252,7 +252,7 @@
 아래 항목은 의존성이 크므로 M1 전에 승인한다.
 
 1. ADR-001: Definition 에셋 형식
-2. ADR-002: Item Instance 표현과 `FGuid` 정책
+2. ADR-009: Item Instance 식별자 정책 — ADR-002를 대체한다; Instance 표현 방식은 미결정으로 남아 있다
 3. ADR-003: Container 소유 구조와 점유 캐시 정책
 4. ADR-004: Operation Service와 이동 원자성
 5. ADR-005: MVVM 분할과 ChangeSet 통지

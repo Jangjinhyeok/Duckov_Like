@@ -125,7 +125,7 @@
 2. **단방향 의존성**: `UMG View -> ViewModel -> Model`만 허용한다.
 3. **원자성**: 컨테이너 간 이동은 전체 검증 뒤 한 번에 커밋한다. 실패 시 양쪽 상태는 변하지 않는다.
 4. **명시적 실패**: UI가 `NoSpace`, `Occupied`, `InvalidCategory`, `StackFull` 등의 실패 이유를 표시할 수 있어야 한다.
-5. **안정적 식별자**: 아이템 Instance는 `FGuid`로 저장과 ViewModel 매핑을 지원한다.
+5. **안정적 식별자**: 아이템 Instance는 전역 순차 카운터가 발급하는 `int32` 번호로 저장과 ViewModel 매핑을 지원한다.
 6. **이벤트 기반 UI**: 인벤토리 화면은 상시 Tick에 의존하지 않는다.
 
 상세 구조와 결정 근거는 `INVENTORY_DESIGN.md`를 참조한다.

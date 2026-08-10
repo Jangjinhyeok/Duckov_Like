@@ -133,7 +133,7 @@ Result: Failed
 | **Single source of truth** | 위치·회전·수량은 Model만 소유한다. View/ViewModel은 원본 상태를 갖지 않는다 |
 | **원자성** | 컨테이너 간 이동은 전체 검증 뒤 한 번에 커밋한다. 실패 시 양쪽 상태가 변하지 않는다 |
 | **명시적 실패** | `bool`이 아니라 실패 사유를 반환한다 — `NoSpace`, `Occupied`, `InvalidCategory`, `StackFull` … |
-| **안정적 식별자** | 아이템 Instance는 `FGuid`로 저장과 ViewModel 매핑을 지원한다 |
+| **안정적 식별자** | 아이템 Instance는 전역 순차 카운터가 발급하는 `int32` 번호로 저장과 ViewModel 매핑을 지원한다 |
 | **이벤트 기반 UI** | 인벤토리 화면은 상시 Tick에 의존하지 않는다 |
 
 불변식 8개(`INV-01`~`INV-08`)와 연산 계약은 [인벤토리 설계 문서](docs/INVENTORY_DESIGN.md)에 있다.
@@ -169,8 +169,9 @@ Result: Failed
 | [ADR](docs/architecture/) | 구조 결정 기록 — 결정·근거·기각한 대안·검증 |
 | [작업 기록](docs/worklog/) | 마일스톤별 작업 내역, AI 활용 내역, 막혔던 것 |
 
-문서의 아키텍처 항목(`A1`~`E3`)과 `ADR-001`~`008`은 **전부 `Proposed`다.**
-구현 전 `Accepted`로 전환한다.
+문서의 아키텍처 항목(`A1`~`E3`)과 `ADR-001`~`008`은 **대부분 `Proposed`다.** 구현 전
+`Accepted`로 전환한다. 예외는 둘이다 — `ADR-002`는 `Superseded`이고,
+이를 대체한 `ADR-009`(Item Instance 식별자)는 `Accepted`다.
 
 ---
 
