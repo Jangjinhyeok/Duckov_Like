@@ -113,20 +113,89 @@ UE 표준 코딩 규약을 따른다. 아래는 이 프로젝트에서 추가로
 
 이 프로젝트의 목적은 동작하는 코드가 아니라 **사용자가 설명할 수 있는 구조**다.
 생성된 코드를 읽는 것만으로는 이해가 남지 않으므로(재인은 재생이 아니다),
-**결정 지점을 사람 쪽에 두는 것**으로 해결한다.
+**결정 지점을 사람 쪽에 두고 AI는 질문자·리뷰어·구현자로 역할을 분리한다.**
 
-### 5.1 헤더는 사용자가, 구현은 AI가
+> **적용 경계 (2026-08-09 확정).** 이 절의 분담은 **`ADR-009` 이후의 결정부터 실제로 적용된다.**
+> 그 이전에 작성된 `docs/GDD.md`·`docs/INVENTORY_DESIGN.md`·`ADR-000`·`ADR-002`는 AI가 초안과
+> 근거를 제시하고 사용자가 읽고 납득한 산출물이며, 사용자가 스스로 선택지를 훑고 내린 판단이
+> 아니다. 설명 역전으로 측정한 결과 `ADR-002`에서 사용자가 재생할 수 있었던 것은 결론 명사
+> 두 개(`struct`, `FGuid`)뿐이었고 근거·정책·대가는 백지였다(`docs/worklog/M0-design.md`).
+>
+> **과거 산출물은 출처를 정직하게 라벨링해 닫고, 이후 결정은 이 절의 절차를 실제로 밟는다.**
+> 과거 문서를 소급해 전부 재결정하지 않되, 그것을 "사용자가 결정한 것"으로 인용하지도 않는다.
+> 식별자 결정만은 예외적으로 재결정했고 그 결과가 `ADR-009`다.
+
+### 5.1 설계 결정은 `질문 → 내 판단 → AI 리뷰 → 확정` 순서
+
+ADR이나 공개 API처럼 구조를 바꾸는 결정에서는 **AI가 결론을 먼저 제시하지 않는다.**
+설계 문서의 제안도 아직 결정이 아니며, `Proposed` 항목은 사용자가 근거를 검토해 승인하기 전까지
+권위 있는 답으로 취급하지 않는다.
+
+설계 결정 하나는 아래 순서를 따른다.
+
+1. **사용자 — Option Sweep**
+   - AI의 선택지 제시와 설계 문서의 권장안을 보기 **전에**, 결정할 질문과 자기가 떠올린 안을 먼저 적는다.
+   - 그 후 AI에게 "이 목록에 없는 선택지는 무엇이고 왜 빠졌는가"를 묻는다.
+     "없다"는 답에는 근거를 요구한다.
+   - `INVENTORY_DESIGN.md`의 A1~E3는 선택지와 선택 이유가 이미 채워진 표다. 그대로 읽고 시작하면
+     **선택지를 식별하는 일**, 즉 설계에서 가장 어려운 앞부분을 통째로 건너뛰게 된다.
+2. **AI — Design Interviewer**
+   - 결정해야 할 질문과 선택지를 식별한다.
+   - 각 선택지에서 고려할 축과 관련 요구사항만 설명한다.
+   - **특정 안을 추천하거나 결론을 대신 내리지 않는다.**
+   - 설계 문서의 권장안은 `권장`이 아니라 `후보`로 인용한다. 사용자 목록에 없던 안을 보태는 것이 이 단계의 일이다.
+3. **사용자 — Initial Decision**
+   - 먼저 선택 또는 잠정 선택을 적는다.
+   - 최소한 `이유 / 우려 / 아직 모르는 것`을 자신의 말로 설명한다.
+4. **AI — Design Reviewer**
+   - 사용자의 판단을 대신 다시 설계하지 않는다.
+   - 아래 항목만 비판적으로 검토한다.
+     - 잘못되거나 숨은 가정
+     - Unreal Engine 특유의 제약과 수명·소유권 문제
+     - edge case와 실패 경로
+     - coupling / testability / scalability
+     - 반대 선택이 더 유리해지는 조건
+     - 실제 구현 시 설계 원칙과 충돌할 가능성
+5. **사용자 — Final Decision**
+   - 리뷰를 반영해 최종 선택과 이유를 확정한다.
+   - 필요하면 어떤 지적을 받아들였고 무엇을 반려했는지도 남긴다.
+6. **AI — ADR Writer**
+   - 확정된 판단만 ADR로 정리한다.
+   - 사용자가 말하지 않은 이유를 사후에 만들어 넣지 않는다.
+7. **AI — Implementer**
+   - 승인된 ADR과 공개 계약 안에서만 구현한다.
+
+사용자가 명시적으로 "추천해줘"라고 요청한 경우를 제외하면, 설계 단계의 기본 동작은
+**결론 제시가 아니라 질문과 반론 제공**이다.
+
+### 5.2 ADR은 구현을 구속한다
+
+승인된 ADR은 참고 문서가 아니라 **Architecture Constraint**다.
+
+- 구현 중 ADR과 충돌하는 변경이 필요해 보여도 **임의로 바꾸지 않는다.**
+- 먼저 아래를 보고하고 구현을 멈춘다.
+  1. 충돌하는 ADR 또는 공개 계약
+  2. 필요한 변경
+  3. 변경이 필요한 이유
+  4. ADR을 유지하는 대안과 그 비용
+- 사용자가 승인하면 ADR을 먼저 수정하거나 `Superseded` 처리한 뒤 구현한다.
+- "구현하기 편해서"는 ADR 변경의 근거가 아니다.
+
+### 5.3 헤더는 사용자가, 구현은 AI가
 
 **C++에서 헤더가 곧 구조다.** public 메서드 목록, 인자와 반환 타입, 실패 표현 방식을
 정하면 설계가 끝난 것이고 `.cpp`는 그 귀결이다.
 
 - **사용자가 확정한다**: `Public/`의 타입·시그니처·enum·실패 사유
 - **AI가 구현한다**: `.cpp` 본문, private 헬퍼, 빌드 통과
-- **AI는 결정하지 않는다.** 결정 지점마다 **2~3개 시그니처 안을 근거와 함께 제시하고**
-  사용자가 고른다. 문법은 AI가, 선택은 사용자가.
+- **`UPROPERTY`·`UFUNCTION` specifier도 사용자가 정한다.** `EditAnywhere`·`Transient`·`SaveGame`·
+  `BlueprintReadOnly` 같은 지정자는 boilerplate가 아니라 설계 결정이다 — 특히 `SaveGame`은
+  저장 레코드 결정에 직결된다. AI가 채우는 범위는 매크로 문법, `#include`, 전방 선언,
+  `INVENTORYCORE_API`까지다.
+- 공개 계약의 결정이 남아 있으면 5.1 절차로 돌아간다. AI가 빈칸을 임의로 메우지 않는다.
 - 사용자 승인 없이 `Public/` 헤더의 시그니처를 바꾸지 않는다. 바꿔야 하면 먼저 말한다.
 
-### 5.2 테스트 이름을 구현보다 먼저
+### 5.4 테스트 이름을 구현보다 먼저
 
 인벤토리 설계 문서의 검증 매트릭스가 30개 테스트의 뼈대다. **이름으로 펼치는 것 자체가
 API 설계다** — 아래를 쓰려면 Move의 계약을 먼저 결정해야 한다.
@@ -137,35 +206,48 @@ TestMove_ToOccupiedCell_ReturnsOccupied_LeavesBothContainersUnchanged
 
 - **사용자가 쓴다**: 테스트 이름 목록
 - **AI가 한다**: 통과시키는 구현
-- 5.1과 한 묶음이다 — 헤더와 테스트 이름은 같은 결정의 두 표현이다.
+- 5.3과 한 묶음이다 — 헤더와 테스트 이름은 같은 결정의 두 표현이다.
 
-### 5.3 테스트는 별도 `InventoryCoreTests` 모듈
+### 5.5 테스트는 별도 `InventoryCoreTests` 모듈
 
-5.1을 **구조적으로 강제**한다. 테스트가 `InventoryCore`의 `Public/`만 볼 수 있으므로,
+5.3을 **구조적으로 강제**한다. 테스트가 `InventoryCore`의 `Public/`만 볼 수 있으므로,
 테스트를 하나 쓸 때마다 "이게 공개 계약에 있어야 하는가"를 넘어야 한다.
 
 - private 구현을 테스트하려고 `Public/`으로 올리지 않는다. 그 압박이 이 배치의 목적이다.
 - 모듈 신설은 구조 결정이므로 M1 시작 시 ADR로 남긴다.
 
-### 5.4 마일스톤 끝에 설명 역전
+### 5.6 마일스톤 끝에 설명 역전
 
 **마일스톤이 끝나면 사용자가 코드를 보지 않고 구조를 설명하고, AI가 실제 코드와 대조해
-틀린 곳과 빠진 곳을 짚는다.** 리뷰 방향을 뒤집는 것이며, 이것이 유일한 실제 측정이다.
+틀린 곳과 빠진 곳을 짚는다.** 리뷰 방향을 뒤집는 것이며, 이것이 실제 이해도를 측정하는 기준이다.
 
+- **마일스톤 문서를 닫는 조건이다.** 설명 역전을 수행하고 그 결과를 기록하기 전에는
+  `docs/worklog/M*.md`의 `상태`를 `완료`로 바꾸지 않는다.
 - 막힌 지점 = comprehension debt가 쌓인 자리. 그 부분만 `/walkthrough`로 다시 걷는다.
+- 설명할 수 없는 핵심 로직은 "AI가 구현했으니 동작한다"로 닫지 않는다.
 - 결과를 작업 기록의 `다음으로 넘길 것`에 남긴다.
 
 ### 하지 않는 것
 
+- **AI가 설계안·근거·추천·ADR까지 한 번에 완성하고 사용자가 승인만 하는 흐름** — 결정권이 AI로 이동한다.
+- **설계 문서의 권장안을 근거 검토 없이 그대로 승인** — 문서는 입력이지 결론이 아니다.
 - **생성된 코드 전체 정독** — 비싸고 재인만 만든다. 구조 이해로 이어지지 않는다.
 - **사용자가 전부 직접 구현** — 위임의 이점이 사라지고, 이해는 타이핑에서 오지 않는다.
 
 ## 6. 빌드와 검증
 
 ```
-"C:\Program Files\Epic Games\UE_5.7\Engine\Build\BatchFiles\Build.bat" DuckovLikeEditor Win64 Development -Project="C:\Users\zero9\Documents\Github\Duckov_Like\DuckovLike.uproject" -WaitMutex -NoHotReload
+& "C:\Program Files\Epic Games\UE_5.7\Engine\Build\BatchFiles\Build.bat" DuckovLikeEditor Win64 Development "-Project=$PWD\DuckovLike.uproject" -WaitMutex -NoHotReload
 ```
 
+- **PowerShell 기준이다.** cmd에서는 `-Project="%CD%\DuckovLike.uproject"`로 바꾼다.
+  두 형태 모두 UE 5.7에서 동작 확인됐다.
+- **`-Project`에 절대 경로를 박지 않는다.** Codex Builder는 primary tree가 아닌 별도 worktree에서
+  일한다. 경로를 박아 놓으면 Builder가 자기 변경이 아닌 primary tree를 빌드하고 `Result: Succeeded`를
+  보고한다 — 검증값이 통째로 거짓 신호가 된다. 현재 CWD로 전개하게 만들면 어느 worktree에서 돌든 자기
+  worktree를 빌드한다.
+- **상대 경로도 쓸 수 없다.** `Build.bat`은 UBT를 부르기 전에 `pushd`로 CWD를 엔진의 `Engine/Source`로
+  바꾸므로 `-Project=".\DuckovLike.uproject"`는 `Unable to find project file`로 실패한다.
 - 첫 빌드는 2분 이상 걸린다. 증분은 10초 내외.
 - **`exit 0`을 성공으로 믿지 않는다.** 출력의 `Result: Succeeded`를 확인한다.
 - headless 에디터 부팅으로 모듈 로드를 확인할 수 있다. 단 `-ExecCmds="Quit"`은
@@ -179,7 +261,7 @@ TestMove_ToOccupiedCell_ReturnsOccupied_LeavesBothContainersUnchanged
 | `docs/GDD.md` | 목표·범위·마일스톤·검증 계획 |
 | `docs/INVENTORY_DESIGN.md` | 불변식(INV-01~08), 제안 아키텍처(A1~E3), 연산 계약, MVVM 흐름 |
 | `docs/CONVENTIONS.md` | 네이밍, Content 폴더 규약 |
-| `docs/architecture/ADR-*.md` | 구조 결정 기록 |
+| `docs/architecture/ADR-*.md` | 구조 결정 기록 — 단 `ADR-TEMPLATE.md`는 결정 기록이 아닌 빈 템플릿이므로 이 목록에서 제외한다 |
 | `docs/worklog/M*.md` | 마일스톤별 작업 기록 — 무엇을 했고 AI를 어떻게 썼는가 |
 
 - **`GDD.md`와 `INVENTORY_DESIGN.md`는 읽기 전용이다.** 문제를 발견하면 고치지 말고 보고한다.
@@ -188,6 +270,28 @@ TestMove_ToOccupiedCell_ReturnsOccupied_LeavesBothContainersUnchanged
 - **새 시스템·모듈 경계·데이터 흐름·패턴 선택이 걸린 결정은 ADR로 남긴다.**
   세션은 휘발되지만 ADR은 누적된다.
 - `INVENTORY_DESIGN.md`의 A1~E3와 ADR-001~008은 **전부 `Proposed`다.** 임의로 확정하지 않는다.
+- ADR은 최소한 아래 사고 흔적을 남긴다. 문장 형식은 자유지만 항목을 생략해 결론만 남기지 않는다.
+
+```
+Context / Decision Question
+Options
+User Initial Decision
+User Reasoning / Concerns
+AI Review — 반론·누락·위험만 요약
+Final Decision
+Consequences / Accepted Costs
+Revisit Conditions
+```
+
+- 이 항목들은 `docs/architecture/ADR-TEMPLATE.md`에 빈 템플릿으로 있다. **템플릿을 복사해
+  `User Initial Decision`과 `User Reasoning / Concerns`를 사용자가 먼저 채운 뒤에만 AI가 이어 쓴다.**
+  산문으로 적힌 규칙보다 빈칸이 있는 파일이 더 잘 지켜진다.
+- 기존 `ADR-000`·`ADR-002`는 이 포맷이 정해지기 전에 작성됐다. **소급 적용하지 않는다** —
+  해당 ADR을 개정하거나 `Superseded` 처리할 때 템플릿으로 옮긴다.
+- **`Revisit Conditions`는 필수다.** 현재 선택이 영구적으로 옳다고 쓰지 말고, 어떤 요구나 측정 결과가
+  생기면 결정을 다시 열 것인지 명시한다.
+- `AI Review`는 AI의 긴 답변을 복사하는 절이 아니다. **최종 판단에 실제 영향을 준 지적만** 짧게 남긴다.
+- `Final Decision`의 이유는 사용자가 설명할 수 있는 근거만 사용한다. AI가 사후 정당화를 추가하지 않는다.
 
 ### 작업 기록 — 각 작업이 끝나면 문서로 남긴다
 
@@ -207,6 +311,9 @@ TestMove_ToOccupiedCell_ReturnsOccupied_LeavesBothContainersUnchanged
 - **`AI 활용` 절이 이 문서의 핵심이다.** 산출물이 아니라 *판단의 출처*를 남긴다 —
   어떤 선택을 사람이 했고, AI가 무엇을 제안했으며, 무엇을 반려·수정했는지.
   포트폴리오에서 "AI로 만들었다"와 "AI를 부려 만들었다"를 가르는 것이 이 기록이다.
+- **`내가 결정한 것`은 요약하지 않고 해당 ADR의 `User Reasoning / Concerns` 원문을 인용한다.**
+  AI가 대화를 회고해 서술하면 사용자에게 관대해진다 — 대화 중 AI가 던진 안에 사용자가 동의한 것도
+  "사용자가 결정함"으로 기록된다. 사용자가 문장으로 쓰지 않은 결정은 이 목록에 오르지 않아야 한다.
 - **실패를 지우지 않는다.** 막혔던 경로와 그 원인은 성공한 경로만큼 기술적 근거가 된다.
 - 검증 결과는 **실제 출력을 인용한다.** "빌드 성공"이 아니라 `Result: Succeeded (175초)`.
 - 작업 기록은 사실의 누적이다. ADR과 역할이 다르다 —
@@ -225,7 +332,7 @@ TestMove_ToOccupiedCell_ReturnsOccupied_LeavesBothContainersUnchanged
 | M4 | 성능 점검, 문서·영상 정리 | |
 
 **M1을 둘로 나눈 이유**: 검증 매트릭스의 M1 범주가 6개(배치·이동·스택·정렬·저장·리사이즈)이고
-여기서 테스트 30개가 나온다. 한 번에 가면 헤더를 한꺼번에 정해야 하고 설명 역전(5.4)도
+여기서 테스트 30개가 나온다. 한 번에 가면 헤더를 한꺼번에 정해야 하고 설명 역전(5.6)도
 마지막에 한 번뿐이라, 중간에 쌓인 오해가 늦게 발견된다. 둘로 나누면 부담이 절반씩이고
 검증 지점이 두 번 생긴다.
 
@@ -262,9 +369,10 @@ TestMove_ToOccupiedCell_ReturnsOccupied_LeavesBothContainersUnchanged
 | 006 그리드 렌더 · 드래그 구현 경로 | **M2** |
 
 - ADR-000(모듈 경계)도 아직 `Proposed`다.
-- **AI는 각 ADR의 선택지와 근거·트레이드오프를 제시하고, 결정은 사용자가 한다**(5.1).
+- ADR 승인에는 **5.1의 설계 결정 절차를 반드시 적용한다.** AI는 질문·선택지·검토 축을 먼저 제시하고,
+  사용자가 Initial Decision을 낸 뒤에만 반론과 위험을 리뷰한다. 사용자가 요청하지 않은 최종 추천은 하지 않는다.
 
 ### 남은 것
 
-- **`InventoryCoreTests` 모듈 신설** — 배치는 결정됐고(5.3) 실제 생성은 M1a 시작 시.
+- **`InventoryCoreTests` 모듈 신설** — 배치는 결정됐고(5.5) 실제 생성은 M1a 시작 시.
   모듈 신설은 구조 결정이므로 ADR을 함께 남긴다.
