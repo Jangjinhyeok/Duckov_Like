@@ -9,4 +9,5 @@ enum class EInventoryOperationFailure : uint8
     None,
     NoSpace,
     Occupied,
+    ItemNotFound,
 };

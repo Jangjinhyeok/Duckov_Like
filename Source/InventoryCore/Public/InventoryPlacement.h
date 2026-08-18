@@ -6,4 +6,5 @@
 struct INVENTORYCORE_API FInventoryPlacement
 {
     static EInventoryOperationFailure TryPlace(FInventoryContainer& Container, const FItemInstance& NewItem);
+    static void RebuildOccupancyCache(FInventoryContainer& Container);
 };
