@@ -10,4 +10,6 @@ enum class EInventoryOperationFailure : uint8
     NoSpace,
     Occupied,
     ItemNotFound,
+    StackMismatch,
+    StackFull,
 };

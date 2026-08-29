@@ -13,4 +13,10 @@ struct INVENTORYCORE_API FInventoryOperations
 		int32 InstanceId,
 		FIntPoint DestAnchorCell,
 		bool bDestRotated);
+
+	static EInventoryOperationFailure TryStack(
+		FInventoryContainer& SourceContainer,
+		FInventoryContainer& DestContainer,
+		int32 SourceInstanceId,
+		int32 TargetInstanceId);
 };

@@ -3,6 +3,18 @@
 #include "InventoryContainer.h"
 #include "InventoryPlacement.h"
 #include "InventoryPlacementInternal.h"
+#include "ItemDefinitionRow.h"
+
+namespace
+{
+const FItemDefinitionRow* TryGetDefinition(const FItemInstance& Item)
+{
+    const UDataTable* DefinitionTable = Item.DefinitionTable.LoadSynchronous();
+    return DefinitionTable
+        ? DefinitionTable->FindRow<FItemDefinitionRow>(Item.DefinitionRowName, TEXT("InventoryOperations"))
+        : nullptr;
+}
+}
 
 EInventoryOperationFailure FInventoryOperations::TryMove(
     FInventoryContainer& SourceContainer,
@@ -62,6 +74,65 @@ EInventoryOperationFailure FInventoryOperations::TryMove(
     DestContainer.Items.Add(MovedItem);
     FInventoryPlacement::RebuildOccupancyCache(SourceContainer);
     FInventoryPlacement::RebuildOccupancyCache(DestContainer);
+
+    return EInventoryOperationFailure::None;
+}
+
+EInventoryOperationFailure FInventoryOperations::TryStack(
+    FInventoryContainer& SourceContainer,
+    FInventoryContainer& DestContainer,
+    const int32 SourceInstanceId,
+    const int32 TargetInstanceId)
+{
+    const int32 SourceIndex = SourceContainer.Items.IndexOfByPredicate(
+        [SourceInstanceId](const FItemInstance& Item)
+        {
+            return Item.InstanceId == SourceInstanceId;
+        });
+    if (SourceIndex == INDEX_NONE)
+    {
+        return EInventoryOperationFailure::ItemNotFound;
+    }
+
+    const int32 TargetIndex = DestContainer.Items.IndexOfByPredicate(
+        [TargetInstanceId](const FItemInstance& Item)
+        {
+            return Item.InstanceId == TargetInstanceId;
+        });
+    if (TargetIndex == INDEX_NONE)
+    {
+        return EInventoryOperationFailure::ItemNotFound;
+    }
+
+    FItemInstance& Source = SourceContainer.Items[SourceIndex];
+    FItemInstance& Target = DestContainer.Items[TargetIndex];
+    if (Source.DefinitionRowName != Target.DefinitionRowName ||
+        Source.DefinitionTable != Target.DefinitionTable)
+    {
+        return EInventoryOperationFailure::StackMismatch;
+    }
+
+    const FItemDefinitionRow* Definition = TryGetDefinition(Target);
+    if (Definition == nullptr || !Definition->bStackable)
+    {
+        return EInventoryOperationFailure::StackMismatch;
+    }
+
+    const int32 AvailableCapacity = Definition->MaxStack - Target.Quantity;
+    if (AvailableCapacity <= 0)
+    {
+        return EInventoryOperationFailure::StackFull;
+    }
+
+    const int32 MoveQuantity = FMath::Min(Source.Quantity, AvailableCapacity);
+    Target.Quantity += MoveQuantity;
+    Source.Quantity -= MoveQuantity;
+
+    if (Source.Quantity == 0)
+    {
+        SourceContainer.Items.RemoveAt(SourceIndex);
+        FInventoryPlacement::RebuildOccupancyCache(SourceContainer);
+    }
 
     return EInventoryOperationFailure::None;
 }

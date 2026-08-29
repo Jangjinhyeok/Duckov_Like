@@ -11,4 +11,10 @@ struct FItemDefinitionRow : public FTableRowBase
 
     UPROPERTY()
     FIntPoint Size = FIntPoint(1, 1);
+
+    UPROPERTY(EditAnywhere)
+    bool bStackable = false;
+
+    UPROPERTY(EditAnywhere)
+    int32 MaxStack = 1;
 };
