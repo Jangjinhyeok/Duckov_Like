@@ -1,4 +1,4 @@
-# ADR-000: 모듈 경계 — 빌드 시스템으로 Model/View 분리를 강제한다
+# 설계결정기록 000 — 모듈 경계 — 빌드 시스템으로 Model/View 분리를 강제한다
 
 | 항목 | 내용 |
 | --- | --- |
@@ -6,8 +6,8 @@
 | 날짜 | 2026-08-05 |
 | 마일스톤 | M0.5 (스캐폴딩) |
 
-> 이 ADR은 인벤토리 도메인 결정(ADR-001~008)보다 **앞서는 기반 결정**이라 000번을 쓴다.
-> 인벤토리 아키텍처 항목(A1~E3)은 여전히 전부 `Proposed`이며, 이 ADR은 그중 어느 것도 확정하지 않는다.
+> 이 설계결정기록은 인벤토리 도메인 결정(설계결정기록 001~008)보다 **앞서는 기반 결정**이라 000번을 쓴다.
+> 인벤토리 아키텍처 항목(A1~E3)은 여전히 전부 `Proposed`이며, 이 설계결정기록은 그중 어느 것도 확정하지 않는다.
 
 ## 맥락
 
@@ -87,7 +87,7 @@ Result: Failed (OtherCompilationError)
 ViewModel까지 별도 모듈로 빼면 `View -> ViewModel -> Model` 3단이 전부 빌드 시스템에 새겨진다.
 더 강한 구조지만 v1에서 ViewModel의 분량(C1: Container VM / Item VM / Interaction VM)이
 모듈 하나를 정당화할 만큼인지 아직 모른다. **M2에서 실제 분량을 보고 재검토한다** —
-이 ADR을 superseding하는 형태로.
+이 설계결정기록을 superseding하는 형태로.
 
 **Plugin으로 `InventoryCore` 분리.**
 경계는 가장 강하고 재사용성 서사도 좋지만, 단일 프로젝트에서 플러그인 구조는
@@ -111,7 +111,7 @@ ViewModel까지 별도 모듈로 빼면 `View -> ViewModel -> Model` 3단이 전
 
 - Automation Test 배치(모듈 내부 `WITH_DEV_AUTOMATION_TESTS` vs 별도 `InventoryCoreTests` 모듈)는
   **M1로 미뤘다.** 별도 모듈로 가면 테스트가 `InventoryCore`의 Public 계약만 보게 되어
-  캡슐화가 강제된다. 이 ADR은 두 선택지 모두와 양립한다.
+  캡슐화가 강제된다. 이 설계결정기록은 두 선택지 모두와 양립한다.
 
 ## 검증
 

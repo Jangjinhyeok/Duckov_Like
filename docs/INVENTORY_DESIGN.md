@@ -76,12 +76,12 @@
 
 ## 4. 제안된 기준 아키텍처
 
-아래 항목은 현 단계의 **권장안**이다. 구현 시작 전 ADR 상태를 `Accepted`로 변경한다.
+아래 항목은 현 단계의 **권장안**이다. 구현 시작 전 설계결정기록 상태를 `Accepted`로 변경한다.
 
 | ID | 제안 | 선택 이유 | 상태 |
 | --- | --- | --- | --- |
 | A1 | Definition은 `UPrimaryDataAsset` | 에셋 참조와 AssetManager 흐름을 설명하기 좋음 | Proposed |
-| A2 | Instance는 `UObject` + `FGuid` | UI 매핑, 가변 상태, 저장 식별자에 적합 | 식별자는 ADR-009가 정한 전역 카운터 `int32`, 단 `UObject` 여부는 미결정 |
+| A2 | Instance는 `UObject` + `FGuid` | UI 매핑, 가변 상태, 저장 식별자에 적합 | 식별자는 설계결정기록 009가 정한 전역 카운터 `int32`, 단 `UObject` 여부는 미결정 |
 | A3 | 아이템 목록을 진실로 두고 셀 맵은 재생성 가능한 캐시 | 저장 친화성과 빠른 셀 질의를 함께 확보 | Proposed |
 | A4 | Container는 `UObject`, Component는 Actor 어댑터 | Actor가 아닌 스태시도 같은 방식으로 처리 | Proposed |
 | B1 | Operation Service / Request-Result 계층 | 횡단 연산과 실패 이유를 한 곳에서 관리 | Proposed |
@@ -247,20 +247,20 @@
 
 ---
 
-## 10. 구현 전 승인할 ADR
+## 10. 구현 전 승인할 설계결정기록
 
 아래 항목은 의존성이 크므로 M1 전에 승인한다.
 
-1. ADR-001: Definition 에셋 형식
-2. ADR-009: Item Instance 식별자 정책 — ADR-002를 대체한다; Instance 표현 방식은 미결정으로 남아 있다
-3. ADR-003: Container 소유 구조와 점유 캐시 정책
-4. ADR-004: Operation Service와 이동 원자성
-5. ADR-005: MVVM 분할과 ChangeSet 통지
-6. ADR-006: 그리드 렌더와 드래그 구현 경로
-7. ADR-007: 저장 레코드와 포맷 버전
-8. ADR-008: 장비 슬롯 및 가방 리사이즈 정책
+1. 설계결정기록 001: Definition 에셋 형식
+2. 설계결정기록 009: Item Instance 식별자 정책 — 설계결정기록 002를 대체한다; Instance 표현 방식은 미결정으로 남아 있다
+3. 설계결정기록 003: Container 소유 구조와 점유 캐시 정책
+4. 설계결정기록 004: Operation Service와 이동 원자성
+5. 설계결정기록 005: MVVM 분할과 ChangeSet 통지
+6. 설계결정기록 006: 그리드 렌더와 드래그 구현 경로
+7. 설계결정기록 007: 저장 레코드와 포맷 버전
+8. 설계결정기록 008: 장비 슬롯 및 가방 리사이즈 정책
 
-### ADR 작성 형식
+### 설계결정기록 작성 형식
 
 | 항목 | 기록 내용 |
 | --- | --- |

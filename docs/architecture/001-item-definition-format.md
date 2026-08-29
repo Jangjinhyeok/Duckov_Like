@@ -1,4 +1,4 @@
-# ADR-001: 아이템 Definition 에셋 형식 — 단일 `DataTable`
+# 설계결정기록 001 — 아이템 Definition 에셋 형식 — 단일 `DataTable`
 
 | 항목 | 내용 |
 | --- | --- |
@@ -38,7 +38,7 @@
   참조하던 Instance/저장 데이터가 끊어질 수 있다. 크리티컬하진 않지만 감수할 비용으로 남긴다.
 - 아이콘·메시 같은 애셋 참조는 Row struct 안에 `TSoftObjectPtr` 필드로 넣으면 되므로 DataTable로도
   문제없다.
-- `ADR-010`(Instance = `USTRUCT`)과 결이 맞는다 — DataTable Row도 `USTRUCT`(`FTableRowBase` 파생)
+- `설계결정기록 010`(Instance = `USTRUCT`)과 결이 맞는다 — DataTable Row도 `USTRUCT`(`FTableRowBase` 파생)
   기반이라 값 타입으로 통일된다.
 - Asset Manager의 Primary Asset 자동 스캔·번들링은 DataTable에서 되지 않지만, 이 프로젝트 규모에서
   실익이 없어 무시 가능하다.
@@ -53,7 +53,7 @@ Definition은 **단일 `DataTable`**로 관리한다. Instance는 Definition을 
 
 **얻는 것**
 - 모든 아이템 종류를 표 하나에서 한눈에 보고 편집한다.
-- Row struct가 `USTRUCT`라 Instance 표현(`ADR-010`)과 값 타입으로 일관된다.
+- Row struct가 `USTRUCT`라 Instance 표현(`설계결정기록 010`)과 값 타입으로 일관된다.
 
 **감수하는 비용**
 - Row 이름(`FName`)을 잘못 바꾸면 참조가 끊어진다 — 애셋 파일(GUID 기반) 대비 리네임에 약하다.

@@ -49,7 +49,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 | `refactor` | 동작이 바뀌지 않는 구조 변경 |
 | `test` | Automation Test 추가·수정 |
 | `build` | 모듈 구성, `Build.cs`, 플러그인, `.uproject`, 빌드 설정 |
-| `docs` | 문서, ADR |
+| `docs` | 문서, 설계결정기록 |
 | `perf` | 성능 개선 (측정 결과를 본문에 남긴다) |
 | `chore` | 그 외 — 설정 파일, 정리 |
 
@@ -65,13 +65,13 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 
 ## 구현 중 Architecture Constraint
 
-승인된 ADR은 참고 문서가 아니라 **Architecture Constraint**다. 구현 중 ADR과 충돌하는 변경이 필요해 보여도
+승인된 설계결정기록은 참고 문서가 아니라 **Architecture Constraint**다. 구현 중 설계결정기록과 충돌하는 변경이 필요해 보여도
 **임의로 바꾸지 않는다.** 먼저 아래를 보고하고 구현을 멈춘다.
 
-1. 충돌하는 ADR 또는 공개 계약
+1. 충돌하는 설계결정기록 또는 공개 계약
 2. 필요한 변경
 3. 변경이 필요한 이유
-4. ADR을 유지하는 대안과 그 비용
+4. 설계결정기록을 유지하는 대안과 그 비용
 
 **사용자 승인 없이 `Public/` 헤더의 시그니처와 `UPROPERTY`·`UFUNCTION` specifier를 바꾸지 않는다.**
 변경이 필요하면 먼저 말한다.

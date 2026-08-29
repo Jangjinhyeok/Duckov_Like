@@ -8,7 +8,7 @@ using UnrealBuildTool;
 // 여기 없는 모듈의 .lib는 링크 라인에 오르지 않으므로, UI 타입을 실제로 사용하는
 // 코드는 LNK2019로 빌드가 깨진다.
 //
-// 상세는 docs/architecture/ADR-000-module-boundaries.md 참조.
+// 상세는 docs/architecture/000-module-boundaries.md 참조.
 public class InventoryCore : ModuleRules
 {
 	public InventoryCore(ReadOnlyTargetRules Target) : base(Target)

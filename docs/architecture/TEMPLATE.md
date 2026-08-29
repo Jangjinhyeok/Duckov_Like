@@ -1,6 +1,6 @@
-# ADR-NNN: <결정 제목>
+# 설계결정기록 NNN — <결정 제목>
 
-복사해 `docs/architecture/ADR-NNN-<slug>.md`로 저장한다. `User Initial Decision`과 `User Reasoning / Concerns`를 사용자가 채우기 전에 AI가 그 아래를 쓰지 않는다.
+복사해 `docs/architecture/NNN-<slug>.md`로 저장한다. `User Initial Decision`과 `User Reasoning / Concerns`를 사용자가 채우기 전에 AI가 그 아래를 쓰지 않는다.
 
 | 항목 | 내용 |
 | --- | --- |

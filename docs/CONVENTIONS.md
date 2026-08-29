@@ -13,7 +13,7 @@ UE 표준을 되풀이하지 않는다. 이 프로젝트에만 해당하는 규�
   이 금지는 `InventoryCore.Build.cs`가 강제한다. UI 타입을 실제로 사용하면 링크가 깨진다.
 - `InventoryCore`는 `Public/`·`Private/`를 나눈다. **다른 모듈에 노출할 타입만 `Public/`에 둔다.**
   `DuckovLike`는 소비자가 없는 primary game module이라 평면 구조를 유지한다.
-- 결정 근거와 실측 결과는 [ADR-000](architecture/ADR-000-module-boundaries.md).
+- 결정 근거와 실측 결과는 [설계결정기록 000](architecture/000-module-boundaries.md).
 
 ## 2. Content 폴더
 
@@ -46,7 +46,7 @@ UE 표준 접두어를 따른다 — `U`/`A`/`F`/`E`/`I`, 에셋은 `BP_`/`WBP_`
 좌상단 원점, X=열 / Y=행, 좌상단 앵커, 0/90도 회전.
 
 **이 문서에서 확정하지 않는다.** 인벤토리 설계 문서의 E3 항목이며 아직 `Proposed` 상태다.
-확정은 M1 전 ADR 승인 시점에 일어난다 → [INVENTORY_DESIGN.md](INVENTORY_DESIGN.md)
+확정은 M1 전 설계결정기록 승인 시점에 일어난다 → [INVENTORY_DESIGN.md](INVENTORY_DESIGN.md)
 
 ## 6. 빌드
 
