@@ -1,14 +1,14 @@
 # Duckov_Like
 
-**싱글플레이 탑다운 익스트랙션 슈터 — 그리드 인벤토리 시스템 포트폴리오**
+**싱글플레이 탑다운 익스트랙션 슈터 — CommonUI·UMG와 그리드 인벤토리 포트폴리오**
 
 `UE 5.7` · `C++` · `UMG MVVM` · `GAS` · `Windows`
 
 > ### 🤖 이 프로젝트는 AI를 활용한 프로젝트입니다.
 >
-> **Claude Code로 개발합니다.** 다만 **설계 결정은 사람이, 구현은 AI가** 맡는 분담을
-> 규약으로 고정하고, 그 분담 내역을 저장소에 기록합니다.
-> 무엇을 사람이 결정했고 AI의 무엇을 반려했는지까지 볼 수 있습니다.
+> **AI를 활용해 개발합니다.** 사용자는 목표·범위와 결과 수용을 맡고,
+> AI는 기능 단위로 설계·구현·검증을 수행합니다.
+> AI가 내린 기술 판단과 사용자가 실제 검토·수정한 내용을 구분해 기록합니다.
 >
 > → [**AI 활용 방식**](#ai-활용-방식) · [작업 분담 규약](CLAUDE.md) · [작업 기록](docs/worklog/)
 
@@ -22,45 +22,38 @@
 > 아이템 배치 규칙을 Model에 집중하고, UMG MVVM으로 표현한 그리드 인벤토리를
 > 실제 루팅–탈출 루프에 연결한다.
 
-기술 증명 축은 **①그리드 인벤토리 ②MVVM ③GAS** 순이며, 리소스가 부족하면 ③부터 줄인다.
+기술 증명 축은 **①CommonUI·UMG 사용자 경험 ②MVVM과 검증 가능한 인벤토리 Model ③GAS** 순이다.
+CommonUI는 앞으로 구현할 목표이며 현재 프로젝트에는 활성화되어 있지 않다. 리소스가 부족하면 ③부터 줄인다.
 레퍼런스는 *Escape From Duckov*(Team Soda)이며 **분석 대상이지 클론 대상이 아니다.**
 
 ---
 
 ## AI 활용 방식
 
-사용 사실을 먼저 밝히는 이유는 단순하다 — 중요한 것은 AI를 썼는가가 아니라
-**무엇을 사람이 결정했는가**이기 때문이다.
-
-원칙은 하나다. **결정은 사람이, 구현은 AI가.**
+2026-09-10부터 **기능 단위 자율 실행과 결과 검토**를 기본으로 한다.
 
 | 사람이 하는 것 | AI가 하는 것 |
 | --- | --- |
-| `Public/` 헤더의 타입·시그니처·실패 사유 확정 | `.cpp` 구현, private 헬퍼 |
-| 테스트 이름 목록 작성 (= API 계약 결정) | 그 테스트를 통과시키는 구현 |
-| 아키텍처 선택과 설계결정기록 승인 | 선택지 2~3개를 근거·트레이드오프와 함께 제시 |
-| 범위 판단, 제안 반려 | 빌드·검증 실행과 결과 보고 |
+| 목표·범위·완료 기준 제시 | 권장 설계와 핵심 trade-off 설명 |
+| 계약을 깨는 변경·범위 확대 판단 | 범위 안의 header·specifier·구현·테스트 작성 |
+| 동작과 핵심 구조 검토, 결과 수용 | 빌드·검증, 책임과 데이터 흐름 설명 |
+| 필요할 때 학습·수정 요청 | 필요한 ADR와 worklog를 기능 단위로 정리 |
 
-**C++에서 헤더가 곧 구조다.** public 메서드 목록, 인자와 반환 타입, 실패를 어떻게 표현할지를
-정하면 설계가 끝난 것이고 `.cpp`는 그 귀결이다. 그래서 그 지점을 사람이 갖는다.
-AI는 결정하지 않고 선택지를 제시한다.
+문서마다 사용자 선답변을 받거나 테스트 이름을 직접 쓰게 하지 않는다.
+AI가 핵심 선택·근거·대안과 검증 결과를 함께 제출해 사용자가 결과를 판단할 수 있게 한다.
+기존 계약을 깨는 변경은 먼저 확인하며, commit·push는 별도 명시 권한이 필요하다.
 
-### 왜 이렇게 하는가
-
-생성된 코드를 읽는 것만으로는 구조가 머리에 남지 않는다. 읽을 때 생기는 것은 *재인*이고
-필요한 것은 *재생*이다. 그래서 "더 꼼꼼히 리뷰한다"가 아니라
-**결정 지점을 사람 쪽으로 옮기는 것**으로 푼다.
-
-마일스톤이 끝날 때마다 **코드를 보지 않고 구조를 설명하고, AI가 실제 코드와 대조해
-틀린 곳과 빠진 곳을 짚는다.** 설명하지 못하는 부분이 이해가 비어 있는 자리다.
+설명 역전·퀴즈·Option Sweep·walkthrough는 학습을 요청할 때만 사용한다. 구현·검증 완료와 사용자 이해·검토 상태는
+분리해 기록한다. 과거 ADR와 worklog는 당시 방식의 기록으로 보존하되, 옛 학습·승인 절차보다
+현재 작업 분담 규칙이 우선한다. 일반 작업에는 HANDOFF/RESULT를 의무 생성하지 않으며 명시적 Two-CLI dispatch의 protocol은 유지한다.
 
 ### 기록
 
 주장으로 끝내지 않기 위해 분담 내역을 저장소에 남긴다.
 
 - [**작업 분담 규약**](CLAUDE.md) — 세션마다 자동 적용되는 규칙 (5절)
-- [**작업 기록**](docs/worklog/) — 마일스톤별
-  **내가 결정한 것 / AI가 수행한 것 / 내가 반려·수정한 것**
+- [**작업 기록**](docs/worklog/) — 기능 완료 시 해당 마일스톤에 변경·검증·판단 출처를 한 번 요약.
+  과거의 **내가 결정한 것 / AI가 수행한 것 / 내가 반려·수정한 것** 기록도 보존
 - [**설계결정기록**](docs/architecture/) — 결정·근거·기각한 대안
 
 > **예시** — `설계결정기록 000` 초안에서 AI는 모듈 경계 위반이 *"컴파일 에러로 막힌다"*고 썼다.
@@ -76,6 +69,10 @@ AI는 결정하지 않고 선택지를 제시한다.
 확인할 방법이 없다**는 것이다. Model 코드가 위젯을 직접 조작해도 빌드는 통과한다.
 
 그래서 게임 코드를 두 모듈로 나누고 의존을 `Build.cs`에 고정했다.
+
+아래 그림과 책임 표는 목표 구조를 포함한다. 현재는 Model과 모듈 의존이 구현돼 있고,
+ViewModel·Widget·ChangeSet 이벤트·저장 레코드·GAS 게임 로직은 아직 구현되지 않았다.
+검증용 `InventoryCoreTests`는 두 Runtime 모듈과 별도의 Editor 모듈이다.
 
 ```mermaid
 graph LR
@@ -102,7 +99,8 @@ graph LR
 
 ### 경계가 실제로 작동하는 지점 (실측)
 
-`InventoryCore`에서 UMG를 쓰려고 시도해 3단계로 측정했다.
+M0.5에서 `InventoryCore`의 UMG 사용을 3단계로 측정한 기록이다.
+이번 문서 변경에서는 재실행하지 않았다([당시 작업 기록](docs/worklog/M0.5-scaffolding.md)).
 
 | 시도 | 결과 |
 | --- | --- |
@@ -144,18 +142,22 @@ Result: Failed
 
 | 단계 | 내용 | 상태 |
 | --- | --- | --- |
-| M0 | 설계 — 데이터 소유권, 불변식, 연산 계약, MVVM 흐름 | 문서 완료 · 설계결정기록 미승인 |
+| M0 | 설계 — 데이터 소유권, 불변식, 연산 계약, MVVM 흐름 | 초기 문서 작성됨 · ADR별 상태 확인 |
 | M0.5 | UE 프로젝트 스캐폴딩, 모듈 분리 | ✅ **완료** |
-| **M1a** | **Model 핵심 — 배치·이동·스택** | 🔜 다음 |
+| **M1a** | **Model 핵심 — 배치·이동·스택** | 코드 구현됨 · worklog에 24개 통과 기록 · 사용자 검토 별도 |
 | M1b | Model 파생 — 정렬·저장·리사이즈 | |
-| M2 | ViewModel + UMG | |
+| M2 | ViewModel + CommonUI·UMG | |
 | M3 | 게임 루프 — 루팅·장비·탈출·스태시, GAS | |
 | M4 | 성능 점검, 문서·영상 정리 | |
 
 **v1 완료 기준**: Model Automation Test 30개 이상 통과 ·
 20x20 스태시 + 아이템 100개에서 상시 Tick 위젯 0
 
-> 현재는 **스캐폴딩까지 완료된 상태**다. 인벤토리 로직은 아직 구현되지 않았다.
+> 현재 Model의 배치·이동·스택과 테스트 모듈이 구현돼 있다. [M1a 작업 기록](docs/worklog/M1a.md)에
+> Automation Test 24개 통과가 기록돼 있으며, 이 문서 갱신에서 재실행한 결과는 아니다.
+> UI는 아직 구현되지 않았다. 과거 worklog의 설명 역전 대기는 현재 기술적 완료 gate가 아니다.
+> `.uproject`에는 ModelViewViewModel·GameplayAbilities 플러그인이 활성화되어 있지만,
+> CommonUI는 등록되어 있지 않고 `Build.cs` 의존에도 없다. 플러그인 활성화와 기능 구현은 구분한다.
 
 ---
 
@@ -169,9 +171,9 @@ Result: Failed
 | [설계결정기록](docs/architecture/) | 구조 결정 기록 — 결정·근거·기각한 대안·검증 |
 | [작업 기록](docs/worklog/) | 마일스톤별 작업 내역, AI 활용 내역, 막혔던 것 |
 
-문서의 아키텍처 항목(`A1`~`E3`)과 `설계결정기록 001~008`은 **대부분 `Proposed`다.** 구현 전
-`Accepted`로 전환한다. 예외는 둘이다 — `설계결정기록 002`는 `Superseded`이고,
-이를 대체한 `설계결정기록 009`(Item Instance 식별자)는 `Accepted`다.
+초기 설계 문서의 제안과 이후 Accepted ADR를 구분한다. 상태는 각 ADR에서 확인하며,
+새 결정에는 [현재 작업 분담 규약](CLAUDE.md)의 권한과 기록 방식을 적용한다.
+과거 ADR를 일괄 재승인하거나 사용자 판단의 출처를 소급 변경하지 않는다.
 
 ---
 
@@ -185,14 +187,15 @@ cd Duckov_Like
 git lfs install
 ```
 
-```bash
-"C:\Program Files\Epic Games\UE_5.7\Engine\Build\BatchFiles\Build.bat" \
-  DuckovLikeEditor Win64 Development \
-  -Project="<repo>\DuckovLike.uproject" -WaitMutex -NoHotReload
+프로젝트 루트에서 PowerShell로 실행한다.
+
+```powershell
+& "C:\Program Files\Epic Games\UE_5.7\Engine\Build\BatchFiles\Build.bat" DuckovLikeEditor Win64 Development "-Project=$PWD\DuckovLike.uproject" -WaitMutex -NoHotReload
 ```
 
-성공하면 `Binaries/Win64/`에 두 개의 DLL이 생성된다 —
-`UnrealEditor-InventoryCore.dll`, `UnrealEditor-DuckovLike.dll`.
+출력의 `Result: Succeeded`로 성공을 확인한다. 현재 Editor target의 프로젝트 모듈 DLL은
+`Binaries/Win64/`의 `UnrealEditor-InventoryCore.dll`, `UnrealEditor-DuckovLike.dll`,
+`UnrealEditor-InventoryCoreTests.dll`이다.
 
 ---
 
@@ -200,7 +203,7 @@ git lfs install
 
 네트워크 / Replication · 베이스 건설 · 펫/동료 · 스킬 트리 · 다수의 맵·적·무기
 
-> 범위 판단 기준: **인벤토리의 구조적 완성도나 검증 가능성을 높이지 않으면 v1에서 뺀다.**
+> 범위 판단 기준: **UI 경험·구조·검증을 보여주는 데 필요한 기능을 우선한다.**
 
 ---
 

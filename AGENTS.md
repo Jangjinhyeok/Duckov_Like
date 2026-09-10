@@ -1,13 +1,13 @@
-# Codex Builder 발췌
+# Codex 프로젝트 지침
 
-`CLAUDE.md`가 원본이고 이 파일은 Codex Builder용 발췌다. 충돌하면 `CLAUDE.md`가 우선한다.
+`CLAUDE.md`가 원본이고 이 파일은 일반 Codex 세션과 명시적 Builder dispatch용 발췌다.
+충돌하면 `CLAUDE.md`가 우선한다.
 
 ## 프로젝트
 
 싱글플레이 탑다운 익스트랙션 슈터. **포트폴리오 프로젝트이며 상용 게임 완성이 목적이 아니다.**
 
-핵심 명제: **그리드 인벤토리 시스템의 구조를 직접 설계하고, 설계대로 동작함을 검증 가능한 형태
-(Automation Test)로 완성한다.**
+핵심 명제: **CommonUI·UMG 기반 UI와 MVVM·인벤토리 Model의 연결을 동작·검증·구조 설명으로 보여준다.**
 
 ## 모듈 경계
 
@@ -63,18 +63,26 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 - **Model이 진실이다.** 위치·회전·수량은 `InventoryCore`만 소유한다. View/ViewModel은 원본 상태를 갖지 않는다.
 - **인벤토리 UI는 상시 Tick에 의존하지 않는다.** 이벤트 기반으로 갱신한다.
 
-## 구현 중 Architecture Constraint
+## 작업 흐름 — CLAUDE.md의 작업 분담을 따른다
 
-승인된 설계결정기록은 참고 문서가 아니라 **Architecture Constraint**다. 구현 중 설계결정기록과 충돌하는 변경이 필요해 보여도
-**임의로 바꾸지 않는다.** 먼저 아래를 보고하고 구현을 멈춘다.
-
-1. 충돌하는 설계결정기록 또는 공개 계약
-2. 필요한 변경
-3. 변경이 필요한 이유
-4. 설계결정기록을 유지하는 대안과 그 비용
-
-**사용자 승인 없이 `Public/` 헤더의 시그니처와 `UPROPERTY`·`UFUNCTION` specifier를 바꾸지 않는다.**
-변경이 필요하면 먼저 말한다.
+- 일반 Codex 세션도 기능 단위로 목표·범위·완료 기준·risk tier를 짧게 밝힌 뒤 LOW 작업을 자율 실행한다.
+  설계 권장안과 주요 trade-off, Public header·API·enum·UPROPERTY/UFUNCTION specifier,
+  테스트 이름·내용, 구현·검증·필요한 문서 요약까지 AI가 맡는다.
+  되돌릴 수 있는 구현 세부는 가정을 밝히고 진행하며, 이미 받은 권한이나 "진행할까요?"를 반복해서 묻지 않는다.
+- 문서마다 역질문하거나 사용자 선답변·Option Sweep·설명 역전을 기본 gate로 요구하지 않는다.
+- 기존 Accepted ADR·API/Blueprint 계약을 깨거나 저장 포맷·migration·데이터 삭제·보안·replication에
+  영향을 주는 HIGH 변경은 영향·대안을 함께 제시하고 영향받는 구현 전에 사용자 확인을 받는다.
+  요청 범위·마일스톤 확대와 주요 UX 변경도 먼저 확인한다.
+- Public/ 파일이나 specifier라는 이유만으로 매번 승인받지 않는다. 실제 호환성·수명·소유권 영향으로 판단한다.
+- 완료 시 동작 변화, 책임·흐름, 주요 선택과 대안 하나, 검증 결과·미검증 항목, 핵심 파일 최대 3개를 보고한다.
+  기술적 완료와 사용자 수용·이해 상태는 별도로 기록한다. 학습용 질문은 요청받을 때만 한다.
+- ADR는 중요한 구조 결정에만 작성하고 관련 결정을 묶는다. 위임 범위의 LOW 결정은
+  판단 주체를 AI로 명시해 Accepted로 기록할 수 있다. 사람 승인이 필요한 결정은 승인 전까지 Proposed다.
+  worklog는 기능 완료 시 해당 마일스톤 문서에 한 번 요약한다.
+  과거 사용자 판단·발언·검증 기록을 보존하고, 하지 않은 승인을 만들어내지 않는다.
+- 일반 작업에서는 HANDOFF/RESULT를 만들지 않는다. 명시적 Builder dispatch에서는 받은 HANDOFF를
+  읽기 전용 명세로 따르며 protocol과 scope를 유지한다. 기존 파일이 있다는 이유로 Builder 모드에 진입하지 않는다.
+- 현재 branch에서 작업하며 commit·push는 명시 권한이 있을 때만 한다.
 
 ## 빌드와 문서
 
@@ -83,10 +91,12 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 ```
 
 - **PowerShell 기준이다.** cmd에서는 `-Project="%CD%\DuckovLike.uproject"`로 바꾼다.
-- **경로를 절대 경로로 박지 않는다.** Builder는 별도 worktree에서 움직이므로, 경로를 박으면
-  자기 변경이 아닌 primary tree를 빌드하고 `Result: Succeeded`를 보고하게 된다. 상대 경로도
-  쓸 수 없다 — `Build.bat`이 CWD를 엔진의 `Engine/Source`로 바꾸므로 실패한다.
+- **특정 checkout 경로를 하드코딩하지 않는다.** 실제 작업 repo의 CWD에서 `$PWD`로 절대 경로를 전개한다.
+  상대 경로는 `Build.bat`이 CWD를 `Engine/Source`로 바꾸므로 쓰지 않는다.
+  별도 worktree 생성이나 branch 전환을 기본 동작으로 가정하지 않는다.
 - `exit 0`을 성공으로 믿지 않는다. 출력의 `Result: Succeeded`를 확인한다.
 - `-ExecCmds="Quit"`은 unattended 에디터를 종료시키지 못하므로 쓰지 않거나 반드시 정리한다.
-- **`GDD.md`와 `INVENTORY_DESIGN.md`는 읽기 전용이다.** 문제를 발견하면 고치지 말고 보고한다.
-- **현재 마일스톤 밖의 일을 하지 않는다.** 현재 M1a에서는 위젯과 저장 로직을 만들지 않는다.
+- **GDD·INVENTORY_DESIGN은 읽기 전용이다.** 문제를 발견하면 수정하지 않고 보고한다.
+  과거 문서의 사용자 선답변·설명 역전 요구보다 CLAUDE.md의 현재 작업 분담이 우선한다.
+- **현재 요청과 마일스톤 밖의 일을 하지 않는다.** 실제 Source와 최신 worklog로 현재 상태를 확인한다.
+  CommonUI는 포트폴리오 목표이며 아직 활성화되지 않았다. 지침 변경만으로 UI 구현이나 다음 마일스톤을 시작하지 않는다.
