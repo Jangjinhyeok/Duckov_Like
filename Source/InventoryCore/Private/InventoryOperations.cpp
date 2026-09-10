@@ -16,6 +16,60 @@ const FItemDefinitionRow* TryGetDefinition(const FItemInstance& Item)
 }
 }
 
+EInventoryOperationFailure FInventoryOperations::TrySort(FInventoryContainer& Container)
+{
+    struct FSortEntry
+    {
+        int32 ItemIndex;
+        FIntPoint Footprint;
+        int64 Area;
+    };
+
+    TArray<FSortEntry> Entries;
+    Entries.Reserve(Container.Items.Num());
+    for (int32 Index = 0; Index < Container.Items.Num(); ++Index)
+    {
+        FIntPoint Footprint;
+        if (!InventoryPlacementInternal::TryGetFootprint(Container.Items[Index], Footprint) ||
+            Footprint.X <= 0 || Footprint.Y <= 0)
+        {
+            return EInventoryOperationFailure::NoSpace;
+        }
+        Entries.Add({Index, Footprint, static_cast<int64>(Footprint.X) * Footprint.Y});
+    }
+    Entries.Sort([&Container](const FSortEntry& Left, const FSortEntry& Right)
+    {
+        return Left.Area != Right.Area ? Left.Area > Right.Area :
+            Container.Items[Left.ItemIndex].InstanceId < Container.Items[Right.ItemIndex].InstanceId;
+    });
+
+    FInventoryContainer Planned = FInventoryContainer::MakeEmpty(Container.GridSize);
+    for (const FSortEntry& Entry : Entries)
+    {
+        FItemInstance Item = Container.Items[Entry.ItemIndex];
+        bool bPlaced = false;
+        for (int32 Y = 0; Y <= Container.GridSize.Y - Entry.Footprint.Y && !bPlaced; ++Y)
+        {
+            for (int32 X = 0; X <= Container.GridSize.X - Entry.Footprint.X; ++X)
+            {
+                Item.AnchorCell = FIntPoint(X, Y);
+                if (FInventoryPlacement::TryPlace(Planned, Item) == EInventoryOperationFailure::None)
+                {
+                    bPlaced = true;
+                    break;
+                }
+            }
+        }
+        if (!bPlaced)
+        {
+            return EInventoryOperationFailure::NoSpace;
+        }
+    }
+
+    Container = MoveTemp(Planned);
+    return EInventoryOperationFailure::None;
+}
+
 EInventoryOperationFailure FInventoryOperations::TryMove(
     FInventoryContainer& SourceContainer,
     FInventoryContainer& DestContainer,
