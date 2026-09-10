@@ -70,6 +70,28 @@ EInventoryOperationFailure FInventoryOperations::TrySort(FInventoryContainer& Co
     return EInventoryOperationFailure::None;
 }
 
+EInventoryOperationFailure FInventoryOperations::TryResize(
+    FInventoryContainer& Container, const FIntPoint NewGridSize)
+{
+    if (NewGridSize.X <= 0 || NewGridSize.Y <= 0 ||
+        static_cast<int64>(NewGridSize.X) * NewGridSize.Y > MAX_int32)
+    {
+        return EInventoryOperationFailure::ResizeOverflow;
+    }
+
+    FInventoryContainer Planned = FInventoryContainer::MakeEmpty(NewGridSize);
+    for (const FItemInstance& Item : Container.Items)
+    {
+        if (FInventoryPlacement::TryPlace(Planned, Item) != EInventoryOperationFailure::None)
+        {
+            return EInventoryOperationFailure::ResizeOverflow;
+        }
+    }
+
+    Container = MoveTemp(Planned);
+    return EInventoryOperationFailure::None;
+}
+
 EInventoryOperationFailure FInventoryOperations::TryMove(
     FInventoryContainer& SourceContainer,
     FInventoryContainer& DestContainer,

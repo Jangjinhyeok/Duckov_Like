@@ -12,4 +12,5 @@ enum class EInventoryOperationFailure : uint8
     ItemNotFound,
     StackMismatch,
     StackFull,
+    ResizeOverflow,
 };
