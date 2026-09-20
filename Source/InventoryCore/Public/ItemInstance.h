@@ -30,6 +30,12 @@ struct INVENTORYCORE_API FItemInstance
 
 struct INVENTORYCORE_API FItemInstanceIdAllocator
 {
+    // game thread 전용. 번호 고갈 시 INDEX_NONE을 반환한다.
     static int32 AllocateNextInstanceId();
+    static int32 GetNextInstanceId();
     static void ResetInstanceIdCounter_ForTests(int32 StartValue = 0);
+
+private:
+    friend struct FInventorySaveMapper;
+    static void AdvanceInstanceIdCounter(int32 SavedNextInstanceId);
 };
