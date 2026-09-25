@@ -11,15 +11,21 @@
 #include "Blueprint/WidgetTree.h"
 #include "Components/CanvasPanel.h"
 #include "Components/Border.h"
+#include "Components/Button.h"
+#include "ICommonInputModule.h"
+#include "CommonUITypes.h"
 #include "Editor.h"
 #include "Engine/World.h"
+#include "Engine/GameViewportClient.h"
 #include "Framework/Application/SlateApplication.h"
+#include "Input/CommonUIActionRouterBase.h"
 #include "InputCoreTypes.h"
 #include "Kismet/GameplayStatics.h"
 #include "Tests/AutomationCommon.h"
 #include "Tests/AutomationEditorCommon.h"
 #include "UObject/UnrealType.h"
 #include "Widgets/SWidget.h"
+#include "Widgets/SViewport.h"
 
 namespace
 {
@@ -137,6 +143,15 @@ struct FInventoryLifecycleScene
     bool bReadyForTravel = false;
     bool bOriginalInactiveInput = false;
 };
+
+bool RouteFocusedKey(FKey Key)
+{
+    FSlateApplication& Slate = FSlateApplication::Get();
+    const FKeyEvent Event(Key, FModifierKeysState(), Slate.GetUserIndexForMouse(), false, 0, 0);
+    const bool bDown = Slate.ProcessKeyDownEvent(Event);
+    Slate.ProcessKeyUpEvent(Event);
+    return bDown;
+}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FInventoryWidgetLifecycle, "Duckov.UI.PIELifecycle", Flags)
@@ -257,7 +272,8 @@ bool FInventoryWidgetLifecycle::RunTest(const FString& Parameters)
     }, 0.f));
     ADD_LATENT_AUTOMATION_COMMAND(FWaitForCondition(*this, TEXT("OpenLevel 새 PIE world/controller"), [Scene]
     {
-        if (!Scene->bReadyForTravel || !GEditor || !GEditor->PlayWorld || GEditor->PlayWorld == Scene->OldWorldAddress)
+        if (!Scene->bReadyForTravel || !GEditor || !GEditor->PlayWorld
+            || Scene->OldWorld.HasSameIndexAndSerialNumber(TWeakObjectPtr<UWorld>(GEditor->PlayWorld)))
         {
             return false;
         }
@@ -268,9 +284,15 @@ bool FInventoryWidgetLifecycle::RunTest(const FString& Parameters)
         UWorld* NewWorld = GEditor ? GEditor->PlayWorld : nullptr;
         AInventoryDemoPlayerController* NewController = NewWorld
             ? Cast<AInventoryDemoPlayerController>(UGameplayStatics::GetPlayerController(NewWorld, 0)) : nullptr;
-        if (!TestTrue(TEXT("실제 World 교체"), NewWorld && NewWorld != Scene->OldWorldAddress)
+        // LoadMap의 GC 뒤 같은 주소가 재사용돼도 UObject의 index/serial identity는 달라야 한다.
+        UE_LOG(LogTemp, Display, TEXT("PIELifecycle: World 주소 재사용=%d 이전 weak 유효=%d 동일 identity=%d"),
+            NewWorld == Scene->OldWorldAddress, Scene->OldWorld.IsValid(),
+            Scene->OldWorld.HasSameIndexAndSerialNumber(TWeakObjectPtr<UWorld>(NewWorld)));
+        if (!TestTrue(TEXT("실제 World 교체"), NewWorld
+                && !Scene->OldWorld.HasSameIndexAndSerialNumber(TWeakObjectPtr<UWorld>(NewWorld)))
             || !TestNotNull(TEXT("새 demo controller"), NewController)
-            || !TestTrue(TEXT("실제 Controller 교체"), NewController != Scene->OldControllerAddress)) { return; }
+            || !TestTrue(TEXT("실제 Controller 교체"),
+                !Scene->OldController.HasSameIndexAndSerialNumber(TWeakObjectPtr<AInventoryDemoPlayerController>(NewController)))) { return; }
         UE_LOG(LogTemp, Display, TEXT("PIELifecycle: travel 후 World=%s Controller=%s OldControllerValid=%d"),
             *GetNameSafe(NewWorld), *GetNameSafe(NewController), Scene->OldController.IsValid());
         TestTrue(TEXT("이전 world cleanup 관찰"), Scene->bCleanupObserved);
@@ -308,6 +330,163 @@ bool FInventoryWidgetLifecycle::RunTest(const FString& Parameters)
     {
         return !GEditor || !GEditor->PlayWorld;
     }));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([Scene]
+    {
+        FSlateApplication::Get().SetHandleDeviceInputWhenApplicationNotActive(Scene->bOriginalInactiveInput);
+    }, 0.f));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FInventoryWidgetPIEInputLifecycle, "Duckov.UI.PIEInputLifecycle", Flags)
+bool FInventoryWidgetPIEInputLifecycle::RunTest(const FString& Parameters)
+{
+    if (!TestTrue(TEXT("Slate initialized"), FSlateApplication::IsInitialized())) { return false; }
+    ICommonInputModule::GetSettings().LoadData();
+    const FDataTableRowHandle BackHandle = ICommonInputModule::GetSettings().GetDefaultBackAction();
+    const FCommonInputActionDataBase* BackData = BackHandle.GetRow<FCommonInputActionDataBase>(TEXT("PIEInputLifecycle"));
+    if (!TestNotNull(TEXT("CommonInput 기본 Back row"), BackData)) { return false; }
+    TestEqual(TEXT("기본 Back keyboard key"), BackData->GetInputTypeInfo(ECommonInputType::MouseAndKeyboard, NAME_None).GetKey(), EKeys::Escape);
+    const FKey GamepadBack = BackData->GetInputTypeInfo(ECommonInputType::Gamepad, NAME_None).GetKey();
+    TestTrue(TEXT("기본 Back gamepad key"), GamepadBack.IsValid() && GamepadBack.IsGamepadKey());
+    if (!TestTrue(TEXT("데모 map load"), AutomationOpenMap(DemoMap))) { return false; }
+    struct FScene
+    {
+        TWeakObjectPtr<AInventoryDemoPlayerController> Controller;
+        TWeakObjectPtr<UInventoryScreenWidget> Screen;
+        TWeakObjectPtr<UInventoryModel> Model;
+        bool bOriginalInactiveInput = false;
+    };
+    TSharedRef<FScene> Scene = MakeShared<FScene>();
+    Scene->bOriginalInactiveInput = FSlateApplication::Get().GetHandleDeviceInputWhenApplicationNotActive();
+    FSlateApplication::Get().SetHandleDeviceInputWhenApplicationNotActive(true);
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitForCondition(*this, TEXT("데모 PIE controller"), []
+    {
+        return GEditor && GEditor->PlayWorld
+            && Cast<AInventoryDemoPlayerController>(UGameplayStatics::GetPlayerController(GEditor->PlayWorld, 0));
+    }));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        AInventoryDemoPlayerController* Controller = Cast<AInventoryDemoPlayerController>(
+            UGameplayStatics::GetPlayerController(GEditor->PlayWorld, 0));
+        Scene->Controller = Controller;
+        Controller->ToggleInventory();
+        Scene->Screen = ReflectedObject<UInventoryScreenWidget>(Controller, TEXT("Screen"));
+        Scene->Model = ReflectedObject<UInventoryModel>(Controller, TEXT("Model"));
+        TestTrue(TEXT("ToggleInventory로 화면 활성"), Scene->Screen.IsValid() && Scene->Screen->IsActivated());
+    }, 0.f));
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitForCondition(*this, TEXT("CommonUI Menu config와 초기 focus"), [Scene]
+    {
+        AInventoryDemoPlayerController* Controller = Scene->Controller.Get();
+        UInventoryScreenWidget* Screen = Scene->Screen.Get();
+        UButton* Close = Screen ? Cast<UButton>(Screen->GetWidgetFromName(TEXT("CloseButton"))) : nullptr;
+        UCommonUIActionRouterBase* Router = Controller && Controller->GetLocalPlayer()
+            ? Controller->GetLocalPlayer()->GetSubsystem<UCommonUIActionRouterBase>() : nullptr;
+        return Screen && Close && Router && Router->GetActiveInputMode() == ECommonInputMode::Menu
+            && Close->HasUserFocus(Controller) && !Router->IsPendingTreeChange();
+    }));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        UInventoryScreenWidget* Screen = Scene->Screen.Get();
+        AInventoryDemoPlayerController* Controller = Scene->Controller.Get();
+        if (!TestNotNull(TEXT("실제 WBP screen"), Screen) || !Controller) { return; }
+        UCommonUIActionRouterBase* Router = Controller->GetLocalPlayer()->GetSubsystem<UCommonUIActionRouterBase>();
+        TestTrue(TEXT("CommonUI 활성 root 등록"), Router && Router->IsWidgetInActiveRoot(Screen));
+        for (const FName Name : {FName(TEXT("CloseButton")), FName(TEXT("SortLeftButton")), FName(TEXT("SortRightButton"))})
+        {
+            UButton* Button = Cast<UButton>(Screen->GetWidgetFromName(Name));
+            TestTrue(FString::Printf(TEXT("%s focusable"), *Name.ToString()), Button && Button->GetIsFocusable());
+            TestTrue(FString::Printf(TEXT("%s action binding"), *Name.ToString()), Button && Button->OnClicked.IsBound());
+        }
+        UButton* Left = Cast<UButton>(Screen->GetWidgetFromName(TEXT("SortLeftButton")));
+        UButton* Right = Cast<UButton>(Screen->GetWidgetFromName(TEXT("SortRightButton")));
+        RouteFocusedKey(EKeys::Up);
+        const bool bFirstLeft = Left && Left->HasUserFocus(Controller);
+        TestTrue(TEXT("Close에서 기본 위 navigation으로 정렬 버튼 도달"), bFirstLeft || (Right && Right->HasUserFocus(Controller)));
+        TestTrue(TEXT("첫 정렬 버튼 keyboard activation"), RouteFocusedKey(EKeys::Enter));
+        RouteFocusedKey(bFirstLeft ? EKeys::Right : EKeys::Left);
+        TestTrue(TEXT("기본 좌우 navigation으로 다른 정렬 버튼 도달"),
+            bFirstLeft ? (Right && Right->HasUserFocus(Controller)) : (Left && Left->HasUserFocus(Controller)));
+        TestTrue(TEXT("다른 정렬 버튼 keyboard activation"), RouteFocusedKey(EKeys::Enter));
+        UInventoryModel* Model = Scene->Model.Get();
+        const FItemInstance* Rifle = Model ? Model->FindItem(TEXT("Stash"), 1) : nullptr;
+        const FItemInstance* Medkit = Model ? Model->FindItem(TEXT("Bag"), 3) : nullptr;
+        TestTrue(TEXT("Sort Stash activation이 Model 정렬 실행"), Rifle && Rifle->AnchorCell != FIntPoint(4, 1));
+        TestTrue(TEXT("Sort Bag activation이 Model 정렬 실행"), Medkit && Medkit->AnchorCell != FIntPoint(2, 2));
+        UButton* Close = Cast<UButton>(Screen->GetWidgetFromName(TEXT("CloseButton")));
+        RouteFocusedKey(EKeys::Down);
+        TestTrue(TEXT("기본 아래 navigation으로 Close 복귀"), Close && Close->HasUserFocus(Controller));
+        TestTrue(TEXT("Close keyboard activation"), RouteFocusedKey(EKeys::Enter));
+        TestFalse(TEXT("Close로 화면 비활성"), Screen->IsActivated());
+    }, 0.f));
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitForCondition(*this, TEXT("game input 복귀"), [Scene]
+    {
+        AInventoryDemoPlayerController* Controller = Scene->Controller.Get();
+        UCommonUIActionRouterBase* Router = Controller && Controller->GetLocalPlayer()
+            ? Controller->GetLocalPlayer()->GetSubsystem<UCommonUIActionRouterBase>() : nullptr;
+        return Router && Router->GetActiveInputMode() == ECommonInputMode::Game
+            && GEngine->GameViewport && GEngine->GameViewport->GetGameViewportWidget().IsValid()
+            && GEngine->GameViewport->GetGameViewportWidget()->HasAnyUserFocus().IsSet();
+    }));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        Scene->Controller->ToggleInventory();
+        TestTrue(TEXT("화면 재개방"), Scene->Screen.IsValid() && Scene->Screen->IsActivated());
+    }, 0.f));
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitForCondition(*this, TEXT("재개방 focus 및 WBP geometry"), [Scene]
+    {
+        UInventoryScreenWidget* Screen = Scene->Screen.Get();
+        UButton* Close = Screen ? Cast<UButton>(Screen->GetWidgetFromName(TEXT("CloseButton"))) : nullptr;
+        UInventoryItemWidget* Item = Screen ? FindAmmoWidget(Screen) : nullptr;
+        return Close && Close->HasUserFocus(Scene->Controller.Get()) && Item
+            && Item->GetCachedGeometry().GetLocalSize().X > 0.f;
+    }));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        UInventoryScreenWidget* Screen = Scene->Screen.Get();
+        UInventoryModel* Model = Scene->Model.Get();
+        AInventoryDemoPlayerController* Controller = Scene->Controller.Get();
+        if (!Screen || !Model || !Controller) { AddError(TEXT("PIE input scene unavailable")); return; }
+        FInventorySaveRecord BeforeBack;
+        TestEqual(TEXT("Back 전 Model snapshot"), Model->Save(BeforeBack), EInventorySaveFailure::None);
+        if (!StartCapturedDrag(*this, Screen)) { return; }
+        UCommonUIActionRouterBase* Router = Controller->GetLocalPlayer()->GetSubsystem<UCommonUIActionRouterBase>();
+        TestEqual(TEXT("CommonUI drag Back routed"), Router->ProcessInput(EKeys::Escape, IE_Pressed), ERouteUIInputResult::Handled);
+        CheckCleared(*this, Screen);
+        TestTrue(TEXT("첫 Back 후 화면 활성"), Screen->IsActivated());
+        FInventorySaveRecord AfterBack;
+        TestEqual(TEXT("Back 후 Model snapshot"), Model->Save(AfterBack), EInventorySaveFailure::None);
+        TestTrue(TEXT("첫 Back 후 전체 Model state 불변"),
+            FInventorySaveRecord::StaticStruct()->CompareScriptStruct(&BeforeBack, &AfterBack, 0));
+        TestEqual(TEXT("CommonUI 두 번째 Back routed"), Router->ProcessInput(EKeys::Escape, IE_Pressed), ERouteUIInputResult::Handled);
+        TestFalse(TEXT("두 번째 Back 후 화면 비활성"), Screen->IsActivated());
+    }, 0.f));
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitForCondition(*this, TEXT("Back 후 game input 복귀"), [Scene]
+    {
+        AInventoryDemoPlayerController* Controller = Scene->Controller.Get();
+        UCommonUIActionRouterBase* Router = Controller && Controller->GetLocalPlayer()
+            ? Controller->GetLocalPlayer()->GetSubsystem<UCommonUIActionRouterBase>() : nullptr;
+        return Router && Router->GetActiveInputMode() == ECommonInputMode::Game
+            && GEngine->GameViewport && GEngine->GameViewport->GetGameViewportWidget().IsValid()
+            && GEngine->GameViewport->GetGameViewportWidget()->HasAnyUserFocus().IsSet();
+    }));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        Scene->Controller->ToggleInventory();
+        TestTrue(TEXT("Back 후 재개방"), Scene->Screen.IsValid() && Scene->Screen->IsActivated());
+    }, 0.f));
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitForCondition(*this, TEXT("Back 후 재개방 focus"), [Scene]
+    {
+        UInventoryScreenWidget* Screen = Scene->Screen.Get();
+        UButton* Close = Screen ? Cast<UButton>(Screen->GetWidgetFromName(TEXT("CloseButton"))) : nullptr;
+        return Close && Close->HasUserFocus(Scene->Controller.Get());
+    }));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        TestTrue(TEXT("재개방 후 I key 처리"), RouteFocusedKey(EKeys::I));
+        TestTrue(TEXT("I key로 화면 닫기"), Scene->Screen.IsValid() && !Scene->Screen->IsActivated());
+    }, 0.f));
+    ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitForCondition(*this, TEXT("PIE 종료"), [] { return !GEditor || !GEditor->PlayWorld; }));
     ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([Scene]
     {
         FSlateApplication::Get().SetHandleDeviceInputWhenApplicationNotActive(Scene->bOriginalInactiveInput);

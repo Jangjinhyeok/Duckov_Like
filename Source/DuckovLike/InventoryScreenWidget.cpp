@@ -19,6 +19,7 @@ UInventoryScreenWidget::UInventoryScreenWidget(const FObjectInitializer& ObjectI
     : Super(ObjectInitializer)
 {
     bSetVisibilityOnActivated = true;
+    bIsBackHandler = true;
     ActivatedVisibility = ESlateVisibility::Visible;
     bSetVisibilityOnDeactivated = true;
     DeactivatedVisibility = ESlateVisibility::Collapsed;
@@ -63,7 +64,7 @@ void UInventoryScreenWidget::NativeOnActivated()
     CloseButton->OnClicked.AddUniqueDynamic(this, &ThisClass::Close);
     SortLeftButton->OnClicked.AddUniqueDynamic(this, &ThisClass::SortLeft);
     SortRightButton->OnClicked.AddUniqueDynamic(this, &ThisClass::SortRight);
-    CloseButton->SetKeyboardFocus();
+    if (APlayerController* Owner = GetOwningPlayer()) { CloseButton->SetUserFocus(Owner); }
 }
 
 void UInventoryScreenWidget::NativeOnDeactivated()
@@ -111,12 +112,7 @@ FReply UInventoryScreenWidget::NativeOnKeyDown(const FGeometry& InGeometry, cons
         }
         return FReply::Handled();
     }
-    if (Interaction && Interaction->IsDragging() && InKeyEvent.GetKey() == EKeys::Escape)
-    {
-        CancelItemDrag();
-        return FReply::Handled();
-    }
-    if (InKeyEvent.GetKey() == EKeys::Escape || InKeyEvent.GetKey() == EKeys::I)
+    if (InKeyEvent.GetKey() == EKeys::I)
     {
         Close();
         return FReply::Handled();
@@ -188,7 +184,10 @@ bool UInventoryScreenWidget::BeginItemDrag(FName Source, UItemViewModel* Item,
         return false;
     }
     UpdateItemDrag(AbsolutePosition);
-    if (CloseButton) { CloseButton->SetKeyboardFocus(); }
+    if (CloseButton)
+    {
+        if (APlayerController* Owner = GetOwningPlayer()) { CloseButton->SetUserFocus(Owner); }
+    }
     bPointerCaptured = true;
     return true;
 }
@@ -268,6 +267,15 @@ void UInventoryScreenWidget::RefreshDragView()
 }
 
 UWidget* UInventoryScreenWidget::NativeGetDesiredFocusTarget() const { return CloseButton; }
+bool UInventoryScreenWidget::NativeOnHandleBackAction()
+{
+    if (Interaction && Interaction->IsDragging())
+    {
+        CancelItemDrag();
+        return true;
+    }
+    return Super::NativeOnHandleBackAction();
+}
 TOptional<FUIInputConfig> UInventoryScreenWidget::GetDesiredInputConfig() const
 {
     return FUIInputConfig(ECommonInputMode::Menu, EMouseCaptureMode::NoCapture);

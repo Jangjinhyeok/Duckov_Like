@@ -14,7 +14,7 @@ public class DuckovLike : ModuleRules
 		// GameplayAbilities 모듈은 M3에서 실제로 쓸 때 추가한다.
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "InventoryCore", "UMG", "ModelViewViewModel", "CommonUI" });
 
-		PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });
+		PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore", "CommonInput" });
 		if (Target.bBuildEditor)
 		{
 			PrivateDependencyModuleNames.AddRange(new string[] { "UnrealEd", "UMGEditor" });

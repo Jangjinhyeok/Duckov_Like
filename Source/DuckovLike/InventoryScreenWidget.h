@@ -32,6 +32,7 @@ public:
     virtual FReply NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
     virtual void NativeOnMouseCaptureLost(const FCaptureLostEvent& CaptureLostEvent) override;
 protected:
+    virtual bool NativeOnHandleBackAction() override;
     virtual UWidget* NativeGetDesiredFocusTarget() const override;
     virtual TOptional<FUIInputConfig> GetDesiredInputConfig() const override;
 private:
