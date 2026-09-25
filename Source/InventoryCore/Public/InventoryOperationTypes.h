@@ -3,7 +3,7 @@
 #include "CoreMinimal.h"
 #include "InventoryOperationTypes.generated.h"
 
-UENUM()
+UENUM(BlueprintType)
 enum class EInventoryOperationFailure : uint8
 {
     None,
@@ -13,4 +13,6 @@ enum class EInventoryOperationFailure : uint8
     StackMismatch,
     StackFull,
     ResizeOverflow,
+    InvalidContainer,
+    OperationInProgress,
 };

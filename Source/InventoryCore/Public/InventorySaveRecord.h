@@ -84,7 +84,8 @@ enum class EInventorySaveFailure : uint8
     InvalidCounter,
     InvalidDefinition,
     InvalidQuantity,
-    InvalidPlacement
+    InvalidPlacement,
+    OperationInProgress
 };
 
 struct INVENTORYCORE_API FInventorySaveMapper

@@ -1,0 +1,142 @@
+#include "InventoryModel.h"
+
+#include "InventoryOperations.h"
+
+namespace
+{
+FInventoryContainerChange Compare(FName Id, const FInventoryContainer& Before, const FInventoryContainer& After)
+{
+    FInventoryContainerChange Change;
+    Change.ContainerId = Id;
+    Change.bGridSizeChanged = Before.GridSize != After.GridSize;
+    TMap<int32, const FItemInstance*> OldItems;
+    TSet<int32> CurrentIds;
+    for (const FItemInstance& Item : Before.Items) { OldItems.Add(Item.InstanceId, &Item); }
+    for (int32 Index = 0; Index < After.Items.Num(); ++Index)
+    {
+        const FItemInstance& Item = After.Items[Index];
+        CurrentIds.Add(Item.InstanceId);
+        const FItemInstance* const* Found = OldItems.Find(Item.InstanceId);
+        if (!Found) { Change.Added.Add(Item.InstanceId); }
+        else
+        {
+            const FItemInstance& Old = **Found;
+            if (Old.AnchorCell != Item.AnchorCell || Old.bRotated != Item.bRotated ||
+                Old.Quantity != Item.Quantity || Old.DefinitionTable != Item.DefinitionTable ||
+                Old.DefinitionRowName != Item.DefinitionRowName)
+            {
+                Change.Updated.Add(Item.InstanceId);
+            }
+        }
+        if (!Before.Items.IsValidIndex(Index) || Before.Items[Index].InstanceId != Item.InstanceId)
+        {
+            Change.bOrderChanged = true;
+        }
+    }
+    for (const FItemInstance& Item : Before.Items)
+    {
+        if (!CurrentIds.Contains(Item.InstanceId)) { Change.Removed.Add(Item.InstanceId); }
+    }
+    Change.bOrderChanged |= Before.Items.Num() != After.Items.Num();
+    return Change;
+}
+}
+
+EInventorySaveFailure UInventoryModel::Load(const FInventorySaveRecord& Record)
+{
+    check(IsInGameThread());
+    if (bApplying) { return EInventorySaveFailure::OperationInProgress; }
+    TGuardValue<bool> Guard(bApplying, true);
+    const EInventorySaveFailure Result = FInventorySaveMapper::TryLoad(Record, Containers);
+    if (Result == EInventorySaveFailure::None)
+    {
+        FInventoryChangeSet Change;
+        Change.bReset = true;
+        Changed.Broadcast(Change);
+    }
+    return Result;
+}
+
+EInventorySaveFailure UInventoryModel::Save(FInventorySaveRecord& OutRecord) const
+{
+    return FInventorySaveMapper::TrySave(Containers, OutRecord);
+}
+
+const FInventoryContainer* UInventoryModel::FindContainer(FName ContainerId) const
+{
+    const auto* Named = Containers.FindByPredicate(
+        [ContainerId](const auto& Entry) { return Entry.ContainerId == ContainerId; });
+    return Named ? &Named->Container : nullptr;
+}
+
+const FItemInstance* UInventoryModel::FindItem(FName ContainerId, int32 InstanceId) const
+{
+    const FInventoryContainer* Container = FindContainer(ContainerId);
+    return Container ? Container->Items.FindByPredicate(
+        [InstanceId](const auto& Item) { return Item.InstanceId == InstanceId; }) : nullptr;
+}
+
+EInventoryOperationFailure UInventoryModel::CanMove(FName Source, FName Target, int32 InstanceId,
+    FIntPoint Anchor, bool bRotated) const
+{
+    const auto* From = FindContainer(Source);
+    const auto* To = FindContainer(Target);
+    if (!From || !To) { return EInventoryOperationFailure::InvalidContainer; }
+    return FInventoryOperations::CanMove(*From, *To, InstanceId, Anchor, bRotated);
+}
+
+EInventoryOperationFailure UInventoryModel::Apply(FName Source, FName Target,
+    TFunctionRef<EInventoryOperationFailure(FInventoryContainer&, FInventoryContainer&)> Operation)
+{
+    check(IsInGameThread());
+    if (bApplying) { return EInventoryOperationFailure::OperationInProgress; }
+    auto* From = Containers.FindByPredicate([Source](const auto& Entry) { return Entry.ContainerId == Source; });
+    auto* To = Containers.FindByPredicate([Target](const auto& Entry) { return Entry.ContainerId == Target; });
+    if (!From || !To) { return EInventoryOperationFailure::InvalidContainer; }
+    TGuardValue<bool> Guard(bApplying, true);
+    const FInventoryContainer BeforeSource = From->Container;
+    const FInventoryContainer BeforeTarget = From == To ? FInventoryContainer{} : To->Container;
+    const EInventoryOperationFailure Result = Operation(From->Container, To->Container);
+    if (Result != EInventoryOperationFailure::None) { return Result; }
+
+    FInventoryChangeSet Change;
+    auto AddChange = [&Change](FInventoryContainerChange Entry)
+    {
+        if (Entry.bGridSizeChanged || Entry.bOrderChanged || !Entry.Added.IsEmpty() ||
+            !Entry.Removed.IsEmpty() || !Entry.Updated.IsEmpty())
+        {
+            Change.Containers.Add(MoveTemp(Entry));
+        }
+    };
+    AddChange(Compare(Source, BeforeSource, From->Container));
+    if (From != To) { AddChange(Compare(Target, BeforeTarget, To->Container)); }
+    if (!Change.Containers.IsEmpty()) { Changed.Broadcast(Change); }
+    return Result;
+}
+
+EInventoryOperationFailure UInventoryModel::TryMove(FName Source, FName Target, int32 InstanceId,
+    FIntPoint Anchor, bool bRotated)
+{
+    return Apply(Source, Target, [=](auto& From, auto& To)
+    {
+        return FInventoryOperations::TryMove(From, To, InstanceId, Anchor, bRotated);
+    });
+}
+
+EInventoryOperationFailure UInventoryModel::TryStack(FName Source, FName Target, int32 SourceId, int32 TargetId)
+{
+    return Apply(Source, Target, [=](auto& From, auto& To)
+    {
+        return FInventoryOperations::TryStack(From, To, SourceId, TargetId);
+    });
+}
+
+EInventoryOperationFailure UInventoryModel::TrySort(FName ContainerId)
+{
+    return Apply(ContainerId, ContainerId, [](auto& From, auto&) { return FInventoryOperations::TrySort(From); });
+}
+
+EInventoryOperationFailure UInventoryModel::TryResize(FName ContainerId, FIntPoint Size)
+{
+    return Apply(ContainerId, ContainerId, [Size](auto& From, auto&) { return FInventoryOperations::TryResize(From, Size); });
+}

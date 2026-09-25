@@ -12,9 +12,13 @@ public class DuckovLike : ModuleRules
 		// UMG·ModelViewViewModel은 M2까지 실사용이 없지만 지금 넣는다.
 		// InventoryCore.Build.cs와의 대비 자체가 모듈 경계의 증거이기 때문이다.
 		// GameplayAbilities 모듈은 M3에서 실제로 쓸 때 추가한다.
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "InventoryCore", "UMG", "ModelViewViewModel" });
+		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "InventoryCore", "UMG", "ModelViewViewModel", "CommonUI" });
 
-		PrivateDependencyModuleNames.AddRange(new string[] {  });
+		PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });
+		if (Target.bBuildEditor)
+		{
+			PrivateDependencyModuleNames.AddRange(new string[] { "UnrealEd", "UMGEditor" });
+		}
 
 		// Uncomment if you are using Slate UI
 		// PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });

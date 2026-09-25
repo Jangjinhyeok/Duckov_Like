@@ -7,6 +7,12 @@ struct FInventoryContainer;
 
 struct INVENTORYCORE_API FInventoryOperations
 {
+    // Model을 변경하지 않는 프리뷰 조회. TryMove도 동일 검증을 사용한다.
+    static EInventoryOperationFailure CanMove(
+        const FInventoryContainer& SourceContainer,
+        const FInventoryContainer& DestContainer,
+        int32 InstanceId, FIntPoint DestAnchorCell, bool bDestRotated);
+
 	// 면적 내림차순, InstanceId 오름차순으로 재배치하며 현재 회전을 유지한다.
 	// 전체 배치가 불가능하면 NoSpace를 반환하고 원본을 보존한다.
 	static EInventoryOperationFailure TrySort(FInventoryContainer& Container);

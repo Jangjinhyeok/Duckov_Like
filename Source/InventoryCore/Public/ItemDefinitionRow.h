@@ -9,7 +9,7 @@ struct FItemDefinitionRow : public FTableRowBase
 {
     GENERATED_BODY()
 
-    UPROPERTY()
+    UPROPERTY(EditAnywhere)
     FIntPoint Size = FIntPoint(1, 1);
 
     UPROPERTY(EditAnywhere)

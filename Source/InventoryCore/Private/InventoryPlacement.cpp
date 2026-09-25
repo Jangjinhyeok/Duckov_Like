@@ -36,8 +36,8 @@ bool FitsInContainer(
 {
     return AnchorCell.X >= 0 && AnchorCell.Y >= 0 &&
         Footprint.X > 0 && Footprint.Y > 0 &&
-        AnchorCell.X + Footprint.X <= Container.GridSize.X &&
-        AnchorCell.Y + Footprint.Y <= Container.GridSize.Y;
+        static_cast<int64>(AnchorCell.X) + Footprint.X <= Container.GridSize.X &&
+        static_cast<int64>(AnchorCell.Y) + Footprint.Y <= Container.GridSize.Y;
 }
 }
 

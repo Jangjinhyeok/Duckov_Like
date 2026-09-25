@@ -92,9 +92,9 @@ EInventoryOperationFailure FInventoryOperations::TryResize(
     return EInventoryOperationFailure::None;
 }
 
-EInventoryOperationFailure FInventoryOperations::TryMove(
-    FInventoryContainer& SourceContainer,
-    FInventoryContainer& DestContainer,
+EInventoryOperationFailure FInventoryOperations::CanMove(
+    const FInventoryContainer& SourceContainer,
+    const FInventoryContainer& DestContainer,
     const int32 InstanceId,
     const FIntPoint DestAnchorCell,
     const bool bDestRotated)
@@ -146,6 +146,24 @@ EInventoryOperationFailure FInventoryOperations::TryMove(
         }
     }
 
+    return EInventoryOperationFailure::None;
+}
+
+EInventoryOperationFailure FInventoryOperations::TryMove(
+    FInventoryContainer& SourceContainer,
+    FInventoryContainer& DestContainer,
+    const int32 InstanceId,
+    const FIntPoint DestAnchorCell,
+    const bool bDestRotated)
+{
+    const EInventoryOperationFailure Failure = CanMove(
+        SourceContainer, DestContainer, InstanceId, DestAnchorCell, bDestRotated);
+    if (Failure != EInventoryOperationFailure::None) { return Failure; }
+    const int32 SourceIndex = SourceContainer.Items.IndexOfByPredicate(
+        [InstanceId](const FItemInstance& Item) { return Item.InstanceId == InstanceId; });
+    FItemInstance MovedItem = SourceContainer.Items[SourceIndex];
+    MovedItem.AnchorCell = DestAnchorCell;
+    MovedItem.bRotated = bDestRotated;
     SourceContainer.Items.RemoveAt(SourceIndex);
     DestContainer.Items.Add(MovedItem);
     FInventoryPlacement::RebuildOccupancyCache(SourceContainer);
