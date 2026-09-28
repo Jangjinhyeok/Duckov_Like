@@ -5,6 +5,9 @@
 #include "ItemViewModel.h"
 #include "InventoryScreenWidget.h"
 #include "InputCoreTypes.h"
+#if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
+#include "InventoryPerformanceProbe.h"
+#endif
 
 void UInventoryItemWidget::Bind(UItemViewModel* InItem, UInventoryScreenWidget* InScreen, FName InContainerId)
 {
@@ -31,6 +34,14 @@ void UInventoryItemWidget::OnFieldChanged(UObject*, UE::FieldNotification::FFiel
 
 void UInventoryItemWidget::Refresh()
 {
+#if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
+    if (GInventoryPerformanceProbe && GInventoryPerformanceProbe->TrackedWidgets.Contains(this))
+    {
+        ++GInventoryPerformanceProbe->ItemRefresh;
+        ++(Item ? GInventoryPerformanceProbe->BoundItemRefresh : GInventoryPerformanceProbe->UnboundItemRefresh);
+        ++GInventoryPerformanceProbe->RefreshByWidget.FindOrAdd(this);
+    }
+#endif
     if (Item && Item->IsAvailable())
     {
         if (UCanvasPanelSlot* CanvasSlot = Cast<UCanvasPanelSlot>(Slot))

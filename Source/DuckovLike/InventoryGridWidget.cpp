@@ -9,6 +9,9 @@
 #include "InventoryItemWidget.h"
 #include "InventoryScreenWidget.h"
 #include "ItemViewModel.h"
+#if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
+#include "InventoryPerformanceProbe.h"
+#endif
 
 void UInventoryGridWidget::SetTitle(const FText& InTitle)
 {
@@ -40,6 +43,16 @@ void UInventoryGridWidget::OnFieldChanged(UObject*, UE::FieldNotification::FFiel
 
 void UInventoryGridWidget::Refresh()
 {
+#if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
+    FInventoryPerformanceProbe* Probe = GInventoryPerformanceProbe;
+    const bool bMeasuredGrid = Probe && GetFName() == TEXT("LeftGrid");
+    if (bMeasuredGrid)
+    {
+        Probe->Canvas = GridCanvas;
+        ++Probe->GridRefresh;
+        Probe->ItemRemoved += ItemWidgets.Num();
+    }
+#endif
     if (HeaderText) { HeaderText->SetText(Title); }
     if (!GridCanvas) { return; }
     for (UInventoryItemWidget* Widget : ItemWidgets) { Widget->Bind(nullptr); Widget->RemoveFromParent(); }
@@ -58,8 +71,14 @@ void UInventoryGridWidget::Refresh()
         if (!ItemClass) { UE_LOG(LogTemp, Error, TEXT("인벤토리 Item 위젯 에셋을 찾지 못했습니다")); return; }
         UInventoryItemWidget* Widget = CreateWidget<UInventoryItemWidget>(GetOwningPlayer(), ItemClass);
         GridCanvas->AddChildToCanvas(Widget);
+#if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
+        if (bMeasuredGrid) { Probe->TrackedWidgets.Add(Widget); }
+#endif
         Widget->Bind(Item, Screen.Get(), ContainerId);
         ItemWidgets.Add(Widget);
+#if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
+        if (bMeasuredGrid) { ++Probe->ItemCreated; }
+#endif
     }
 }
 
