@@ -15,4 +15,7 @@ enum class EInventoryOperationFailure : uint8
     ResizeOverflow,
     InvalidContainer,
     OperationInProgress,
+    InvalidDefinition,
+    InvalidQuantity,
+    InstanceIdExhausted,
 };

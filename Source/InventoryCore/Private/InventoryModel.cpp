@@ -1,6 +1,8 @@
 #include "InventoryModel.h"
 
 #include "InventoryOperations.h"
+#include "InventoryPlacement.h"
+#include "ItemDefinitionRow.h"
 
 namespace
 {
@@ -139,4 +141,55 @@ EInventoryOperationFailure UInventoryModel::TrySort(FName ContainerId)
 EInventoryOperationFailure UInventoryModel::TryResize(FName ContainerId, FIntPoint Size)
 {
     return Apply(ContainerId, ContainerId, [Size](auto& From, auto&) { return FInventoryOperations::TryResize(From, Size); });
+}
+
+EInventoryOperationFailure UInventoryModel::TryAdd(FName ContainerId, TSoftObjectPtr<UDataTable> DefinitionTable,
+    FName DefinitionRowName, int32 Quantity)
+{
+    return Apply(ContainerId, ContainerId, [=](FInventoryContainer& Container, FInventoryContainer&)
+    {
+        const UDataTable* Table = DefinitionTable.LoadSynchronous();
+        if (!Table || !Table->GetRowStruct() ||
+            !Table->GetRowStruct()->IsChildOf(FItemDefinitionRow::StaticStruct()))
+        {
+            return EInventoryOperationFailure::InvalidDefinition;
+        }
+        const FItemDefinitionRow* Definition = Table->FindRow<FItemDefinitionRow>(
+            DefinitionRowName, TEXT("InventoryAdd"), false);
+        if (!Definition || Definition->Size.X <= 0 || Definition->Size.Y <= 0)
+        {
+            return EInventoryOperationFailure::InvalidDefinition;
+        }
+        const int32 MaxQuantity = Definition->bStackable ? Definition->MaxStack : 1;
+        if (Quantity <= 0 || Quantity > MaxQuantity)
+        {
+            return EInventoryOperationFailure::InvalidQuantity;
+        }
+
+        FItemInstance Item;
+        Item.DefinitionTable = DefinitionTable;
+        Item.DefinitionRowName = DefinitionRowName;
+        Item.Quantity = Quantity;
+        FInventoryContainer Planned = Container;
+        for (int32 Y = 0; Y <= Container.GridSize.Y - Definition->Size.Y; ++Y)
+        {
+            for (int32 X = 0; X <= Container.GridSize.X - Definition->Size.X; ++X)
+            {
+                Item.AnchorCell = FIntPoint(X, Y);
+                if (FInventoryPlacement::TryPlace(Planned, Item) != EInventoryOperationFailure::None)
+                {
+                    continue;
+                }
+                const int32 NewId = FItemInstanceIdAllocator::AllocateNextInstanceId();
+                if (NewId == INDEX_NONE)
+                {
+                    return EInventoryOperationFailure::InstanceIdExhausted;
+                }
+                Planned.Items.Last().InstanceId = NewId;
+                Container = MoveTemp(Planned);
+                return EInventoryOperationFailure::None;
+            }
+        }
+        return EInventoryOperationFailure::NoSpace;
+    });
 }

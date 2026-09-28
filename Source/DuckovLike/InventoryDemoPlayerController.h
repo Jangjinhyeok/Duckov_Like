@@ -2,11 +2,13 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
+#include "InventoryOperationTypes.h"
 #include "TimerManager.h"
 #include "InventoryDemoPlayerController.generated.h"
 
 class UInventoryModel;
 class UInventoryScreenWidget;
+class AWorldLootActor;
 
 UCLASS()
 class DUCKOVLIKE_API AInventoryDemoPlayerController : public APlayerController
@@ -18,6 +20,10 @@ public:
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
     UFUNCTION(BlueprintCallable, Category="Inventory Demo")
     void ToggleInventory();
+    UFUNCTION(BlueprintCallable, Category="Inventory Demo")
+    EInventoryOperationFailure TryPickupLoot(AWorldLootActor* Loot);
+    UFUNCTION(Exec)
+    void PickupNearestLoot();
 private:
     UPROPERTY(Transient)
     TObjectPtr<UInventoryModel> Model;

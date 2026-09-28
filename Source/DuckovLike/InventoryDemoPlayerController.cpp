@@ -7,6 +7,9 @@
 #include "Input/UIActionBindingHandle.h"
 #include "InventoryModel.h"
 #include "InventoryScreenWidget.h"
+#include "WorldLootActor.h"
+#include "EngineUtils.h"
+#include "GameFramework/Pawn.h"
 
 void AInventoryDemoPlayerController::BeginPlay()
 {
@@ -51,6 +54,34 @@ void AInventoryDemoPlayerController::SetupInputComponent()
 {
     Super::SetupInputComponent();
     InputComponent->BindKey(EKeys::I, IE_Pressed, this, &ThisClass::ToggleInventory);
+    InputComponent->BindKey(EKeys::E, IE_Pressed, this, &ThisClass::PickupNearestLoot);
+}
+
+EInventoryOperationFailure AInventoryDemoPlayerController::TryPickupLoot(AWorldLootActor* Loot)
+{
+    if (!IsValid(Loot) || Loot->GetWorld() != GetWorld()) { return EInventoryOperationFailure::ItemNotFound; }
+    return Loot->TryPickup(Model, TEXT("Bag"));
+}
+
+void AInventoryDemoPlayerController::PickupNearestLoot()
+{
+    const APawn* ControlledPawn = GetPawnOrSpectator();
+    if (!ControlledPawn) { return; }
+    AWorldLootActor* Nearest = nullptr;
+    double NearestDistanceSquared = FMath::Square(250.0);
+    for (TActorIterator<AWorldLootActor> It(GetWorld()); It; ++It)
+    {
+        if (It->bConsumed || It->IsActorBeingDestroyed()) { continue; }
+        const double DistanceSquared = FVector::DistSquared(ControlledPawn->GetActorLocation(), It->GetActorLocation());
+        if (DistanceSquared <= NearestDistanceSquared)
+        {
+            Nearest = *It;
+            NearestDistanceSquared = DistanceSquared;
+        }
+    }
+    if (!Nearest) { return; }
+    const EInventoryOperationFailure Result = TryPickupLoot(Nearest);
+    UE_LOG(LogTemp, Display, TEXT("월드 loot 획득 결과: %s"), *UEnum::GetValueAsString(Result));
 }
 
 void AInventoryDemoPlayerController::ToggleInventory()

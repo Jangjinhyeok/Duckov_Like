@@ -43,6 +43,8 @@ public:
     EInventoryOperationFailure TryStack(FName Source, FName Target, int32 SourceId, int32 TargetId);
     EInventoryOperationFailure TrySort(FName ContainerId);
     EInventoryOperationFailure TryResize(FName ContainerId, FIntPoint Size);
+    EInventoryOperationFailure TryAdd(FName ContainerId, TSoftObjectPtr<UDataTable> DefinitionTable,
+        FName DefinitionRowName, int32 Quantity);
 
 private:
     // 조회 포인터는 호출 중에만 유효하다. 변경 이후 보관하거나 mutable로 노출하지 않는다.
