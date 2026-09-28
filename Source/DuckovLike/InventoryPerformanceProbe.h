@@ -12,6 +12,7 @@ class UInventoryItemWidget;
 struct FInventoryPerformanceProbe
 {
     UCanvasPanel* Canvas = nullptr;
+    TSet<const UInventoryGridWidget*> TrackedGrids;
     TSet<const UInventoryItemWidget*> TrackedWidgets;
     int32 GridRefresh = 0;
     int32 ItemRefresh = 0;

@@ -193,6 +193,23 @@ bool FGenerateInventoryAssets::RunTest(const FString& Parameters)
     return true;
 }
 
+// 명시적으로 실행하는 에셋 유지보수 경로이며 Duckov 회귀 검사는 파일을 저장하지 않는다.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRecompileInventoryTickPolicy, "InventoryAssets.RecompileTickPolicy", Flags)
+bool FRecompileInventoryTickPolicy::RunTest(const FString& Parameters)
+{
+    for (int32 Index = 1; Index <= 3; ++Index)
+    {
+        UWidgetBlueprint* Blueprint = LoadObject<UWidgetBlueprint>(nullptr, Paths[Index]);
+        if (!TestNotNull(TEXT("Tick policy 대상 WBP"), Blueprint)) { return false; }
+        FKismetEditorUtilities::CompileBlueprint(Blueprint);
+        const auto* Generated = Cast<UWidgetBlueprintGeneratedClass>(Blueprint->GeneratedClass);
+        if (!TestTrue(TEXT("native Tick 불필요 컴파일 결과"), Generated && !Generated->ClassRequiresNativeTick())
+            || !TestTrue(TEXT("WBP 컴파일 성공"), Blueprint->Status == BS_UpToDate)) { return false; }
+        TestTrue(TEXT("Tick policy WBP 저장"), SaveAsset(Blueprint));
+    }
+    return !HasAnyErrors();
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FVerifyInventoryAssets, "InventoryAssets.Verify", Flags)
 bool FVerifyInventoryAssets::RunTest(const FString& Parameters)
 {

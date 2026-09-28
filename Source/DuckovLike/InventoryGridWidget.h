@@ -12,7 +12,7 @@ class USizeBox;
 class UBorder;
 class UInventoryScreenWidget;
 
-UCLASS()
+UCLASS(meta=(DisableNativeTick))
 class DUCKOVLIKE_API UInventoryGridWidget : public UUserWidget
 {
     GENERATED_BODY()
@@ -24,6 +24,9 @@ public:
     void ShowPreview(FIntPoint Cell, FIntPoint Footprint, bool bValid, const FText& Status);
     void HidePreview();
     virtual void NativeDestruct() override;
+#if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
+    virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
+#endif
 private:
     UPROPERTY(meta=(BindWidget))
     TObjectPtr<UCanvasPanel> GridCanvas;

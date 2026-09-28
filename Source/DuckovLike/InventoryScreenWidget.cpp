@@ -14,6 +14,20 @@
 #include "ItemViewModel.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Widgets/SWidget.h"
+#if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
+#include "InventoryTickProbe.h"
+#endif
+
+#if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
+void UInventoryScreenWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
+{
+    if (GInventoryTickProbe && GInventoryTickProbe->Screen == this)
+    {
+        ++GInventoryTickProbe->ScreenCalls;
+    }
+    Super::NativeTick(MyGeometry, InDeltaTime);
+}
+#endif
 
 UInventoryScreenWidget::UInventoryScreenWidget(const FObjectInitializer& ObjectInitializer)
     : Super(ObjectInitializer)

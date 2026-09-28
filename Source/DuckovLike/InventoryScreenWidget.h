@@ -12,7 +12,7 @@ class UInventoryModel;
 class UItemViewModel;
 class UTextBlock;
 
-UCLASS()
+UCLASS(meta=(DisableNativeTick))
 class DUCKOVLIKE_API UInventoryScreenWidget : public UCommonActivatableWidget
 {
     GENERATED_BODY()
@@ -26,6 +26,9 @@ public:
     virtual void NativeOnActivated() override;
     virtual void NativeOnDeactivated() override;
     virtual void NativeDestruct() override;
+#if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
+    virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
+#endif
     virtual FReply NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
     virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
     virtual FReply NativeOnMouseMove(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;

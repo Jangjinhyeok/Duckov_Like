@@ -7,6 +7,19 @@
 #include "InputCoreTypes.h"
 #if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
 #include "InventoryPerformanceProbe.h"
+#include "InventoryTickProbe.h"
+#endif
+
+#if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
+void UInventoryItemWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
+{
+    if (GInventoryTickProbe && GInventoryTickProbe->Items.Contains(this))
+    {
+        ++GInventoryTickProbe->ItemCalls;
+        ++GInventoryTickProbe->ItemCallsByWidget.FindOrAdd(this);
+    }
+    Super::NativeTick(MyGeometry, InDeltaTime);
+}
 #endif
 
 void UInventoryItemWidget::Bind(UItemViewModel* InItem, UInventoryScreenWidget* InScreen, FName InContainerId)

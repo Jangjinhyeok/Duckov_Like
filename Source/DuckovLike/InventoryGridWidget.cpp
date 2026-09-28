@@ -11,6 +11,19 @@
 #include "ItemViewModel.h"
 #if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
 #include "InventoryPerformanceProbe.h"
+#include "InventoryTickProbe.h"
+#endif
+
+#if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
+void UInventoryGridWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
+{
+    if (GInventoryTickProbe && GInventoryTickProbe->Grids.Contains(this))
+    {
+        ++GInventoryTickProbe->GridCalls;
+        ++GInventoryTickProbe->GridCallsByWidget.FindOrAdd(this);
+    }
+    Super::NativeTick(MyGeometry, InDeltaTime);
+}
 #endif
 
 void UInventoryGridWidget::SetTitle(const FText& InTitle)
@@ -45,7 +58,8 @@ void UInventoryGridWidget::Refresh()
 {
 #if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
     FInventoryPerformanceProbe* Probe = GInventoryPerformanceProbe;
-    const bool bMeasuredGrid = Probe && GetFName() == TEXT("LeftGrid");
+    const bool bMeasuredGrid = Probe && (Probe->TrackedGrids.IsEmpty()
+        ? GetFName() == TEXT("LeftGrid") : Probe->TrackedGrids.Contains(this));
     if (bMeasuredGrid)
     {
         Probe->Canvas = GridCanvas;
