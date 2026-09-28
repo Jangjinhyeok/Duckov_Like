@@ -59,4 +59,5 @@ void UItemViewModel::NotifyChanged()
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetAnchorCell);
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(IsRotated);
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetFootprint);
+    Changed.Broadcast();
 }

@@ -13,24 +13,18 @@ void UInventoryItemWidget::Bind(UItemViewModel* InItem, UInventoryScreenWidget* 
 {
     if (Item)
     {
-        Item->RemoveFieldValueChangedDelegate(UItemViewModel::FFieldNotificationClassDescriptor::GetQuantity, QuantityHandle);
-        Item->RemoveFieldValueChangedDelegate(UItemViewModel::FFieldNotificationClassDescriptor::GetAnchorCell, AnchorHandle);
-        Item->RemoveFieldValueChangedDelegate(UItemViewModel::FFieldNotificationClassDescriptor::IsRotated, RotationHandle);
+        Item->OnChanged().Remove(ChangedHandle);
     }
     Item = InItem;
     Screen = InScreen;
     ContainerId = InContainerId;
     if (Item)
     {
-        const auto Callback = INotifyFieldValueChanged::FFieldValueChangedDelegate::CreateUObject(this, &ThisClass::OnFieldChanged);
-        QuantityHandle = Item->AddFieldValueChangedDelegate(UItemViewModel::FFieldNotificationClassDescriptor::GetQuantity, Callback);
-        AnchorHandle = Item->AddFieldValueChangedDelegate(UItemViewModel::FFieldNotificationClassDescriptor::GetAnchorCell, Callback);
-        RotationHandle = Item->AddFieldValueChangedDelegate(UItemViewModel::FFieldNotificationClassDescriptor::IsRotated, Callback);
+        ChangedHandle = Item->OnChanged().AddUObject(this, &ThisClass::Refresh);
     }
+    else { ChangedHandle.Reset(); }
     Refresh();
 }
-
-void UInventoryItemWidget::OnFieldChanged(UObject*, UE::FieldNotification::FFieldId) { Refresh(); }
 
 void UInventoryItemWidget::Refresh()
 {

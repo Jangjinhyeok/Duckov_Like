@@ -17,15 +17,15 @@ public:
     virtual void NativeDestruct() override;
     virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 private:
+#if WITH_DEV_AUTOMATION_TESTS
+    friend struct FInventoryItemWidgetTestAccess;
+#endif
     UPROPERTY(meta=(BindWidget))
     TObjectPtr<UTextBlock> ItemText;
     UPROPERTY(Transient)
     TObjectPtr<UItemViewModel> Item;
     TWeakObjectPtr<UInventoryScreenWidget> Screen;
     FName ContainerId;
-    FDelegateHandle QuantityHandle;
-    FDelegateHandle AnchorHandle;
-    FDelegateHandle RotationHandle;
+    FDelegateHandle ChangedHandle;
     void Refresh();
-    void OnFieldChanged(UObject*, UE::FieldNotification::FFieldId);
 };

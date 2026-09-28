@@ -9,6 +9,12 @@
 #include "ItemViewModel.h"
 #include "ItemDefinitionRow.h"
 #include "UObject/StrongObjectPtr.h"
+#if WITH_EDITOR
+#include "InventoryPerformanceProbe.h"
+#include "Components/CanvasPanel.h"
+#include "Components/CanvasPanelSlot.h"
+#include "Components/TextBlock.h"
+#endif
 
 namespace
 {
@@ -31,6 +37,140 @@ struct FInventoryScreenWidgetTestAccess
     static bool Captured(const UInventoryScreenWidget* Screen) { return Screen->bPointerCaptured; }
     static UInteractionViewModel* Interaction(UInventoryScreenWidget* Screen) { return Screen->Interaction; }
 };
+
+#if WITH_EDITOR
+struct FInventoryItemWidgetTestAccess
+{
+    static void SetText(UInventoryItemWidget* Widget, UTextBlock* Text) { Widget->ItemText = Text; }
+};
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(TestUI_ItemNotificationAndRebind, "Duckov.UI.ItemNotificationAndRebind", TestFlags)
+bool TestUI_ItemNotificationAndRebind::RunTest(const FString& Parameters)
+{
+    const int32 OriginalCounter = FItemInstanceIdAllocator::GetNextInstanceId();
+    TStrongObjectPtr<UDataTable> Table(NewObject<UDataTable>());
+    Table->RowStruct = FItemDefinitionRow::StaticStruct();
+    FItemDefinitionRow Definition;
+    Definition.Size = FIntPoint(1, 2);
+    Definition.bStackable = true;
+    Definition.MaxStack = 10;
+    Table->AddRow(TEXT("TestItem"), Definition);
+    FInventorySaveRecord Record;
+    Record.NextInstanceId = 3;
+    auto& Container = Record.Containers.AddDefaulted_GetRef();
+    Container.ContainerId = TEXT("A");
+    Container.GridSize = FIntPoint(6, 6);
+    for (int32 Index = 0; Index < 2; ++Index)
+    {
+        auto& Saved = Container.Items.AddDefaulted_GetRef();
+        Saved.InstanceId = Index + 1;
+        Saved.DefinitionTable = FSoftObjectPath(Table.Get());
+        Saved.DefinitionRowName = TEXT("TestItem");
+        Saved.AnchorCell = FIntPoint(Index * 2, 0);
+        Saved.Quantity = Index == 0 ? 8 : 9;
+    }
+    TStrongObjectPtr<UInventoryModel> Model(NewObject<UInventoryModel>());
+    const bool bLoaded = TestEqual(TEXT("Item notification fixture Load"), Model->Load(Record), EInventorySaveFailure::None);
+    if (!bLoaded)
+    {
+        FItemInstanceIdAllocator::ResetInstanceIdCounter_ForTests(OriginalCounter);
+        return false;
+    }
+    TStrongObjectPtr<UItemViewModel> SourceVM(NewObject<UItemViewModel>());
+    TStrongObjectPtr<UItemViewModel> TargetVM(NewObject<UItemViewModel>());
+    SourceVM->Bind(Model.Get(), TEXT("A"), 1);
+    TargetVM->Bind(Model.Get(), TEXT("A"), 2);
+    TStrongObjectPtr<UCanvasPanel> Canvas(NewObject<UCanvasPanel>());
+    TStrongObjectPtr<UInventoryItemWidget> Widget(NewObject<UInventoryItemWidget>());
+    TStrongObjectPtr<UTextBlock> Label(NewObject<UTextBlock>());
+    FInventoryItemWidgetTestAccess::SetText(Widget.Get(), Label.Get());
+    UCanvasPanelSlot* Slot = Canvas->AddChildToCanvas(Widget.Get());
+    FInventoryPerformanceProbe Probe;
+    Probe.TrackedWidgets.Add(Widget.Get());
+    FInventoryPerformanceProbe* PreviousProbe = GInventoryPerformanceProbe;
+    GInventoryPerformanceProbe = &Probe;
+    Widget->Bind(SourceVM.Get());
+
+    const TArray<UE::FieldNotification::FFieldId> Fields = {
+        UItemViewModel::FFieldNotificationClassDescriptor::IsAvailable,
+        UItemViewModel::FFieldNotificationClassDescriptor::GetInstanceId,
+        UItemViewModel::FFieldNotificationClassDescriptor::GetDefinitionRowName,
+        UItemViewModel::FFieldNotificationClassDescriptor::GetQuantity,
+        UItemViewModel::FFieldNotificationClassDescriptor::GetAnchorCell,
+        UItemViewModel::FFieldNotificationClassDescriptor::IsRotated,
+        UItemViewModel::FFieldNotificationClassDescriptor::GetFootprint
+    };
+    TMap<FName, int32> FieldCounts;
+    TArray<FDelegateHandle> Handles;
+    for (const auto Field : Fields)
+    {
+        Handles.Add(SourceVM->AddFieldValueChangedDelegate(Field,
+            INotifyFieldValueChanged::FFieldValueChangedDelegate::CreateLambda(
+                [&FieldCounts](UObject*, UE::FieldNotification::FFieldId Id) { ++FieldCounts.FindOrAdd(Id.GetName()); })));
+    }
+    Probe.Reset();
+    TestEqual(TEXT("position move 성공"), Model->TryMove(TEXT("A"), TEXT("A"), 1, FIntPoint(0, 2), false),
+        EInventoryOperationFailure::None);
+    SourceVM->NotifyChanged();
+    TestEqual(TEXT("position Widget Refresh 1"), Probe.ItemRefresh, 1);
+    TestTrue(TEXT("position Widget 위치"), Slot && Slot->GetPosition() == FVector2D(0.f, 104.f));
+    TestTrue(TEXT("position Widget 크기 유지"), Slot && Slot->GetSize() == FVector2D(48.f, 100.f));
+    TestTrue(TEXT("position quantity text 유지"), Label->GetText().ToString().Contains(TEXT("x8")));
+    TestTrue(TEXT("position tooltip 크기/수량 유지"), Widget->GetToolTipText().ToString().Contains(TEXT("1 × 2"))
+        && Widget->GetToolTipText().ToString().Contains(TEXT("수량 8")));
+    for (const auto Field : Fields)
+    {
+        TestEqual(FString::Printf(TEXT("독립 FieldNotify %s"), *Field.GetName().ToString()),
+            FieldCounts.FindRef(Field.GetName()), 1);
+    }
+    for (int32 Index = 0; Index < Fields.Num(); ++Index)
+    {
+        SourceVM->RemoveFieldValueChangedDelegate(Fields[Index], Handles[Index]);
+    }
+
+    Probe.Reset();
+    TestEqual(TEXT("rotation move 성공"), Model->TryMove(TEXT("A"), TEXT("A"), 1, FIntPoint(1, 2), true),
+        EInventoryOperationFailure::None);
+    SourceVM->NotifyChanged();
+    TestEqual(TEXT("rotation Widget Refresh 1"), Probe.ItemRefresh, 1);
+    TestTrue(TEXT("rotation Widget 위치/크기"), Slot && Slot->GetPosition() == FVector2D(52.f, 104.f)
+        && Slot->GetSize() == FVector2D(100.f, 48.f));
+    TestTrue(TEXT("rotation tooltip 크기"), Widget->GetToolTipText().ToString().Contains(TEXT("2 × 1")));
+
+    Probe.Reset();
+    TestEqual(TEXT("partial stack 성공"), Model->TryStack(TEXT("A"), TEXT("A"), 1, 2),
+        EInventoryOperationFailure::None);
+    SourceVM->NotifyChanged();
+    TestEqual(TEXT("quantity Widget Refresh 1"), Probe.ItemRefresh, 1);
+    TestTrue(TEXT("quantity Widget text"), Label->GetText().ToString().Contains(TEXT("x7")));
+    TestTrue(TEXT("quantity Widget tooltip"), Widget->GetToolTipText().ToString().Contains(TEXT("수량 7")));
+
+    Widget->Bind(TargetVM.Get());
+    Widget->Bind(TargetVM.Get());
+    TestFalse(TEXT("rebind 이전 VM event 해제"), SourceVM->OnChanged().IsBound());
+    Probe.Reset();
+    SourceVM->NotifyChanged();
+    TestEqual(TEXT("stale VM Widget Refresh 0"), Probe.ItemRefresh, 0);
+    TargetVM->NotifyChanged();
+    TestEqual(TEXT("rebind 중복 구독 없음"), Probe.ItemRefresh, 1);
+    TestTrue(TEXT("rebind 새 VM quantity"), Label->GetText().ToString().Contains(TEXT("x10")));
+
+    FInventorySaveRecord Empty = Record;
+    Empty.Containers[0].Items.Reset();
+    TestEqual(TEXT("removal fixture Load"), Model->Load(Empty), EInventorySaveFailure::None);
+    Probe.Reset();
+    TargetVM->NotifyChanged();
+    TestEqual(TEXT("removal Widget Refresh 1"), Probe.ItemRefresh, 1);
+    TestFalse(TEXT("removal VM unavailable"), TargetVM->IsAvailable());
+    TestTrue(TEXT("removal Widget text 비움"), Label->GetText().IsEmpty());
+    TestTrue(TEXT("removal Widget tooltip 비움"), Widget->GetToolTipText().IsEmpty());
+    Widget->Bind(nullptr);
+    TestFalse(TEXT("unbind VM event 해제"), TargetVM->OnChanged().IsBound());
+    GInventoryPerformanceProbe = PreviousProbe;
+    FItemInstanceIdAllocator::ResetInstanceIdCounter_ForTests(OriginalCounter);
+    return bLoaded;
+}
+#endif
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(TestUI_GridPixelBoundaries, "Duckov.UI.GridPixelBoundaries", TestFlags)
 bool TestUI_GridPixelBoundaries::RunTest(const FString& Parameters)

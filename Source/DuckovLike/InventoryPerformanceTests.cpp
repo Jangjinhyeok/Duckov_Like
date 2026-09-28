@@ -11,6 +11,8 @@
 #include "ItemViewModel.h"
 #include "ItemDefinitionRow.h"
 #include "Components/CanvasPanel.h"
+#include "Components/CanvasPanelSlot.h"
+#include "Components/TextBlock.h"
 #include "Editor.h"
 #include "Engine/DataTable.h"
 #include "Framework/Application/SlateApplication.h"
@@ -51,6 +53,8 @@ struct FInventoryPerformanceScene
     double ColdOpenMs = 0.0;
     TArray<double> MoveMs;
     TArray<double> NonTailMoveMs;
+    TArray<double> RotationMoveMs;
+    TArray<double> QuantityStackMs;
     TArray<double> SortMs;
     int32 ItemsNotifications = 0;
     FDelegateHandle ItemsHandle;
@@ -101,7 +105,9 @@ void LogTimes(const TCHAR* Name, TArray<double> Samples)
         Name, Count, Median, P95, Samples[0], Samples.Last());
 }
 
-FInventorySaveRecord MakeRecord(UDataTable* Table, bool bReverse)
+enum class EFixture { Default, Rotation, Quantity };
+
+FInventorySaveRecord MakeRecord(UDataTable* Table, bool bReverse, EFixture Fixture = EFixture::Default)
 {
     FInventorySaveRecord Record;
     Record.NextInstanceId = ItemCount + 2;
@@ -114,8 +120,11 @@ FInventorySaveRecord MakeRecord(UDataTable* Table, bool bReverse)
         auto& Item = Stash.Items.AddDefaulted_GetRef();
         Item.InstanceId = bReverse ? ItemCount - Index : Index + 1;
         Item.DefinitionTable = Path;
-        Item.DefinitionRowName = TEXT("OneCell");
-        Item.AnchorCell = FIntPoint(Index % 20, Index / 20);
+        Item.DefinitionRowName = Fixture == EFixture::Rotation && Index == 0 ? TEXT("TwoCells")
+            : Fixture == EFixture::Quantity && Index < 2 ? TEXT("StackCell") : TEXT("OneCell");
+        Item.Quantity = Fixture == EFixture::Quantity && Index < 2 ? (Index == 0 ? 8 : 9) : 1;
+        Item.AnchorCell = Fixture == EFixture::Rotation && Index == 0
+            ? FIntPoint(10, 10) : FIntPoint(Index % 20, Index / 20);
     }
     auto& Bag = Record.Containers.AddDefaulted_GetRef();
     Bag.ContainerId = TEXT("Bag");
@@ -131,6 +140,17 @@ int32 CountItemWidgets(const UCanvasPanel* Canvas)
         Count += Cast<UInventoryItemWidget>(Canvas->GetChildAt(Index)) != nullptr;
     }
     return Count;
+}
+
+UInventoryItemWidget* FindItemWidgetAt(UCanvasPanel* Canvas, FIntPoint Anchor)
+{
+    for (int32 Index = 0; Canvas && Index < Canvas->GetChildrenCount(); ++Index)
+    {
+        UInventoryItemWidget* Widget = Cast<UInventoryItemWidget>(Canvas->GetChildAt(Index));
+        const UCanvasPanelSlot* Slot = Widget ? Cast<UCanvasPanelSlot>(Widget->Slot) : nullptr;
+        if (Slot && Slot->GetPosition() == FVector2D(Anchor.X * 52.f, Anchor.Y * 52.f)) { return Widget; }
+    }
+    return nullptr;
 }
 
 UInventoryScreenWidget* OpenScreen(AInventoryDemoPlayerController* Controller, UInventoryModel* Model)
@@ -158,6 +178,12 @@ bool FInventory100ItemsPerformance::RunTest(const FString& Parameters)
     FItemDefinitionRow Definition;
     Definition.Size = FIntPoint(1, 1);
     Scene->Table->AddRow(TEXT("OneCell"), Definition);
+    Definition.Size = FIntPoint(1, 2);
+    Scene->Table->AddRow(TEXT("TwoCells"), Definition);
+    Definition.Size = FIntPoint(1, 1);
+    Definition.bStackable = true;
+    Definition.MaxStack = 10;
+    Scene->Table->AddRow(TEXT("StackCell"), Definition);
     Scene->Record = MakeRecord(Scene->Table.Get(), false);
 
     ADD_LATENT_AUTOMATION_COMMAND(FWaitForCondition(*this, TEXT("데모 PIE controller"), []
@@ -319,6 +345,7 @@ bool FInventory100ItemsPerformance::RunTest(const FString& Parameters)
                 TestEqual(TEXT("hard gate: move Item 제거 0"), Scene->Probe.ItemRemoved, 0);
                 TestTrue(TEXT("localized move Items 목록 불변"), PreviousItems == VM->GetItems());
                 TestEqual(TEXT("localized move 갱신 Widget 1개"), Scene->Probe.RefreshByWidget.Num(), 1);
+                TestEqual(TEXT("hard gate: move Item Refresh 1"), Scene->Probe.ItemRefresh, 1);
                 TestEqual(TEXT("localized move Items notification 0"), Scene->ItemsNotifications, 0);
                 if (Index >= WarmupCount) { (bNonTail ? Scene->NonTailMoveMs : Scene->MoveMs).Add(Ms); }
             }
@@ -329,6 +356,103 @@ bool FInventory100ItemsPerformance::RunTest(const FString& Parameters)
                 Scene->Probe.RefreshByWidget.Num(), Scene->Probe.ItemCreated, Scene->Probe.ItemRemoved,
                 Scene->Probe.BoundItemRefresh, Scene->Probe.UnboundItemRefresh);
         }
+
+        const FInventorySaveRecord Rotation = MakeRecord(Scene->Table.Get(), false, EFixture::Rotation);
+        for (int32 Index = 0; Index < WarmupCount + SampleCount; ++Index)
+        {
+            if (!TestEqual(TEXT("rotation 준비 Load"), Model->Load(Rotation), EInventorySaveFailure::None)) { return; }
+            UItemViewModel* ItemVM = FindItemVM();
+            UInventoryItemWidget* Widget = FindItemWidgetAt(Canvas, FIntPoint(10, 10));
+            if (!TestNotNull(TEXT("rotation 전 Item VM"), ItemVM)
+                || !TestNotNull(TEXT("rotation 전 Item Widget"), Widget)) { return; }
+            Scene->Probe.Reset();
+            Scene->ItemsNotifications = 0;
+            const double Start = FPlatformTime::Seconds();
+            const EInventoryOperationFailure Result = Model->TryMove(TEXT("Stash"), TEXT("Stash"), 1, FIntPoint(12, 10), true);
+            const double Ms = (FPlatformTime::Seconds() - Start) * 1000.0;
+            TestEqual(TEXT("rotation move 성공"), Result, EInventoryOperationFailure::None);
+            TestEqual(TEXT("rotation Item VM 유지"), FindItemVM(), ItemVM);
+            TestEqual(TEXT("rotation Item Widget 유지"), FindItemWidgetAt(Canvas, FIntPoint(12, 10)), Widget);
+            const FItemInstance* Moved = Model->FindItem(TEXT("Stash"), 1);
+            if (!TestNotNull(TEXT("rotation Model item"), Moved)) { return; }
+            TestTrue(TEXT("rotation Model state"), Moved->bRotated);
+            TestEqual(TEXT("rotation VM footprint"), ItemVM->GetFootprint(), FIntPoint(2, 1));
+            const UCanvasPanelSlot* Slot = Cast<UCanvasPanelSlot>(Widget->Slot);
+            TestTrue(TEXT("rotation Widget size"), Slot && Slot->GetSize() == FVector2D(100.f, 48.f));
+            TestTrue(TEXT("rotation tooltip size"), Widget->GetToolTipText().ToString().Contains(TEXT("2 × 1")));
+            TestEqual(TEXT("rotation Grid Refresh"), Scene->Probe.GridRefresh, 0);
+            TestEqual(TEXT("rotation Item Refresh"), Scene->Probe.ItemRefresh, 1);
+            TestEqual(TEXT("rotation 갱신 Widget 1개"), Scene->Probe.RefreshByWidget.Num(), 1);
+            TestEqual(TEXT("rotation Widget 생성"), Scene->Probe.ItemCreated, 0);
+            TestEqual(TEXT("rotation Widget 제거"), Scene->Probe.ItemRemoved, 0);
+            TestEqual(TEXT("rotation Items notification"), Scene->ItemsNotifications, 0);
+            if (Index >= WarmupCount) { Scene->RotationMoveMs.Add(Ms); }
+        }
+        LogTimes(TEXT("rotation move operation"), Scene->RotationMoveMs);
+        UE_LOG(LogTemp, Display, TEXT("Inventory100Items rotation last: gridRefresh=%d itemRefresh=%d distinctItems=%d created=%d removed=%d"),
+            Scene->Probe.GridRefresh, Scene->Probe.ItemRefresh, Scene->Probe.RefreshByWidget.Num(),
+            Scene->Probe.ItemCreated, Scene->Probe.ItemRemoved);
+
+        const FInventorySaveRecord Quantity = MakeRecord(Scene->Table.Get(), false, EFixture::Quantity);
+        for (int32 Index = 0; Index < WarmupCount + SampleCount; ++Index)
+        {
+            if (!TestEqual(TEXT("quantity 준비 Load"), Model->Load(Quantity), EInventorySaveFailure::None)) { return; }
+            UInventoryItemWidget* SourceWidget = FindItemWidgetAt(Canvas, FIntPoint(0, 0));
+            UInventoryItemWidget* TargetWidget = FindItemWidgetAt(Canvas, FIntPoint(1, 0));
+            const auto PreviousItems = VM->GetItems();
+            UItemViewModel* SourceVM = FindItemVM();
+            const auto* TargetFound = PreviousItems.FindByPredicate([](const auto& Item) { return Item->GetInstanceId() == 2; });
+            UItemViewModel* TargetVM = TargetFound ? TargetFound->Get() : nullptr;
+            if (!TestNotNull(TEXT("quantity source Widget"), SourceWidget)
+                || !TestNotNull(TEXT("quantity target Widget"), TargetWidget)
+                || !TestNotNull(TEXT("quantity source VM"), SourceVM)
+                || !TestNotNull(TEXT("quantity target VM"), TargetVM)) { return; }
+            Scene->Probe.Reset();
+            Scene->ItemsNotifications = 0;
+            const double Start = FPlatformTime::Seconds();
+            const EInventoryOperationFailure Result = Model->TryStack(TEXT("Stash"), TEXT("Stash"), 1, 2);
+            const double Ms = (FPlatformTime::Seconds() - Start) * 1000.0;
+            TestEqual(TEXT("quantity partial stack 성공"), Result, EInventoryOperationFailure::None);
+            const FItemInstance* Source = Model->FindItem(TEXT("Stash"), 1);
+            const FItemInstance* Target = Model->FindItem(TEXT("Stash"), 2);
+            if (!TestNotNull(TEXT("quantity source 유지"), Source)
+                || !TestNotNull(TEXT("quantity target 유지"), Target)) { return; }
+            TestEqual(TEXT("quantity source Model"), Source->Quantity, 7);
+            TestEqual(TEXT("quantity target Model"), Target->Quantity, 10);
+            TestEqual(TEXT("quantity Item count 유지"), Model->FindContainer(TEXT("Stash"))->Items.Num(), ItemCount);
+            const auto* CurrentTarget = VM->GetItems().FindByPredicate(
+                [](const auto& Item) { return Item->GetInstanceId() == 2; });
+            TestTrue(TEXT("quantity Items 목록/VM identity 유지"), PreviousItems == VM->GetItems()
+                && FindItemVM() == SourceVM && CurrentTarget && CurrentTarget->Get() == TargetVM);
+            TestEqual(TEXT("quantity source Widget 유지"), FindItemWidgetAt(Canvas, FIntPoint(0, 0)), SourceWidget);
+            TestEqual(TEXT("quantity target Widget 유지"), FindItemWidgetAt(Canvas, FIntPoint(1, 0)), TargetWidget);
+            const UCanvasPanelSlot* SourceSlot = Cast<UCanvasPanelSlot>(SourceWidget->Slot);
+            const UCanvasPanelSlot* TargetSlot = Cast<UCanvasPanelSlot>(TargetWidget->Slot);
+            TestTrue(TEXT("quantity Widget 위치/크기 유지"), SourceSlot && TargetSlot
+                && SourceSlot->GetPosition() == FVector2D::ZeroVector
+                && TargetSlot->GetPosition() == FVector2D(52.f, 0.f)
+                && SourceSlot->GetSize() == FVector2D(48.f, 48.f)
+                && TargetSlot->GetSize() == FVector2D(48.f, 48.f));
+            UTextBlock* SourceText = Cast<UTextBlock>(SourceWidget->GetWidgetFromName(TEXT("ItemText")));
+            UTextBlock* TargetText = Cast<UTextBlock>(TargetWidget->GetWidgetFromName(TEXT("ItemText")));
+            TestTrue(TEXT("quantity source text"), SourceText && SourceText->GetText().ToString().Contains(TEXT("x7")));
+            TestTrue(TEXT("quantity target text"), TargetText && TargetText->GetText().ToString().Contains(TEXT("x10")));
+            TestTrue(TEXT("quantity source tooltip"), SourceWidget->GetToolTipText().ToString().Contains(TEXT("수량 7")));
+            TestTrue(TEXT("quantity target tooltip"), TargetWidget->GetToolTipText().ToString().Contains(TEXT("수량 10")));
+            TestEqual(TEXT("quantity Grid Refresh"), Scene->Probe.GridRefresh, 0);
+            TestEqual(TEXT("quantity Item Refresh"), Scene->Probe.ItemRefresh, 2);
+            TestEqual(TEXT("quantity 갱신 Widget 2개"), Scene->Probe.RefreshByWidget.Num(), 2);
+            TestEqual(TEXT("quantity source Refresh"), Scene->Probe.RefreshByWidget.FindRef(SourceWidget), 1);
+            TestEqual(TEXT("quantity target Refresh"), Scene->Probe.RefreshByWidget.FindRef(TargetWidget), 1);
+            TestEqual(TEXT("quantity Widget 생성"), Scene->Probe.ItemCreated, 0);
+            TestEqual(TEXT("quantity Widget 제거"), Scene->Probe.ItemRemoved, 0);
+            TestEqual(TEXT("quantity Items notification"), Scene->ItemsNotifications, 0);
+            if (Index >= WarmupCount) { Scene->QuantityStackMs.Add(Ms); }
+        }
+        LogTimes(TEXT("quantity partial stack operation"), Scene->QuantityStackMs);
+        UE_LOG(LogTemp, Display, TEXT("Inventory100Items quantity last: gridRefresh=%d itemRefresh=%d distinctItems=%d created=%d removed=%d"),
+            Scene->Probe.GridRefresh, Scene->Probe.ItemRefresh, Scene->Probe.RefreshByWidget.Num(),
+            Scene->Probe.ItemCreated, Scene->Probe.ItemRemoved);
 
         const FInventorySaveRecord Reverse = MakeRecord(Scene->Table.Get(), true);
         for (int32 Index = 0; Index < WarmupCount + SampleCount; ++Index)

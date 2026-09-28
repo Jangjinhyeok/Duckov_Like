@@ -13,8 +13,12 @@ class DUCKOVLIKE_API UItemViewModel : public UMVVMViewModelBase
     GENERATED_BODY()
 
 public:
+    DECLARE_EVENT(UItemViewModel, FOnChanged);
+
     void Bind(UInventoryModel* InModel, FName InContainerId, int32 InInstanceId);
     void NotifyChanged();
+    // FieldNotify 완료 후 native View 소비자에게 한 번 알린다.
+    FOnChanged& OnChanged() { return Changed; }
 
     UFUNCTION(BlueprintPure, FieldNotify, Category="Inventory")
     bool IsAvailable() const;
@@ -36,5 +40,6 @@ private:
     TWeakObjectPtr<UInventoryModel> Model;
     FName ContainerId;
     int32 InstanceId = INDEX_NONE;
+    FOnChanged Changed;
     const FItemInstance* FindItem() const;
 };
