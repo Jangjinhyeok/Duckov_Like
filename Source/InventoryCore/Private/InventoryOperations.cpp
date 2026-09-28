@@ -164,6 +164,13 @@ EInventoryOperationFailure FInventoryOperations::TryMove(
     FItemInstance MovedItem = SourceContainer.Items[SourceIndex];
     MovedItem.AnchorCell = DestAnchorCell;
     MovedItem.bRotated = bDestRotated;
+    if (&SourceContainer == &DestContainer)
+    {
+        SourceContainer.Items[SourceIndex] = MoveTemp(MovedItem);
+        FInventoryPlacement::RebuildOccupancyCache(SourceContainer);
+        return EInventoryOperationFailure::None;
+    }
+
     SourceContainer.Items.RemoveAt(SourceIndex);
     DestContainer.Items.Add(MovedItem);
     FInventoryPlacement::RebuildOccupancyCache(SourceContainer);

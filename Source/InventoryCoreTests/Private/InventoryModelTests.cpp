@@ -95,6 +95,67 @@ bool TestModel_ChangeSetAndReentry::RunTest(const FString& Parameters)
     return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    TestModel_NonTailMoveChangeSetAndSortOrder,
+    "Duckov.InventoryCore.Model.NonTailMoveChangeSetAndSortOrder",
+    TestFlags)
+bool TestModel_NonTailMoveChangeSetAndSortOrder::RunTest(const FString& Parameters)
+{
+    FModelFixture F;
+    F.Record.Containers[0].Items[0].InstanceId = 4;
+    FInventoryItemSaveRecord Second = F.Record.Containers[0].Items[0];
+    Second.InstanceId = 3;
+    Second.AnchorCell = FIntPoint(1, 0);
+    F.Record.Containers[0].Items.Add(Second);
+    FInventoryItemSaveRecord Third = Second;
+    Third.InstanceId = 1;
+    Third.AnchorCell = FIntPoint(2, 0);
+    F.Record.Containers[0].Items.Add(Third);
+    if (!TestEqual(TEXT("세 Item fixture load 성공"), F.Model->Load(F.Record), EInventorySaveFailure::None))
+    {
+        return false;
+    }
+
+    int32 Calls = 0;
+    FInventoryChangeSet Last;
+    F.Model->OnChanged().AddLambda([&](const FInventoryChangeSet& Change) { ++Calls; Last = Change; });
+    const EInventoryOperationFailure MoveResult = F.Model->TryMove(
+        TEXT("A"), TEXT("A"), 4, FIntPoint(1, 2), true);
+    if (!TestEqual(TEXT("첫 Item의 동일 Container 이동 성공"), MoveResult, EInventoryOperationFailure::None))
+    {
+        return false;
+    }
+    const FInventoryContainer* Container = F.Model->FindContainer(TEXT("A"));
+    if (!TestNotNull(TEXT("이동 후 Container 존재"), Container)) { return false; }
+    if (!TestEqual(TEXT("이동 후 Item 수"), Container->Items.Num(), 3)) { return false; }
+    TestEqual(TEXT("이동 후 알림 한 번"), Calls, 1);
+    TestTrue(TEXT("이동 후 배열 순서 유지"), TArray<int32>{
+        Container->Items[0].InstanceId, Container->Items[1].InstanceId, Container->Items[2].InstanceId
+    } == TArray<int32>{4, 3, 1});
+    TestEqual(TEXT("이동 후 위치"), Container->Items[0].AnchorCell, FIntPoint(1, 2));
+    TestTrue(TEXT("이동 후 회전"), Container->Items[0].bRotated);
+    if (!TestEqual(TEXT("이동 ChangeSet은 Container 하나"), Last.Containers.Num(), 1)) { return false; }
+    const FInventoryContainerChange& Move = Last.Containers[0];
+    TestTrue(TEXT("이동 Item만 Updated"), Move.Updated == TArray<int32>{4});
+    TestTrue(TEXT("이동 시 Added 없음"), Move.Added.IsEmpty());
+    TestTrue(TEXT("이동 시 Removed 없음"), Move.Removed.IsEmpty());
+    TestFalse(TEXT("이동 시 순서 변경 없음"), Move.bOrderChanged);
+    TestFalse(TEXT("이동 시 GridSize 변경 없음"), Move.bGridSizeChanged);
+    TestFalse(TEXT("이동 시 Reset 없음"), Last.bReset);
+
+    TestEqual(TEXT("명시적 Sort 성공"), F.Model->TrySort(TEXT("A")), EInventoryOperationFailure::None);
+    Container = F.Model->FindContainer(TEXT("A"));
+    if (!TestNotNull(TEXT("Sort 후 Container 존재"), Container)) { return false; }
+    if (!TestEqual(TEXT("Sort 후 Item 수"), Container->Items.Num(), 3)) { return false; }
+    TestEqual(TEXT("Sort 알림 추가"), Calls, 2);
+    TestTrue(TEXT("Sort가 ID 순서 변경"), TArray<int32>{
+        Container->Items[0].InstanceId, Container->Items[1].InstanceId, Container->Items[2].InstanceId
+    } == TArray<int32>{1, 3, 4});
+    if (!TestEqual(TEXT("Sort ChangeSet은 Container 하나"), Last.Containers.Num(), 1)) { return false; }
+    TestTrue(TEXT("Sort 순서 변경 알림"), Last.Containers[0].bOrderChanged);
+    return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(TestModel_SortResizeStackReset, "Duckov.InventoryCore.Model.SortResizeStackReset", TestFlags)
 bool TestModel_SortResizeStackReset::RunTest(const FString& Parameters)
 {
