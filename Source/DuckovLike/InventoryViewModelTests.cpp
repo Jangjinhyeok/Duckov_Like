@@ -8,6 +8,8 @@
 #include "ItemViewModel.h"
 #include "UObject/StrongObjectPtr.h"
 
+namespace InventoryViewModelTests
+{
 namespace
 {
 constexpr EAutomationTestFlags TestFlags = EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter;
@@ -231,5 +233,6 @@ bool TestVM_CommandRevalidatesFailureText::RunTest(const FString& Parameters)
     TestFalse(TEXT("preview 실패 문구 일치"), F.Interaction->GetFailureText().IsEmpty());
     TestTrue(TEXT("실패 preview는 drag 유지"), F.Interaction->IsDragging());
     return true;
+}
 }
 #endif

@@ -2,6 +2,7 @@
 
 #include "InventoryOperations.h"
 #include "InventoryPlacement.h"
+#include "InventoryPlacementInternal.h"
 #include "ItemDefinitionRow.h"
 
 namespace
@@ -122,6 +123,45 @@ EInventoryOperationFailure UInventoryModel::TryMove(FName Source, FName Target, 
     return Apply(Source, Target, [=](auto& From, auto& To)
     {
         return FInventoryOperations::TryMove(From, To, InstanceId, Anchor, bRotated);
+    });
+}
+
+EInventoryOperationFailure UInventoryModel::TryTransferAll(FName Source, FName Target)
+{
+    return Apply(Source, Target, [](FInventoryContainer& From, FInventoryContainer& To)
+    {
+        if (&From == &To) { return EInventoryOperationFailure::InvalidContainer; }
+        if (From.Items.IsEmpty()) { return EInventoryOperationFailure::None; }
+
+        FInventoryContainer PlannedTarget = To;
+        for (FItemInstance Item : From.Items)
+        {
+            FIntPoint Footprint;
+            if (!InventoryPlacementInternal::TryGetFootprint(Item, Footprint) ||
+                Footprint.X <= 0 || Footprint.Y <= 0)
+            {
+                return EInventoryOperationFailure::NoSpace;
+            }
+            bool bPlaced = false;
+            for (int32 Y = 0; Y <= To.GridSize.Y - Footprint.Y && !bPlaced; ++Y)
+            {
+                for (int32 X = 0; X <= To.GridSize.X - Footprint.X; ++X)
+                {
+                    Item.AnchorCell = FIntPoint(X, Y);
+                    if (FInventoryPlacement::TryPlace(PlannedTarget, Item) == EInventoryOperationFailure::None)
+                    {
+                        bPlaced = true;
+                        break;
+                    }
+                }
+            }
+            if (!bPlaced) { return EInventoryOperationFailure::NoSpace; }
+        }
+
+        FInventoryContainer PlannedSource = FInventoryContainer::MakeEmpty(From.GridSize);
+        From = MoveTemp(PlannedSource);
+        To = MoveTemp(PlannedTarget);
+        return EInventoryOperationFailure::None;
     });
 }
 

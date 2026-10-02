@@ -23,6 +23,8 @@
 #include "Tests/AutomationEditorCommon.h"
 #include "UObject/UnrealType.h"
 
+namespace WorldLootTests
+{
 namespace
 {
 constexpr EAutomationTestFlags Flags = EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter;
@@ -283,5 +285,6 @@ bool FVerifyWorldLootMap::RunTest(const FString& Parameters)
     }
     TestEqual(TEXT("배치된 loot 4개"), Found, DemoLootCount);
     return !HasAnyErrors();
+}
 }
 #endif

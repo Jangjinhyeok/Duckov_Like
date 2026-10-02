@@ -9,6 +9,27 @@
 class UInventoryModel;
 class UInventoryScreenWidget;
 class AWorldLootActor;
+class AStaticMeshActor;
+class URaidStatusWidget;
+
+UENUM(BlueprintType)
+enum class ERaidDemoPhase : uint8
+{
+    Disabled,
+    Preparation,
+    InRaid,
+};
+
+UENUM(BlueprintType)
+enum class ERaidDemoFailure : uint8
+{
+    None,
+    InvalidPhase,
+    OperationInProgress,
+    WorldUnavailable,
+    OutsideExtraction,
+    InventoryBlocked,
+};
 
 UCLASS()
 class DUCKOVLIKE_API AInventoryDemoPlayerController : public APlayerController
@@ -24,12 +45,38 @@ public:
     EInventoryOperationFailure TryPickupLoot(AWorldLootActor* Loot);
     UFUNCTION(Exec)
     void PickupNearestLoot();
+    UFUNCTION(Exec)
+    void StartRaidDemo();
+    UFUNCTION(Exec)
+    void EnterRaid();
+    UFUNCTION(Exec)
+    void ExtractRaid();
+    ERaidDemoFailure TryStartRaidDemo();
+    ERaidDemoFailure TryEnterRaid();
+    ERaidDemoFailure TryExtractRaid();
+    ERaidDemoPhase GetRaidPhase() const { return RaidPhase; }
+    int32 GetCompletedRaidCount() const { return CompletedRaidCount; }
 private:
     UPROPERTY(Transient)
     TObjectPtr<UInventoryModel> Model;
     UPROPERTY(Transient)
     TObjectPtr<UInventoryScreenWidget> Screen;
+    UPROPERTY(Transient)
+    TObjectPtr<URaidStatusWidget> RaidStatus;
+    UPROPERTY(Transient)
+    TObjectPtr<AStaticMeshActor> ExtractionPoint;
+    UPROPERTY(Transient)
+    TArray<TObjectPtr<AWorldLootActor>> RaidLootTemplates;
+    UPROPERTY(Transient)
+    TArray<TObjectPtr<AWorldLootActor>> RaidLoot;
+    ERaidDemoPhase RaidPhase = ERaidDemoPhase::Disabled;
+    EInventoryOperationFailure LastExtractionFailure = EInventoryOperationFailure::None;
+    int32 CompletedRaidCount = 0;
+    bool bRaidTransitionInProgress = false;
     FTimerHandle RestoreInputHandle;
+    void DestroyRaidLoot();
+    void UpdateRaidStatus(const FText& Notice = FText::GetEmpty());
+    void ShowRaidResult(ERaidDemoFailure Result);
     void OnScreenDeactivated();
     void RestoreGameInput();
 };

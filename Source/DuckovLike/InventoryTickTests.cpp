@@ -24,6 +24,8 @@
 
 FInventoryTickProbe* GInventoryTickProbe = nullptr;
 
+namespace InventoryTickTests
+{
 namespace
 {
 constexpr EAutomationTestFlags Flags = EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter;
@@ -320,5 +322,6 @@ bool FInventoryNoPersistentTick::RunTest(const FString& Parameters)
     ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
     ADD_LATENT_AUTOMATION_COMMAND(FWaitForCondition(*this, TEXT("PIE 종료"), [] { return !GEditor || !GEditor->PlayWorld; }));
     return true;
+}
 }
 #endif

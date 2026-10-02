@@ -14,6 +14,7 @@
 #include "InteractionViewModel.h"
 #include "InventoryGridWidget.h"
 #include "InventoryModel.h"
+#include "InventoryDemoPlayerController.h"
 #include "Input/UIActionBindingHandle.h"
 #include "ItemViewModel.h"
 #include "Framework/Application/SlateApplication.h"
@@ -47,6 +48,28 @@ UInventoryScreenWidget::UInventoryScreenWidget(const FObjectInitializer& ObjectI
 
 void UInventoryScreenWidget::SetSession(UInventoryModel* InModel) { Model = InModel; }
 
+void UInventoryScreenWidget::SetStashAccessible(bool bAccessible)
+{
+    if (bStashAccessible == bAccessible) { return; }
+    bStashAccessible = bAccessible;
+    if (IsActivated())
+    {
+        CloseSplitDialog();
+        CancelItemDrag();
+        RefreshStashAccess();
+    }
+}
+
+void UInventoryScreenWidget::RefreshStashAccess()
+{
+    LeftVM->Bind(bStashAccessible ? Model.Get() : nullptr, TEXT("Stash"));
+    LeftGrid->SetTitle(bStashAccessible ? NSLOCTEXT("Inventory", "Stash", "보관함")
+        : NSLOCTEXT("Inventory", "StashUnavailableInRaid", "Raid 중 보관함 사용 불가"));
+    LeftGrid->Bind(bStashAccessible ? LeftVM.Get() : nullptr, this, TEXT("Stash"));
+    LeftGrid->SetIsEnabled(bStashAccessible);
+    SortLeftButton->SetIsEnabled(bStashAccessible);
+}
+
 void UInventoryScreenWidget::NativeOnActivated()
 {
     Super::NativeOnActivated();
@@ -54,7 +77,6 @@ void UInventoryScreenWidget::NativeOnActivated()
     if (!LeftVM) { LeftVM = NewObject<UContainerViewModel>(this); }
     if (!RightVM) { RightVM = NewObject<UContainerViewModel>(this); }
     if (!Interaction) { Interaction = NewObject<UInteractionViewModel>(this); }
-    LeftVM->Bind(Model, TEXT("Stash"));
     RightVM->Bind(Model, TEXT("Bag"));
     Interaction->Bind(Model);
     if (!FailureText)
@@ -73,9 +95,8 @@ void UInventoryScreenWidget::NativeOnActivated()
         }
     }
     CreateSplitDialog();
-    LeftGrid->SetTitle(NSLOCTEXT("Inventory", "Stash", "보관함"));
+    RefreshStashAccess();
     RightGrid->SetTitle(NSLOCTEXT("Inventory", "Bag", "가방"));
-    LeftGrid->Bind(LeftVM, this, TEXT("Stash"));
     RightGrid->Bind(RightVM, this, TEXT("Bag"));
     const auto Callback = INotifyFieldValueChanged::FFieldValueChangedDelegate::CreateUObject(this, &ThisClass::OnDragStateChanged);
     DragStateHandle = Interaction->AddFieldValueChangedDelegate(
@@ -133,6 +154,16 @@ FReply UInventoryScreenWidget::NativeOnKeyDown(const FGeometry& InGeometry, cons
             return FReply::Handled();
         }
         return Super::NativeOnKeyDown(InGeometry, InKeyEvent);
+    }
+    if (InKeyEvent.GetKey() == EKeys::F5 || InKeyEvent.GetKey() == EKeys::F6)
+    {
+        AInventoryDemoPlayerController* Controller = Cast<AInventoryDemoPlayerController>(GetOwningPlayer());
+        if (Controller && Controller->GetRaidPhase() != ERaidDemoPhase::Disabled)
+        {
+            if (InKeyEvent.GetKey() == EKeys::F5) { Controller->EnterRaid(); }
+            else { Controller->ExtractRaid(); }
+            return FReply::Handled();
+        }
     }
     if (Interaction && Interaction->IsDragging() && InKeyEvent.GetKey() == EKeys::R)
     {
@@ -208,7 +239,8 @@ void UInventoryScreenWidget::NativeOnMouseCaptureLost(const FCaptureLostEvent& C
 bool UInventoryScreenWidget::BeginItemDrag(FName Source, UItemViewModel* Item,
     const FGeometry& ItemGeometry, FVector2D AbsolutePosition)
 {
-    if (!IsActivated() || SplitSourceItem.IsValid() || !Interaction || !Item || !Item->IsAvailable()) { return false; }
+    if (!IsActivated() || SplitSourceItem.IsValid() || !Interaction || !Item || !Item->IsAvailable()
+        || (Source == TEXT("Stash") && !bStashAccessible)) { return false; }
     const FVector2D Local = ItemGeometry.AbsoluteToLocal(AbsolutePosition);
     const FIntPoint Size = Item->GetFootprint();
     PointerOffset = FIntPoint(FMath::Clamp(FMath::FloorToInt(Local.X / 52.f), 0, FMath::Max(0, Size.X - 1)),
@@ -235,7 +267,7 @@ void UInventoryScreenWidget::UpdateItemDrag(FVector2D AbsolutePosition)
     if (!Interaction || !Interaction->IsDragging()) { return; }
     LastPointerPosition = AbsolutePosition;
     FIntPoint Cell;
-    if (LeftGrid && LeftGrid->TryGetCell(AbsolutePosition, Cell))
+    if (bStashAccessible && LeftGrid && LeftGrid->TryGetCell(AbsolutePosition, Cell))
     {
         Interaction->Preview(TEXT("Stash"), Cell - PointerOffset);
     }
@@ -370,7 +402,8 @@ bool UInventoryScreenWidget::OpenSplitDialog(FName Source, UItemViewModel* Item)
 {
     if (!IsActivated() || !Interaction || !SplitOverlay || SplitSourceItem.IsValid()
         || Interaction->IsDragging() || !Item || !Item->IsAvailable() || Item->GetQuantity() < 2
-        || (Source != TEXT("Stash") && Source != TEXT("Bag")))
+        || (Source != TEXT("Stash") && Source != TEXT("Bag"))
+        || (Source == TEXT("Stash") && !bStashAccessible))
     {
         return false;
     }
@@ -402,10 +435,10 @@ void UInventoryScreenWidget::CloseSplitDialog()
     SplitSourceId = INDEX_NONE;
     if (!SplitOverlay) { return; }
     SplitOverlay->SetVisibility(ESlateVisibility::Collapsed);
-    if (LeftGrid) { LeftGrid->SetIsEnabled(true); }
+    if (LeftGrid) { LeftGrid->SetIsEnabled(bStashAccessible); }
     if (RightGrid) { RightGrid->SetIsEnabled(true); }
     if (CloseButton) { CloseButton->SetIsEnabled(true); }
-    if (SortLeftButton) { SortLeftButton->SetIsEnabled(true); }
+    if (SortLeftButton) { SortLeftButton->SetIsEnabled(bStashAccessible); }
     if (SortRightButton) { SortRightButton->SetIsEnabled(true); }
     if (IsActivated() && CloseButton)
     {
@@ -487,5 +520,5 @@ TOptional<FUIInputConfig> UInventoryScreenWidget::GetDesiredInputConfig() const
     return FUIInputConfig(ECommonInputMode::Menu, EMouseCaptureMode::NoCapture);
 }
 void UInventoryScreenWidget::Close() { DeactivateWidget(); }
-void UInventoryScreenWidget::SortLeft() { if (Interaction && !SplitSourceItem.IsValid()) { Interaction->Sort(TEXT("Stash")); } }
+void UInventoryScreenWidget::SortLeft() { if (bStashAccessible && Interaction && !SplitSourceItem.IsValid()) { Interaction->Sort(TEXT("Stash")); } }
 void UInventoryScreenWidget::SortRight() { if (Interaction && !SplitSourceItem.IsValid()) { Interaction->Sort(TEXT("Bag")); } }

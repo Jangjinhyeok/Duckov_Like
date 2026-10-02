@@ -16,9 +16,12 @@
 #include "Components/TextBlock.h"
 #endif
 
+namespace InventoryWidgetTests
+{
 namespace
 {
 constexpr EAutomationTestFlags TestFlags = EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter;
+}
 }
 
 struct FInventoryScreenWidgetTestAccess
@@ -43,6 +46,11 @@ struct FInventoryItemWidgetTestAccess
 {
     static void SetText(UInventoryItemWidget* Widget, UTextBlock* Text) { Widget->ItemText = Text; }
 };
+#endif
+
+namespace InventoryWidgetTests
+{
+#if WITH_EDITOR
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(TestUI_ItemNotificationAndRebind, "Duckov.UI.ItemNotificationAndRebind", TestFlags)
 bool TestUI_ItemNotificationAndRebind::RunTest(const FString& Parameters)
@@ -302,5 +310,6 @@ bool TestUI_ScreenDragState::RunTest(const FString& Parameters)
     TestFalse(TEXT("ESC 경로 drag 취소"), Interaction->IsDragging());
     FItemInstanceIdAllocator::ResetInstanceIdCounter_ForTests(OriginalCounter);
     return true;
+}
 }
 #endif

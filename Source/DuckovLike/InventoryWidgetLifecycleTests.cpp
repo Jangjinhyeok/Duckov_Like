@@ -27,6 +27,8 @@
 #include "Widgets/SWidget.h"
 #include "Widgets/SViewport.h"
 
+namespace InventoryWidgetLifecycleTests
+{
 namespace
 {
 constexpr EAutomationTestFlags Flags = EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter;
@@ -492,5 +494,6 @@ bool FInventoryWidgetPIEInputLifecycle::RunTest(const FString& Parameters)
         FSlateApplication::Get().SetHandleDeviceInputWhenApplicationNotActive(Scene->bOriginalInactiveInput);
     }, 0.f));
     return true;
+}
 }
 #endif

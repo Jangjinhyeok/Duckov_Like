@@ -40,6 +40,8 @@ public:
         FIntPoint Anchor, bool bRotated) const;
     EInventoryOperationFailure TryMove(FName Source, FName Target, int32 InstanceId,
         FIntPoint Anchor, bool bRotated);
+    // 현재 회전으로 전체 항목을 원자적으로 이전한다. 같은 컨테이너는 InvalidContainer다.
+    EInventoryOperationFailure TryTransferAll(FName Source, FName Target);
     EInventoryOperationFailure TryStack(FName Source, FName Target, int32 SourceId, int32 TargetId);
     EInventoryOperationFailure TrySplit(FName ContainerId, int32 InstanceId, int32 Quantity);
     EInventoryOperationFailure TrySort(FName ContainerId);

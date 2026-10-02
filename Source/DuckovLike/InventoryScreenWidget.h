@@ -22,6 +22,7 @@ class DUCKOVLIKE_API UInventoryScreenWidget : public UCommonActivatableWidget
 public:
     UInventoryScreenWidget(const FObjectInitializer& ObjectInitializer);
     void SetSession(UInventoryModel* InModel);
+    void SetStashAccessible(bool bAccessible);
     bool BeginItemDrag(FName Source, UItemViewModel* Item, const FGeometry& ItemGeometry, FVector2D AbsolutePosition);
     bool OpenSplitDialog(FName Source, UItemViewModel* Item);
     void UpdateItemDrag(FVector2D AbsolutePosition);
@@ -84,9 +85,11 @@ private:
     FIntPoint PointerOffset = FIntPoint::ZeroValue;
     FVector2D LastPointerPosition = FVector2D::ZeroVector;
     bool bPointerCaptured = false;
+    bool bStashAccessible = true;
     FDelegateHandle DragStateHandle;
     void ReleasePointerCapture();
     void RefreshDragView();
+    void RefreshStashAccess();
     void OnDragStateChanged(UObject*, UE::FieldNotification::FFieldId);
     void CreateSplitDialog();
     void CloseSplitDialog();

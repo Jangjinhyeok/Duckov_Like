@@ -27,6 +27,8 @@
 #include "WidgetBlueprint.h"
 #include "Blueprint/WidgetBlueprintGeneratedClass.h"
 
+namespace InventoryEditorAssetsTests
+{
 namespace
 {
 constexpr EAutomationTestFlags Flags = EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter;
@@ -260,5 +262,6 @@ bool FVerifyInventoryAssets::RunTest(const FString& Parameters)
         TestEqual(TEXT("map GameMode override"), World->GetWorldSettings()->DefaultGameMode.Get(), AInventoryDemoGameMode::StaticClass());
     }
     return !HasAnyErrors();
+}
 }
 #endif
