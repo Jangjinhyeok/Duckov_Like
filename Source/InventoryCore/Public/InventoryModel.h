@@ -41,6 +41,7 @@ public:
     EInventoryOperationFailure TryMove(FName Source, FName Target, int32 InstanceId,
         FIntPoint Anchor, bool bRotated);
     EInventoryOperationFailure TryStack(FName Source, FName Target, int32 SourceId, int32 TargetId);
+    EInventoryOperationFailure TrySplit(FName ContainerId, int32 InstanceId, int32 Quantity);
     EInventoryOperationFailure TrySort(FName ContainerId);
     EInventoryOperationFailure TryResize(FName ContainerId, FIntPoint Size);
     EInventoryOperationFailure TryAdd(FName ContainerId, TSoftObjectPtr<UDataTable> DefinitionTable,

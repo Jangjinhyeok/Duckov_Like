@@ -29,6 +29,8 @@ public:
     UFUNCTION(BlueprintCallable, Category="Inventory")
     EInventoryOperationFailure Stack(FName Source, FName Target, int32 SourceId, int32 TargetId);
     UFUNCTION(BlueprintCallable, Category="Inventory")
+    EInventoryOperationFailure Split(FName ContainerId, int32 InstanceId, int32 Quantity);
+    UFUNCTION(BlueprintCallable, Category="Inventory")
     EInventoryOperationFailure Sort(FName ContainerId);
     UFUNCTION(BlueprintCallable, Category="Inventory")
     EInventoryOperationFailure Resize(FName ContainerId, FIntPoint Size);

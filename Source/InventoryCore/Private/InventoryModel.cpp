@@ -133,6 +133,64 @@ EInventoryOperationFailure UInventoryModel::TryStack(FName Source, FName Target,
     });
 }
 
+EInventoryOperationFailure UInventoryModel::TrySplit(FName ContainerId, int32 InstanceId, int32 Quantity)
+{
+    return Apply(ContainerId, ContainerId, [=](FInventoryContainer& Container, FInventoryContainer&)
+    {
+        const int32 SourceIndex = Container.Items.IndexOfByPredicate(
+            [InstanceId](const FItemInstance& Item) { return Item.InstanceId == InstanceId; });
+        if (SourceIndex == INDEX_NONE) { return EInventoryOperationFailure::ItemNotFound; }
+
+        const FItemInstance& Source = Container.Items[SourceIndex];
+        const UDataTable* Table = Source.DefinitionTable.LoadSynchronous();
+        if (!Table || !Table->GetRowStruct() ||
+            !Table->GetRowStruct()->IsChildOf(FItemDefinitionRow::StaticStruct()))
+        {
+            return EInventoryOperationFailure::InvalidDefinition;
+        }
+        const FItemDefinitionRow* Definition = Table->FindRow<FItemDefinitionRow>(
+            Source.DefinitionRowName, TEXT("InventorySplit"), false);
+        if (!Definition || Definition->Size.X <= 0 || Definition->Size.Y <= 0 ||
+            Definition->MaxStack <= 0)
+        {
+            return EInventoryOperationFailure::InvalidDefinition;
+        }
+        if (!Definition->bStackable) { return EInventoryOperationFailure::StackMismatch; }
+        if (Source.Quantity <= 0 || Source.Quantity > Definition->MaxStack ||
+            Quantity <= 0 || Quantity >= Source.Quantity)
+        {
+            return EInventoryOperationFailure::InvalidQuantity;
+        }
+
+        FItemInstance Split = Source;
+        Split.Quantity = Quantity;
+        const FIntPoint Footprint = Source.bRotated
+            ? FIntPoint(Definition->Size.Y, Definition->Size.X) : Definition->Size;
+        FInventoryContainer Planned = Container;
+        for (int32 Y = 0; Y <= Container.GridSize.Y - Footprint.Y; ++Y)
+        {
+            for (int32 X = 0; X <= Container.GridSize.X - Footprint.X; ++X)
+            {
+                Split.AnchorCell = FIntPoint(X, Y);
+                if (FInventoryPlacement::TryPlace(Planned, Split) != EInventoryOperationFailure::None)
+                {
+                    continue;
+                }
+                const int32 NewId = FItemInstanceIdAllocator::AllocateNextInstanceId();
+                if (NewId == INDEX_NONE)
+                {
+                    return EInventoryOperationFailure::InstanceIdExhausted;
+                }
+                Planned.Items[SourceIndex].Quantity -= Quantity;
+                Planned.Items.Last().InstanceId = NewId;
+                Container = MoveTemp(Planned);
+                return EInventoryOperationFailure::None;
+            }
+        }
+        return EInventoryOperationFailure::NoSpace;
+    });
+}
+
 EInventoryOperationFailure UInventoryModel::TrySort(FName ContainerId)
 {
     return Apply(ContainerId, ContainerId, [](auto& From, auto&) { return FInventoryOperations::TrySort(From); });

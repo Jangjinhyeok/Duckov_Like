@@ -152,6 +152,10 @@ EInventoryOperationFailure UInteractionViewModel::Stack(FName Source, FName Targ
 {
     return Command([&]() { return Model->TryStack(Source, Target, SourceInstanceId, TargetInstanceId); });
 }
+EInventoryOperationFailure UInteractionViewModel::Split(FName ContainerId, int32 InstanceId, int32 Quantity)
+{
+    return Command([&]() { return Model->TrySplit(ContainerId, InstanceId, Quantity); });
+}
 EInventoryOperationFailure UInteractionViewModel::Sort(FName ContainerId)
 {
     return Command([&]() { return Model->TrySort(ContainerId); });
@@ -184,6 +188,9 @@ FText UInteractionViewModel::GetFailureText() const
     case EInventoryOperationFailure::ResizeOverflow: return NSLOCTEXT("Inventory", "ResizeOverflow", "현재 배치를 유지할 수 없는 크기입니다.");
     case EInventoryOperationFailure::InvalidContainer: return NSLOCTEXT("Inventory", "InvalidContainer", "인벤토리를 찾을 수 없습니다.");
     case EInventoryOperationFailure::OperationInProgress: return NSLOCTEXT("Inventory", "OperationInProgress", "변경 처리 중입니다.");
+    case EInventoryOperationFailure::InvalidDefinition: return NSLOCTEXT("Inventory", "InvalidDefinition", "아이템 정의가 올바르지 않습니다.");
+    case EInventoryOperationFailure::InvalidQuantity: return NSLOCTEXT("Inventory", "InvalidQuantity", "분할 수량이 올바르지 않습니다.");
+    case EInventoryOperationFailure::InstanceIdExhausted: return NSLOCTEXT("Inventory", "InstanceIdExhausted", "새 아이템 ID를 만들 수 없습니다.");
     }
     return FText::GetEmpty();
 }

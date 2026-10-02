@@ -69,15 +69,24 @@ void UInventoryItemWidget::Refresh()
     if (Item && Item->IsAvailable())
     {
         const FIntPoint Size = Item->GetFootprint();
-        SetToolTipText(FText::Format(NSLOCTEXT("Inventory", "ItemTooltip", "{0}\n크기 {1} × {2}\n수량 {3}"),
+        const FText Tooltip = FText::Format(NSLOCTEXT("Inventory", "ItemTooltip", "{0}\n크기 {1} × {2}\n수량 {3}"),
             FText::FromName(Item->GetDefinitionRowName()), FText::AsNumber(Size.X),
-            FText::AsNumber(Size.Y), FText::AsNumber(Item->GetQuantity())));
+            FText::AsNumber(Size.Y), FText::AsNumber(Item->GetQuantity()));
+        SetToolTipText(Item->GetQuantity() > 1
+            ? FText::Format(NSLOCTEXT("Inventory", "SplitTooltip", "{0}\nShift+클릭: 스택 분할"), Tooltip)
+            : Tooltip);
     }
     else { SetToolTipText(FText::GetEmpty()); }
 }
 
 FReply UInventoryItemWidget::NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
 {
+    if (InMouseEvent.GetEffectingButton() == EKeys::LeftMouseButton && InMouseEvent.IsShiftDown()
+        && Screen.IsValid() && Item && Item->IsAvailable())
+    {
+        return Screen->OpenSplitDialog(ContainerId, Item) ? FReply::Handled()
+            : Super::NativeOnMouseButtonDown(InGeometry, InMouseEvent);
+    }
     if (InMouseEvent.GetEffectingButton() == EKeys::LeftMouseButton && Screen.IsValid() && Item && Item->IsAvailable()
         && Screen->BeginItemDrag(ContainerId, Item, InGeometry, InMouseEvent.GetScreenSpacePosition()))
     {

@@ -2,10 +2,13 @@
 
 #include "CoreMinimal.h"
 #include "CommonActivatableWidget.h"
+#include "Types/SlateEnums.h"
 #include "InventoryScreenWidget.generated.h"
 
 class UButton;
+class UCanvasPanel;
 class UContainerViewModel;
+class UEditableTextBox;
 class UInteractionViewModel;
 class UInventoryGridWidget;
 class UInventoryModel;
@@ -20,6 +23,7 @@ public:
     UInventoryScreenWidget(const FObjectInitializer& ObjectInitializer);
     void SetSession(UInventoryModel* InModel);
     bool BeginItemDrag(FName Source, UItemViewModel* Item, const FGeometry& ItemGeometry, FVector2D AbsolutePosition);
+    bool OpenSplitDialog(FName Source, UItemViewModel* Item);
     void UpdateItemDrag(FVector2D AbsolutePosition);
     void EndItemDrag(FVector2D AbsolutePosition);
     void CancelItemDrag();
@@ -60,6 +64,22 @@ private:
     TObjectPtr<UInteractionViewModel> Interaction;
     UPROPERTY(Transient)
     TObjectPtr<UTextBlock> FailureText;
+    UPROPERTY(Transient)
+    TObjectPtr<UCanvasPanel> SplitOverlay;
+    UPROPERTY(Transient)
+    TObjectPtr<UEditableTextBox> SplitQuantityInput;
+    UPROPERTY(Transient)
+    TObjectPtr<UTextBlock> SplitRangeText;
+    UPROPERTY(Transient)
+    TObjectPtr<UTextBlock> SplitErrorText;
+    UPROPERTY(Transient)
+    TObjectPtr<UButton> SplitConfirmButton;
+    UPROPERTY(Transient)
+    TObjectPtr<UButton> SplitCancelButton;
+    TWeakObjectPtr<UItemViewModel> SplitSourceItem;
+    FName SplitSourceContainer;
+    int32 SplitSourceId = INDEX_NONE;
+    FDelegateHandle SplitItemChangedHandle;
     TWeakObjectPtr<UItemViewModel> DraggedItem;
     FIntPoint PointerOffset = FIntPoint::ZeroValue;
     FVector2D LastPointerPosition = FVector2D::ZeroVector;
@@ -68,6 +88,18 @@ private:
     void ReleasePointerCapture();
     void RefreshDragView();
     void OnDragStateChanged(UObject*, UE::FieldNotification::FFieldId);
+    void CreateSplitDialog();
+    void CloseSplitDialog();
+    void OnSplitSourceChanged();
+    bool ParseSplitQuantity(const FText& Text, int32& OutQuantity) const;
+    UFUNCTION()
+    void OnSplitQuantityChanged(const FText& Text);
+    UFUNCTION()
+    void OnSplitQuantityCommitted(const FText& Text, ETextCommit::Type CommitMethod);
+    UFUNCTION()
+    void ConfirmSplit();
+    UFUNCTION()
+    void CancelSplit();
     UFUNCTION()
     void Close();
     UFUNCTION()
