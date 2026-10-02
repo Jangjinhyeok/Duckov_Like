@@ -85,6 +85,31 @@ bool CompileAndSave(UWidgetBlueprint* Blueprint)
     FKismetEditorUtilities::CompileBlueprint(Blueprint);
     return Blueprint->GeneratedClass && Blueprint->Status != BS_Error && SaveAsset(Blueprint);
 }
+
+FItemDefinitionRow BagDefinition(FIntPoint Size)
+{
+    FItemDefinitionRow Row;
+    Row.BagGridSize = Size;
+    return Row;
+}
+
+bool MatchesDefinition(const FItemDefinitionRow* Row, const FItemDefinitionRow& Expected)
+{
+    return Row && FItemDefinitionRow::StaticStruct()->CompareScriptStruct(Row, &Expected, 0);
+}
+
+bool CheckOriginalDefinitions(UDataTable* Table)
+{
+    FItemDefinitionRow Rifle;
+    Rifle.Size = FIntPoint(2, 1);
+    FItemDefinitionRow Ammo;
+    Ammo.bStackable = true; Ammo.MaxStack = 30;
+    FItemDefinitionRow Medkit;
+    Medkit.Size = FIntPoint(2, 2); Medkit.bStackable = true; Medkit.MaxStack = 5;
+    return MatchesDefinition(Table->FindRow<FItemDefinitionRow>(TEXT("Rifle"), TEXT("BagAssets"), false), Rifle)
+        && MatchesDefinition(Table->FindRow<FItemDefinitionRow>(TEXT("Ammo"), TEXT("BagAssets"), false), Ammo)
+        && MatchesDefinition(Table->FindRow<FItemDefinitionRow>(TEXT("Medkit"), TEXT("BagAssets"), false), Medkit);
+}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGenerateInventoryAssets, "InventoryAssets.Create", Flags)
@@ -110,6 +135,8 @@ bool FGenerateInventoryAssets::RunTest(const FString& Parameters)
     FItemDefinitionRow Medkit;
     Medkit.Size = FIntPoint(2, 2); Medkit.bStackable = true; Medkit.MaxStack = 5;
     Table->AddRow(TEXT("Medkit"), Medkit);
+    Table->AddRow(TEXT("SmallBag"), BagDefinition(FIntPoint(4, 4)));
+    Table->AddRow(TEXT("LargeBag"), BagDefinition(FIntPoint(6, 4)));
     if (!SaveAsset(Table)) { AddError(TEXT("DataTable 저장 실패")); return false; }
 
     UWidgetBlueprint* ItemBP = CreateWidgetAsset(Paths[1], UInventoryItemWidget::StaticClass());
@@ -218,7 +245,12 @@ bool FVerifyInventoryAssets::RunTest(const FString& Parameters)
     UDataTable* Table = LoadObject<UDataTable>(nullptr, TEXT("/Game/Inventory/DT_ItemDefinitions.DT_ItemDefinitions"));
     if (!TestNotNull(TEXT("DataTable"), Table)) { return false; }
     TestEqual(TEXT("DataTable row struct"), Table->RowStruct.Get(), FItemDefinitionRow::StaticStruct());
-    TestEqual(TEXT("정의 행 수"), Table->GetRowNames().Num(), 3);
+    TestEqual(TEXT("정의 행 수"), Table->GetRowNames().Num(), 5);
+    TestTrue(TEXT("기존 세 정의의 모든 값 보존"), CheckOriginalDefinitions(Table));
+    TestTrue(TEXT("소형 가방 1x1, non-stackable, capacity 4x4"), MatchesDefinition(
+        Table->FindRow<FItemDefinitionRow>(TEXT("SmallBag"), TEXT("에셋 검증"), false), BagDefinition(FIntPoint(4, 4))));
+    TestTrue(TEXT("대형 가방 1x1, non-stackable, capacity 6x4"), MatchesDefinition(
+        Table->FindRow<FItemDefinitionRow>(TEXT("LargeBag"), TEXT("에셋 검증"), false), BagDefinition(FIntPoint(6, 4))));
     if (const FItemDefinitionRow* Rifle = Table->FindRow<FItemDefinitionRow>(TEXT("Rifle"), TEXT("에셋 검증")))
     {
         TestEqual(TEXT("Rifle footprint"), Rifle->Size, FIntPoint(2, 1));
@@ -261,6 +293,40 @@ bool FVerifyInventoryAssets::RunTest(const FString& Parameters)
     {
         TestEqual(TEXT("map GameMode override"), World->GetWorldSettings()->DefaultGameMode.Get(), AInventoryDemoGameMode::StaticClass());
     }
+    return !HasAnyErrors();
+}
+
+// main이 원본 DT를 backup한 뒤 명시적으로 실행한다. Duckov.* 회귀 선택에서는 저장하지 않는다.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAddBagDefinitions, "InventoryBagAssets.AddDefinitions", Flags)
+bool FAddBagDefinitions::RunTest(const FString& Parameters)
+{
+    UDataTable* Table = LoadObject<UDataTable>(nullptr, TEXT("/Game/Inventory/DT_ItemDefinitions.DT_ItemDefinitions"));
+    if (!TestNotNull(TEXT("기존 DataTable"), Table)
+        || !TestTrue(TEXT("정의 struct"), Table->GetRowStruct() == FItemDefinitionRow::StaticStruct())) { return false; }
+    if (!TestTrue(TEXT("기존 세 정의와 capacity zero 보존"), CheckOriginalDefinitions(Table))) { return false; }
+    const TPair<FName, FIntPoint> Bags[] = {{TEXT("SmallBag"), FIntPoint(4, 4)}, {TEXT("LargeBag"), FIntPoint(6, 4)}};
+    int32 Existing = 3;
+    for (const auto& Bag : Bags)
+    {
+        if (const auto* Row = Table->FindRow<FItemDefinitionRow>(Bag.Key, TEXT("BagAssets"), false))
+        {
+            ++Existing;
+            if (!TestTrue(TEXT("동명 가방 정의 충돌 없음"), MatchesDefinition(Row, BagDefinition(Bag.Value)))) { return false; }
+        }
+    }
+    if (!TestEqual(TEXT("예상 외 정의 행 없음"), Table->GetRowNames().Num(), Existing)) { return false; }
+    bool bAdded = false;
+    for (const auto& Bag : Bags)
+    {
+        if (!Table->FindRow<FItemDefinitionRow>(Bag.Key, TEXT("BagAssets"), false))
+        {
+            Table->AddRow(Bag.Key, BagDefinition(Bag.Value));
+            bAdded = true;
+        }
+    }
+    if (bAdded) { TestTrue(TEXT("두 가방 정의 DT 저장"), SaveAsset(Table)); }
+    TestTrue(TEXT("추가 후 원래 세 정의 보존"), CheckOriginalDefinitions(Table));
+    TestEqual(TEXT("추가 후 정의 행 수"), Table->GetRowNames().Num(), 5);
     return !HasAnyErrors();
 }
 }

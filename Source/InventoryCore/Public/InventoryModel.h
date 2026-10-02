@@ -18,6 +18,7 @@ struct FInventoryContainerChange
 struct FInventoryChangeSet
 {
     bool bReset = false;
+    bool bBagBindingChanged = false;
     TArray<FInventoryContainerChange> Containers;
 };
 
@@ -49,6 +50,15 @@ public:
     EInventoryOperationFailure TryAdd(FName ContainerId, TSoftObjectPtr<UDataTable> DefinitionTable,
         FName DefinitionRowName, int32 Quantity);
 
+    // 저장된 slot 항목과 contents 크기를 검증한다. binding은 save v1에 추가하지 않는다.
+    EInventoryOperationFailure BindBagSlot(FName SlotId, FName BagId, FName ExchangeContainerId);
+    EInventoryOperationFailure TryEquipBag(int32 InstanceId);
+    const FItemInstance* GetEquippedBag() const;
+    bool IsBagSlotBound() const;
+    FName GetBagSlotContainerId() const { return BagSlotContainerId; }
+    FName GetBagExchangeContainerId() const { return BagExchangeContainerId; }
+    FName GetBagContentsContainerId() const { return BagContentsContainerId; }
+
 private:
     // 조회 포인터는 호출 중에만 유효하다. 변경 이후 보관하거나 mutable로 노출하지 않는다.
     UPROPERTY()
@@ -56,6 +66,14 @@ private:
 
     FOnInventoryChanged Changed;
     bool bApplying = false;
+
+    enum class EBagBindingState : uint8 { Unbound, Bound, NeedsValidation };
+    EBagBindingState BagBindingState = EBagBindingState::Unbound;
+    FName BagSlotContainerId = NAME_None;
+    FName BagExchangeContainerId = NAME_None;
+    FName BagContentsContainerId = NAME_None;
+
+    bool IsProtectedBagSlot(FName ContainerId) const;
 
     EInventoryOperationFailure Apply(FName Source, FName Target,
         TFunctionRef<EInventoryOperationFailure(FInventoryContainer&, FInventoryContainer&)> Operation);

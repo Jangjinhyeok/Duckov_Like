@@ -10,6 +10,7 @@
 #include "Components/HorizontalBox.h"
 #include "Blueprint/WidgetTree.h"
 #include "ContainerViewModel.h"
+#include "BagEquipmentViewModel.h"
 #include "InputCoreTypes.h"
 #include "InteractionViewModel.h"
 #include "InventoryGridWidget.h"
@@ -48,6 +49,11 @@ UInventoryScreenWidget::UInventoryScreenWidget(const FObjectInitializer& ObjectI
 
 void UInventoryScreenWidget::SetSession(UInventoryModel* InModel) { Model = InModel; }
 
+bool UInventoryScreenWidget::IsInventoryInteractionBlocked() const
+{
+    return SplitSourceItem.IsValid() || (Interaction && Interaction->IsDragging());
+}
+
 void UInventoryScreenWidget::SetStashAccessible(bool bAccessible)
 {
     if (bStashAccessible == bAccessible) { return; }
@@ -68,6 +74,7 @@ void UInventoryScreenWidget::RefreshStashAccess()
     LeftGrid->Bind(bStashAccessible ? LeftVM.Get() : nullptr, this, TEXT("Stash"));
     LeftGrid->SetIsEnabled(bStashAccessible);
     SortLeftButton->SetIsEnabled(bStashAccessible);
+    RefreshBagEquipment();
 }
 
 void UInventoryScreenWidget::NativeOnActivated()
@@ -77,8 +84,14 @@ void UInventoryScreenWidget::NativeOnActivated()
     if (!LeftVM) { LeftVM = NewObject<UContainerViewModel>(this); }
     if (!RightVM) { RightVM = NewObject<UContainerViewModel>(this); }
     if (!Interaction) { Interaction = NewObject<UInteractionViewModel>(this); }
+    if (!BagEquipment) { BagEquipment = NewObject<UBagEquipmentViewModel>(this); }
     RightVM->Bind(Model, TEXT("Bag"));
     Interaction->Bind(Model);
+    BagEquipment->Bind(Model);
+    CreateBagEquipmentPanel();
+    BagEquipmentHandle = BagEquipment->AddFieldValueChangedDelegate(
+        UBagEquipmentViewModel::FFieldNotificationClassDescriptor::GetEquippedText,
+        INotifyFieldValueChanged::FFieldValueChangedDelegate::CreateUObject(this, &ThisClass::OnBagEquipmentChanged));
     if (!FailureText)
     {
         if (UCanvasPanel* Root = Cast<UCanvasPanel>(WidgetTree->RootWidget))
@@ -112,6 +125,14 @@ void UInventoryScreenWidget::NativeOnDeactivated()
 {
     CloseSplitDialog();
     ReleasePointerCapture();
+    if (BagEquipment && BagEquipmentHandle.IsValid())
+    {
+        BagEquipment->RemoveFieldValueChangedDelegate(
+            UBagEquipmentViewModel::FFieldNotificationClassDescriptor::GetEquippedText, BagEquipmentHandle);
+        BagEquipmentHandle.Reset();
+    }
+    if (BagEquipment) { BagEquipment->Bind(nullptr); }
+    if (BagEquipmentPanel) { BagEquipmentPanel->SetVisibility(ESlateVisibility::Collapsed); }
     if (Interaction && DragStateHandle.IsValid())
     {
         Interaction->RemoveFieldValueChangedDelegate(
@@ -315,6 +336,7 @@ void UInventoryScreenWidget::OnDragStateChanged(UObject*, UE::FieldNotification:
 
 void UInventoryScreenWidget::RefreshDragView()
 {
+    RefreshBagEquipment();
     if (LeftGrid) { LeftGrid->HidePreview(); }
     if (RightGrid) { RightGrid->HidePreview(); }
     if (!Interaction) { return; }
@@ -422,6 +444,7 @@ bool UInventoryScreenWidget::OpenSplitDialog(FName Source, UItemViewModel* Item)
     CloseButton->SetIsEnabled(false);
     SortLeftButton->SetIsEnabled(false);
     SortRightButton->SetIsEnabled(false);
+    RefreshBagEquipment();
     if (APlayerController* Owner = GetOwningPlayer()) { SplitQuantityInput->SetUserFocus(Owner); }
     return true;
 }
@@ -440,6 +463,7 @@ void UInventoryScreenWidget::CloseSplitDialog()
     if (CloseButton) { CloseButton->SetIsEnabled(true); }
     if (SortLeftButton) { SortLeftButton->SetIsEnabled(bStashAccessible); }
     if (SortRightButton) { SortRightButton->SetIsEnabled(true); }
+    RefreshBagEquipment();
     if (IsActivated() && CloseButton)
     {
         if (APlayerController* Owner = GetOwningPlayer()) { CloseButton->SetUserFocus(Owner); }
@@ -522,3 +546,73 @@ TOptional<FUIInputConfig> UInventoryScreenWidget::GetDesiredInputConfig() const
 void UInventoryScreenWidget::Close() { DeactivateWidget(); }
 void UInventoryScreenWidget::SortLeft() { if (bStashAccessible && Interaction && !SplitSourceItem.IsValid()) { Interaction->Sort(TEXT("Stash")); } }
 void UInventoryScreenWidget::SortRight() { if (Interaction && !SplitSourceItem.IsValid()) { Interaction->Sort(TEXT("Bag")); } }
+
+void UInventoryScreenWidget::CreateBagEquipmentPanel()
+{
+    if (BagEquipmentPanel) { return; }
+    UCanvasPanel* Root = Cast<UCanvasPanel>(WidgetTree->RootWidget);
+    if (!Root) { return; }
+    UBorder* Panel = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("BagEquipmentPanel"));
+    BagEquipmentPanel = Panel;
+    Panel->SetBrushColor(FLinearColor(0.08f, 0.13f, 0.19f, 0.98f));
+    Panel->SetPadding(FMargin(12.f, 8.f));
+    UCanvasPanelSlot* GearSlot = Root->AddChildToCanvas(Panel);
+    GearSlot->SetAnchors(FAnchors(0.5f));
+    GearSlot->SetAlignment(FVector2D(0.5f, 0.f));
+    GearSlot->SetPosition(FVector2D(0.f, -255.f));
+    GearSlot->SetSize(FVector2D(660.f, 70.f));
+    GearSlot->SetZOrder(50);
+    UVerticalBox* Content = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("BagEquipmentContent"));
+    Panel->AddChild(Content);
+    BagEquipmentText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("BagEquipmentText"));
+    BagEquipmentText->SetColorAndOpacity(FSlateColor(FLinearColor::White));
+    FSlateFontInfo GearFont = BagEquipmentText->GetFont();
+    GearFont.Size = 18;
+    BagEquipmentText->SetFont(GearFont);
+    Content->AddChild(BagEquipmentText);
+    UHorizontalBox* Actions = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("BagEquipmentActions"));
+    Content->AddChild(Actions);
+    auto AddButton = [&](FName Name, const FText& Text)
+    {
+        UButton* Button = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), Name);
+        UTextBlock* Label = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
+        Label->SetText(Text);
+        FSlateFontInfo LabelFont = Label->GetFont();
+        LabelFont.Size = 18;
+        Label->SetFont(LabelFont);
+        Button->AddChild(Label);
+        Actions->AddChild(Button);
+        return Button;
+    };
+    EquipSmallBagButton = AddButton(TEXT("EquipSmallBagButton"), NSLOCTEXT("Inventory", "EquipSmallBag", "소형 4x4 장착"));
+    EquipLargeBagButton = AddButton(TEXT("EquipLargeBagButton"), NSLOCTEXT("Inventory", "EquipLargeBag", "대형 6x4 장착"));
+    EquipSmallBagButton->OnClicked.AddUniqueDynamic(this, &ThisClass::EquipSmallBag);
+    EquipLargeBagButton->OnClicked.AddUniqueDynamic(this, &ThisClass::EquipLargeBag);
+    Panel->SetVisibility(ESlateVisibility::Collapsed);
+}
+
+void UInventoryScreenWidget::OnBagEquipmentChanged(UObject*, UE::FieldNotification::FFieldId) { RefreshBagEquipment(); }
+
+void UInventoryScreenWidget::RefreshBagEquipment()
+{
+    if (!BagEquipmentPanel || !BagEquipment) { return; }
+    const bool bBound = IsActivated() && BagEquipment->HasBinding();
+    BagEquipmentPanel->SetVisibility(bBound ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+    BagEquipmentText->SetText(BagEquipment->GetEquippedText());
+    const bool bCanEquip = bBound && bStashAccessible && !IsInventoryInteractionBlocked();
+    EquipSmallBagButton->SetIsEnabled(bCanEquip && BagEquipment->GetSmallBagInstanceId() != INDEX_NONE);
+    EquipLargeBagButton->SetIsEnabled(bCanEquip && BagEquipment->GetLargeBagInstanceId() != INDEX_NONE);
+}
+
+void UInventoryScreenWidget::EquipBag(FName RowName)
+{
+    // 비활성 button delegate를 직접 실행해도 modal·drag·Raid 접근을 우회하지 않는다.
+    if (!IsActivated() || !bStashAccessible || IsInventoryInteractionBlocked() || !BagEquipment || !Interaction
+        || !BagEquipment->HasBinding()) { return; }
+    const int32 Id = RowName == TEXT("SmallBag") ? BagEquipment->GetSmallBagInstanceId() : BagEquipment->GetLargeBagInstanceId();
+    if (Id == INDEX_NONE) { return; }
+    Interaction->EquipBag(Id);
+}
+
+void UInventoryScreenWidget::EquipSmallBag() { EquipBag(TEXT("SmallBag")); }
+void UInventoryScreenWidget::EquipLargeBag() { EquipBag(TEXT("LargeBag")); }

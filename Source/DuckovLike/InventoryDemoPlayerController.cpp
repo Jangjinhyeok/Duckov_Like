@@ -6,6 +6,8 @@
 #include "Input/CommonUIActionRouterBase.h"
 #include "Input/UIActionBindingHandle.h"
 #include "InventoryModel.h"
+#include "InventoryPlacement.h"
+#include "ItemDefinitionRow.h"
 #include "InventoryScreenWidget.h"
 #include "WorldLootActor.h"
 #include "EngineUtils.h"
@@ -158,6 +160,96 @@ void AInventoryDemoPlayerController::EndPlay(const EEndPlayReason::Type EndPlayR
 }
 
 void AInventoryDemoPlayerController::StartRaidDemo() { ShowRaidResult(TryStartRaidDemo()); }
+void AInventoryDemoPlayerController::StartBagEquipmentDemo()
+{
+    const EInventoryOperationFailure Result = TryStartBagEquipmentDemo();
+    UE_LOG(LogTemp, Display, TEXT("가방 장착 데모 준비 결과: %s"), *UEnum::GetValueAsString(Result));
+}
+
+EInventoryOperationFailure AInventoryDemoPlayerController::TryStartBagEquipmentDemo()
+{
+    if (bRaidTransitionInProgress) { return EInventoryOperationFailure::OperationInProgress; }
+    if (!Model || !GetWorld() || RaidPhase == ERaidDemoPhase::InRaid || !Model->GetBagSlotContainerId().IsNone())
+    {
+        return EInventoryOperationFailure::InvalidContainer;
+    }
+    if (Screen && Screen->IsInventoryInteractionBlocked()) { return EInventoryOperationFailure::OperationInProgress; }
+    TGuardValue<bool> Guard(bRaidTransitionInProgress, true);
+    UDataTable* Definitions = LoadObject<UDataTable>(nullptr, TEXT("/Game/Inventory/DT_ItemDefinitions.DT_ItemDefinitions"));
+    if (!Definitions || Definitions->GetRowStruct() != FItemDefinitionRow::StaticStruct())
+    {
+        return EInventoryOperationFailure::InvalidDefinition;
+    }
+    auto HasDefinition = [&](FName Name, FIntPoint Capacity)
+    {
+        const FItemDefinitionRow* Row = Definitions->FindRow<FItemDefinitionRow>(Name, TEXT("BagEquipmentDemo"), false);
+        return Row && Row->Size == FIntPoint(1, 1) && !Row->bStackable && Row->MaxStack == 1 && Row->BagGridSize == Capacity;
+    };
+    if (!HasDefinition(TEXT("SmallBag"), FIntPoint(4, 4)) || !HasDefinition(TEXT("LargeBag"), FIntPoint(6, 4)))
+    {
+        return EInventoryOperationFailure::InvalidDefinition;
+    }
+    const FInventoryContainer* Stash = Model->FindContainer(TEXT("Stash"));
+    const FInventoryContainer* Bag = Model->FindContainer(TEXT("Bag"));
+    if (!Stash || !Bag || Bag->GridSize != FIntPoint(4, 4) || Model->FindContainer(TEXT("BagSlot")))
+    {
+        return EInventoryOperationFailure::InvalidContainer;
+    }
+    FInventorySaveRecord Candidate;
+    if (Model->Save(Candidate) != EInventorySaveFailure::None) { return EInventoryOperationFailure::InvalidDefinition; }
+    for (const auto& Container : Candidate.Containers)
+    {
+        if (Container.Items.ContainsByPredicate([](const auto& Item)
+            { return Item.DefinitionRowName == TEXT("SmallBag") || Item.DefinitionRowName == TEXT("LargeBag"); }))
+        {
+            return EInventoryOperationFailure::InvalidContainer;
+        }
+    }
+    if (Candidate.NextInstanceId > MAX_int32 - 2) { return EInventoryOperationFailure::InstanceIdExhausted; }
+    FItemInstance Large;
+    Large.InstanceId = Candidate.NextInstanceId + 1;
+    Large.DefinitionTable = Definitions;
+    Large.DefinitionRowName = TEXT("LargeBag");
+    FInventoryContainer PlannedStash = *Stash;
+    bool bPlaced = false;
+    for (int32 Y = 0; Y < Stash->GridSize.Y && !bPlaced; ++Y)
+    {
+        for (int32 X = 0; X < Stash->GridSize.X; ++X)
+        {
+            Large.AnchorCell = FIntPoint(X, Y);
+            if (FInventoryPlacement::TryPlace(PlannedStash, Large) == EInventoryOperationFailure::None)
+            {
+                bPlaced = true;
+                break;
+            }
+        }
+    }
+    if (!bPlaced) { return EInventoryOperationFailure::NoSpace; }
+    // 유효한 원본 Save와 검증된 두 추가 항목만 사용한다. 사전 검사에서 allocator를 변경하지 않는다.
+    FInventoryItemSaveRecord Small;
+    Small.InstanceId = Candidate.NextInstanceId;
+    Small.DefinitionTable = FSoftObjectPath(Definitions);
+    Small.DefinitionRowName = TEXT("SmallBag");
+    FInventoryItemSaveRecord LargeSaved = Small;
+    LargeSaved.InstanceId = Large.InstanceId;
+    LargeSaved.DefinitionRowName = TEXT("LargeBag");
+    LargeSaved.AnchorCell = Large.AnchorCell;
+    FInventoryContainerSaveRecord* SavedStash = Candidate.Containers.FindByPredicate(
+        [](const auto& Container) { return Container.ContainerId == TEXT("Stash"); });
+    SavedStash->Items.Add(LargeSaved);
+    auto& Slot = Candidate.Containers.AddDefaulted_GetRef();
+    Slot.ContainerId = TEXT("BagSlot");
+    Slot.Items.Add(Small);
+    Candidate.NextInstanceId += 2;
+    const EInventorySaveFailure LoadResult = Model->Load(Candidate);
+    if (LoadResult != EInventorySaveFailure::None)
+    {
+        return LoadResult == EInventorySaveFailure::OperationInProgress
+            ? EInventoryOperationFailure::OperationInProgress : EInventoryOperationFailure::InvalidDefinition;
+    }
+    return Model->BindBagSlot(TEXT("BagSlot"), TEXT("Bag"), TEXT("Stash"));
+}
+
 void AInventoryDemoPlayerController::EnterRaid() { ShowRaidResult(TryEnterRaid()); }
 void AInventoryDemoPlayerController::ExtractRaid() { ShowRaidResult(TryExtractRaid()); }
 

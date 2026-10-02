@@ -45,6 +45,37 @@ FInventoryContainerChange Compare(FName Id, const FInventoryContainer& Before, c
 }
 }
 
+namespace InventoryBagEquipmentInternal
+{
+EInventoryOperationFailure GetBagDefinition(const FItemInstance& Item, const FItemDefinitionRow*& OutDefinition)
+{
+    const UDataTable* Table = Item.DefinitionTable.LoadSynchronous();
+    if (!Table || !Table->GetRowStruct() ||
+        !Table->GetRowStruct()->IsChildOf(FItemDefinitionRow::StaticStruct()))
+    {
+        return EInventoryOperationFailure::InvalidDefinition;
+    }
+    OutDefinition = Table->FindRow<FItemDefinitionRow>(Item.DefinitionRowName, TEXT("InventoryBagEquipment"), false);
+    if (!OutDefinition || OutDefinition->Size.X <= 0 || OutDefinition->Size.Y <= 0)
+    {
+        return EInventoryOperationFailure::InvalidDefinition;
+    }
+    const FIntPoint Size = OutDefinition->BagGridSize;
+    if (Size.X <= 0 || Size.Y <= 0 || static_cast<int64>(Size.X) * Size.Y > MAX_int32 ||
+        OutDefinition->bStackable || OutDefinition->MaxStack != 1 || Item.Quantity != 1)
+    {
+        return EInventoryOperationFailure::InvalidCategory;
+    }
+    return EInventoryOperationFailure::None;
+}
+
+bool FitsBagSlot(const FInventoryContainer& Slot, const FItemInstance& Item, const FItemDefinitionRow& Definition)
+{
+    const FIntPoint Footprint = Item.bRotated ? FIntPoint(Definition.Size.Y, Definition.Size.X) : Definition.Size;
+    return InventoryPlacementInternal::FitsInContainer(Slot, FIntPoint::ZeroValue, Footprint);
+}
+}
+
 EInventorySaveFailure UInventoryModel::Load(const FInventorySaveRecord& Record)
 {
     check(IsInGameThread());
@@ -55,6 +86,12 @@ EInventorySaveFailure UInventoryModel::Load(const FInventorySaveRecord& Record)
     {
         FInventoryChangeSet Change;
         Change.bReset = true;
+        if (BagBindingState != EBagBindingState::Unbound)
+        {
+            Change.bBagBindingChanged = BagBindingState == EBagBindingState::Bound;
+            // 이름은 유지해 일반 연산 우회를 막고, callback 전에 재검증이 필요한 상태로 바꾼다.
+            BagBindingState = EBagBindingState::NeedsValidation;
+        }
         Changed.Broadcast(Change);
     }
     return Result;
@@ -82,6 +119,10 @@ const FItemInstance* UInventoryModel::FindItem(FName ContainerId, int32 Instance
 EInventoryOperationFailure UInventoryModel::CanMove(FName Source, FName Target, int32 InstanceId,
     FIntPoint Anchor, bool bRotated) const
 {
+    if (IsProtectedBagSlot(Source) || IsProtectedBagSlot(Target))
+    {
+        return EInventoryOperationFailure::InvalidContainer;
+    }
     const auto* From = FindContainer(Source);
     const auto* To = FindContainer(Target);
     if (!From || !To) { return EInventoryOperationFailure::InvalidContainer; }
@@ -93,6 +134,10 @@ EInventoryOperationFailure UInventoryModel::Apply(FName Source, FName Target,
 {
     check(IsInGameThread());
     if (bApplying) { return EInventoryOperationFailure::OperationInProgress; }
+    if (IsProtectedBagSlot(Source) || IsProtectedBagSlot(Target))
+    {
+        return EInventoryOperationFailure::InvalidContainer;
+    }
     auto* From = Containers.FindByPredicate([Source](const auto& Entry) { return Entry.ContainerId == Source; });
     auto* To = Containers.FindByPredicate([Target](const auto& Entry) { return Entry.ContainerId == Target; });
     if (!From || !To) { return EInventoryOperationFailure::InvalidContainer; }
@@ -238,7 +283,139 @@ EInventoryOperationFailure UInventoryModel::TrySort(FName ContainerId)
 
 EInventoryOperationFailure UInventoryModel::TryResize(FName ContainerId, FIntPoint Size)
 {
+    check(IsInGameThread());
+    if (bApplying) { return EInventoryOperationFailure::OperationInProgress; }
+    if (BagBindingState != EBagBindingState::Unbound && ContainerId == BagContentsContainerId)
+    {
+        return EInventoryOperationFailure::InvalidContainer;
+    }
     return Apply(ContainerId, ContainerId, [Size](auto& From, auto&) { return FInventoryOperations::TryResize(From, Size); });
+}
+
+bool UInventoryModel::IsProtectedBagSlot(FName ContainerId) const
+{
+    return BagBindingState != EBagBindingState::Unbound && ContainerId == BagSlotContainerId;
+}
+
+bool UInventoryModel::IsBagSlotBound() const
+{
+    return BagBindingState == EBagBindingState::Bound;
+}
+
+const FItemInstance* UInventoryModel::GetEquippedBag() const
+{
+    if (!IsBagSlotBound()) { return nullptr; }
+    const FInventoryContainer* Slot = FindContainer(BagSlotContainerId);
+    return Slot && Slot->Items.Num() == 1 ? &Slot->Items[0] : nullptr;
+}
+
+EInventoryOperationFailure UInventoryModel::BindBagSlot(FName SlotId, FName BagId, FName ExchangeContainerId)
+{
+    check(IsInGameThread());
+    if (bApplying) { return EInventoryOperationFailure::OperationInProgress; }
+    if (SlotId.IsNone() || BagId.IsNone() || ExchangeContainerId.IsNone() ||
+        SlotId == BagId || SlotId == ExchangeContainerId || BagId == ExchangeContainerId)
+    {
+        return EInventoryOperationFailure::InvalidContainer;
+    }
+    const FInventoryContainer* Slot = FindContainer(SlotId);
+    const FInventoryContainer* Bag = FindContainer(BagId);
+    if (!Slot || !Bag || !FindContainer(ExchangeContainerId) || Slot->Items.Num() != 1)
+    {
+        return EInventoryOperationFailure::InvalidContainer;
+    }
+    TGuardValue<bool> Guard(bApplying, true);
+    const FItemDefinitionRow* Definition = nullptr;
+    const EInventoryOperationFailure Failure = InventoryBagEquipmentInternal::GetBagDefinition(Slot->Items[0], Definition);
+    if (Failure != EInventoryOperationFailure::None) { return Failure; }
+    if (!InventoryBagEquipmentInternal::FitsBagSlot(*Slot, Slot->Items[0], *Definition))
+    {
+        return EInventoryOperationFailure::NoSpace;
+    }
+    if (Bag->GridSize != Definition->BagGridSize) { return EInventoryOperationFailure::InvalidContainer; }
+    if (IsBagSlotBound() && BagSlotContainerId == SlotId && BagContentsContainerId == BagId &&
+        BagExchangeContainerId == ExchangeContainerId)
+    {
+        return EInventoryOperationFailure::None;
+    }
+
+    BagSlotContainerId = SlotId;
+    BagContentsContainerId = BagId;
+    BagExchangeContainerId = ExchangeContainerId;
+    BagBindingState = EBagBindingState::Bound;
+    FInventoryChangeSet Change;
+    Change.bBagBindingChanged = true;
+    Changed.Broadcast(Change);
+    return EInventoryOperationFailure::None;
+}
+
+EInventoryOperationFailure UInventoryModel::TryEquipBag(int32 InstanceId)
+{
+    check(IsInGameThread());
+    if (bApplying) { return EInventoryOperationFailure::OperationInProgress; }
+    if (!IsBagSlotBound()) { return EInventoryOperationFailure::InvalidContainer; }
+    auto* Exchange = Containers.FindByPredicate([this](const auto& Entry)
+        { return Entry.ContainerId == BagExchangeContainerId; });
+    auto* Slot = Containers.FindByPredicate([this](const auto& Entry)
+        { return Entry.ContainerId == BagSlotContainerId; });
+    auto* Bag = Containers.FindByPredicate([this](const auto& Entry)
+        { return Entry.ContainerId == BagContentsContainerId; });
+    const int32 CandidateIndex = Exchange->Container.Items.IndexOfByPredicate(
+        [InstanceId](const FItemInstance& Item) { return Item.InstanceId == InstanceId; });
+    if (CandidateIndex == INDEX_NONE) { return EInventoryOperationFailure::ItemNotFound; }
+    TGuardValue<bool> Guard(bApplying, true);
+    FItemInstance Candidate = Exchange->Container.Items[CandidateIndex];
+    const FItemDefinitionRow* Definition = nullptr;
+    const EInventoryOperationFailure Failure = InventoryBagEquipmentInternal::GetBagDefinition(Candidate, Definition);
+    if (Failure != EInventoryOperationFailure::None) { return Failure; }
+    if (!InventoryBagEquipmentInternal::FitsBagSlot(Slot->Container, Candidate, *Definition))
+    {
+        return EInventoryOperationFailure::NoSpace;
+    }
+
+    FInventoryContainer PlannedExchange = Exchange->Container;
+    FInventoryContainer PlannedSlot = FInventoryContainer::MakeEmpty(Slot->Container.GridSize);
+    FInventoryContainer PlannedBag = Bag->Container;
+    PlannedExchange.Items.RemoveAt(CandidateIndex);
+    FInventoryPlacement::RebuildOccupancyCache(PlannedExchange);
+    FItemInstance Previous = Slot->Container.Items[0];
+    FIntPoint PreviousFootprint;
+    if (!InventoryPlacementInternal::TryGetFootprint(Previous, PreviousFootprint) ||
+        PreviousFootprint.X <= 0 || PreviousFootprint.Y <= 0)
+    {
+        return EInventoryOperationFailure::InvalidDefinition;
+    }
+    bool bReturned = false;
+    for (int32 Y = 0; Y <= PlannedExchange.GridSize.Y - PreviousFootprint.Y && !bReturned; ++Y)
+    {
+        for (int32 X = 0; X <= PlannedExchange.GridSize.X - PreviousFootprint.X; ++X)
+        {
+            Previous.AnchorCell = FIntPoint(X, Y);
+            if (FInventoryPlacement::TryPlace(PlannedExchange, Previous) == EInventoryOperationFailure::None)
+            {
+                bReturned = true;
+                break;
+            }
+        }
+    }
+    if (!bReturned) { return EInventoryOperationFailure::NoSpace; }
+    // slot 안의 위치만 원점으로 정규화한다. ID·정의·수량·회전은 동일 항목의 값이다.
+    Candidate.AnchorCell = FIntPoint::ZeroValue;
+    const EInventoryOperationFailure SlotFailure = FInventoryPlacement::TryPlace(PlannedSlot, Candidate);
+    if (SlotFailure != EInventoryOperationFailure::None) { return SlotFailure; }
+    const EInventoryOperationFailure ResizeFailure = FInventoryOperations::TryResize(PlannedBag, Definition->BagGridSize);
+    if (ResizeFailure != EInventoryOperationFailure::None) { return ResizeFailure; }
+
+    FInventoryChangeSet Change;
+    Change.Containers.Add(Compare(BagExchangeContainerId, Exchange->Container, PlannedExchange));
+    Change.Containers.Add(Compare(BagSlotContainerId, Slot->Container, PlannedSlot));
+    FInventoryContainerChange BagChange = Compare(BagContentsContainerId, Bag->Container, PlannedBag);
+    if (BagChange.bGridSizeChanged) { Change.Containers.Add(MoveTemp(BagChange)); }
+    Exchange->Container = MoveTemp(PlannedExchange);
+    Slot->Container = MoveTemp(PlannedSlot);
+    Bag->Container = MoveTemp(PlannedBag);
+    Changed.Broadcast(Change);
+    return EInventoryOperationFailure::None;
 }
 
 EInventoryOperationFailure UInventoryModel::TryAdd(FName ContainerId, TSoftObjectPtr<UDataTable> DefinitionTable,

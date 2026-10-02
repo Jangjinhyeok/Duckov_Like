@@ -34,6 +34,8 @@ public:
     EInventoryOperationFailure Sort(FName ContainerId);
     UFUNCTION(BlueprintCallable, Category="Inventory")
     EInventoryOperationFailure Resize(FName ContainerId, FIntPoint Size);
+    UFUNCTION(BlueprintCallable, Category="Inventory")
+    EInventoryOperationFailure EquipBag(int32 InstanceId);
 
     UFUNCTION(BlueprintPure, FieldNotify, Category="Inventory")
     bool IsDragging() const { return bDragging; }

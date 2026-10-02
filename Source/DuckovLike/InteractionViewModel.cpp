@@ -164,6 +164,10 @@ EInventoryOperationFailure UInteractionViewModel::Resize(FName ContainerId, FInt
 {
     return Command([&]() { return Model->TryResize(ContainerId, Size); });
 }
+EInventoryOperationFailure UInteractionViewModel::EquipBag(int32 InstanceId)
+{
+    return Command([&]() { return bDragging ? EInventoryOperationFailure::OperationInProgress : Model->TryEquipBag(InstanceId); });
+}
 
 void UInteractionViewModel::OnModelChanged(const FInventoryChangeSet& Change)
 {
@@ -191,6 +195,7 @@ FText UInteractionViewModel::GetFailureText() const
     case EInventoryOperationFailure::InvalidDefinition: return NSLOCTEXT("Inventory", "InvalidDefinition", "아이템 정의가 올바르지 않습니다.");
     case EInventoryOperationFailure::InvalidQuantity: return NSLOCTEXT("Inventory", "InvalidQuantity", "분할 수량이 올바르지 않습니다.");
     case EInventoryOperationFailure::InstanceIdExhausted: return NSLOCTEXT("Inventory", "InstanceIdExhausted", "새 아이템 ID를 만들 수 없습니다.");
+    case EInventoryOperationFailure::InvalidCategory: return NSLOCTEXT("Inventory", "InvalidCategory", "가방 슬롯에 장착할 수 없는 아이템입니다.");
     }
     return FText::GetEmpty();
 }

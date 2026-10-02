@@ -18,4 +18,5 @@ enum class EInventoryOperationFailure : uint8
     InvalidDefinition,
     InvalidQuantity,
     InstanceIdExhausted,
+    InvalidCategory,
 };

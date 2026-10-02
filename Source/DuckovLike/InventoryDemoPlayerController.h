@@ -48,10 +48,13 @@ public:
     UFUNCTION(Exec)
     void StartRaidDemo();
     UFUNCTION(Exec)
+    void StartBagEquipmentDemo();
+    UFUNCTION(Exec)
     void EnterRaid();
     UFUNCTION(Exec)
     void ExtractRaid();
     ERaidDemoFailure TryStartRaidDemo();
+    EInventoryOperationFailure TryStartBagEquipmentDemo();
     ERaidDemoFailure TryEnterRaid();
     ERaidDemoFailure TryExtractRaid();
     ERaidDemoPhase GetRaidPhase() const { return RaidPhase; }

@@ -6,6 +6,7 @@
 #include "InventoryScreenWidget.generated.h"
 
 class UButton;
+class UBagEquipmentViewModel;
 class UCanvasPanel;
 class UContainerViewModel;
 class UEditableTextBox;
@@ -23,6 +24,7 @@ public:
     UInventoryScreenWidget(const FObjectInitializer& ObjectInitializer);
     void SetSession(UInventoryModel* InModel);
     void SetStashAccessible(bool bAccessible);
+    bool IsInventoryInteractionBlocked() const;
     bool BeginItemDrag(FName Source, UItemViewModel* Item, const FGeometry& ItemGeometry, FVector2D AbsolutePosition);
     bool OpenSplitDialog(FName Source, UItemViewModel* Item);
     void UpdateItemDrag(FVector2D AbsolutePosition);
@@ -64,6 +66,16 @@ private:
     UPROPERTY(Transient)
     TObjectPtr<UInteractionViewModel> Interaction;
     UPROPERTY(Transient)
+    TObjectPtr<UBagEquipmentViewModel> BagEquipment;
+    UPROPERTY(Transient)
+    TObjectPtr<UWidget> BagEquipmentPanel;
+    UPROPERTY(Transient)
+    TObjectPtr<UTextBlock> BagEquipmentText;
+    UPROPERTY(Transient)
+    TObjectPtr<UButton> EquipSmallBagButton;
+    UPROPERTY(Transient)
+    TObjectPtr<UButton> EquipLargeBagButton;
+    UPROPERTY(Transient)
     TObjectPtr<UTextBlock> FailureText;
     UPROPERTY(Transient)
     TObjectPtr<UCanvasPanel> SplitOverlay;
@@ -87,9 +99,18 @@ private:
     bool bPointerCaptured = false;
     bool bStashAccessible = true;
     FDelegateHandle DragStateHandle;
+    FDelegateHandle BagEquipmentHandle;
     void ReleasePointerCapture();
     void RefreshDragView();
     void RefreshStashAccess();
+    void CreateBagEquipmentPanel();
+    void RefreshBagEquipment();
+    void OnBagEquipmentChanged(UObject*, UE::FieldNotification::FFieldId);
+    void EquipBag(FName RowName);
+    UFUNCTION()
+    void EquipSmallBag();
+    UFUNCTION()
+    void EquipLargeBag();
     void OnDragStateChanged(UObject*, UE::FieldNotification::FFieldId);
     void CreateSplitDialog();
     void CloseSplitDialog();

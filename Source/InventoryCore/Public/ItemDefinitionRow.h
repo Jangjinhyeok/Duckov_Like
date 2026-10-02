@@ -17,4 +17,8 @@ struct FItemDefinitionRow : public FTableRowBase
 
     UPROPERTY(EditAnywhere)
     int32 MaxStack = 1;
+
+    // 양수 크기를 가진 non-stackable 항목만 가방 slot에 장착할 수 있다.
+    UPROPERTY(EditAnywhere)
+    FIntPoint BagGridSize = FIntPoint::ZeroValue;
 };
