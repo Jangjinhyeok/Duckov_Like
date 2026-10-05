@@ -11,6 +11,8 @@ class UInventoryScreenWidget;
 class AWorldLootActor;
 class AStaticMeshActor;
 class URaidStatusWidget;
+class UCustomizationModel;
+class UCustomizationScreenWidget;
 
 UENUM(BlueprintType)
 enum class ERaidDemoPhase : uint8
@@ -50,6 +52,8 @@ public:
     UFUNCTION(Exec)
     void StartBagEquipmentDemo();
     UFUNCTION(Exec)
+    void OpenCustomizationPrototype();
+    UFUNCTION(Exec)
     void EnterRaid();
     UFUNCTION(Exec)
     void ExtractRaid();
@@ -66,6 +70,10 @@ private:
     TObjectPtr<UInventoryScreenWidget> Screen;
     UPROPERTY(Transient)
     TObjectPtr<URaidStatusWidget> RaidStatus;
+    UPROPERTY(Transient)
+    TObjectPtr<UCustomizationModel> CustomizationModel;
+    UPROPERTY(Transient)
+    TObjectPtr<UCustomizationScreenWidget> CustomizationScreen;
     UPROPERTY(Transient)
     TObjectPtr<AStaticMeshActor> ExtractionPoint;
     UPROPERTY(Transient)

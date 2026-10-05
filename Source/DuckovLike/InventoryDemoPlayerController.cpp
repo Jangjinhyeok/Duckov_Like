@@ -17,6 +17,8 @@
 #include "Engine/StaticMesh.h"
 #include "Components/StaticMeshComponent.h"
 #include "Materials/MaterialInterface.h"
+#include "CustomizationModel.h"
+#include "CustomizationScreenWidget.h"
 
 void AInventoryDemoPlayerController::BeginPlay()
 {
@@ -107,6 +109,7 @@ void AInventoryDemoPlayerController::PickupNearestLoot()
 
 void AInventoryDemoPlayerController::ToggleInventory()
 {
+    if (CustomizationScreen && CustomizationScreen->IsActivated()) { return; }
     if (!Model) { return; }
     if (Screen && Screen->IsActivated()) { Screen->DeactivateWidget(); return; }
     if (!Screen)
@@ -132,6 +135,7 @@ void AInventoryDemoPlayerController::OnScreenDeactivated()
 
 void AInventoryDemoPlayerController::RestoreGameInput()
 {
+    if (CustomizationScreen && CustomizationScreen->IsActivated()) { return; }
     if (Screen && Screen->IsActivated()) { return; }
     if (ULocalPlayer* LocalPlayer = GetLocalPlayer())
     {
@@ -145,6 +149,14 @@ void AInventoryDemoPlayerController::RestoreGameInput()
 
 void AInventoryDemoPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+    if (CustomizationScreen)
+    {
+        CustomizationScreen->OnDeactivated().RemoveAll(this);
+        if (CustomizationScreen->IsActivated()) { CustomizationScreen->DeactivateWidget(); }
+        CustomizationScreen->RemoveFromParent();
+        CustomizationScreen = nullptr;
+    }
+    CustomizationModel = nullptr;
     DestroyRaidLoot();
     if (RaidStatus) { RaidStatus->RemoveFromParent(); RaidStatus = nullptr; }
     if (Screen)
@@ -157,6 +169,24 @@ void AInventoryDemoPlayerController::EndPlay(const EEndPlayReason::Type EndPlayR
     }
     Model = nullptr;
     Super::EndPlay(EndPlayReason);
+}
+
+void AInventoryDemoPlayerController::OpenCustomizationPrototype()
+{
+    if (!GetWorld() || !Model || bRaidTransitionInProgress || RaidPhase != ERaidDemoPhase::Disabled
+        || (Screen && Screen->IsActivated())) { return; }
+    if (CustomizationScreen && CustomizationScreen->IsActivated()) { return; }
+    if (!CustomizationModel) { CustomizationModel = NewObject<UCustomizationModel>(this); }
+    if (!CustomizationScreen)
+    {
+        CustomizationScreen = CreateWidget<UCustomizationScreenWidget>(this, UCustomizationScreenWidget::StaticClass());
+        if (!CustomizationScreen) { return; }
+        CustomizationScreen->SetSession(CustomizationModel);
+        CustomizationScreen->OnDeactivated().AddUObject(this, &ThisClass::OnScreenDeactivated);
+        CustomizationScreen->AddToViewport(30);
+    }
+    bShowMouseCursor = true;
+    CustomizationScreen->ActivateWidget();
 }
 
 void AInventoryDemoPlayerController::StartRaidDemo() { ShowRaidResult(TryStartRaidDemo()); }
@@ -255,6 +285,7 @@ void AInventoryDemoPlayerController::ExtractRaid() { ShowRaidResult(TryExtractRa
 
 ERaidDemoFailure AInventoryDemoPlayerController::TryStartRaidDemo()
 {
+    if (CustomizationScreen && CustomizationScreen->IsActivated()) { return ERaidDemoFailure::OperationInProgress; }
     if (bRaidTransitionInProgress) { return ERaidDemoFailure::OperationInProgress; }
     if (RaidPhase != ERaidDemoPhase::Disabled) { return ERaidDemoFailure::InvalidPhase; }
     if (!Model || !GetWorld()) { return ERaidDemoFailure::WorldUnavailable; }
