@@ -80,15 +80,15 @@ void UCustomizationScreenWidget::NativeOnInitialized()
         Controls->AddChildToVerticalBox(Button)->SetPadding(FMargin(0.f, 4.f));
         return Button;
     };
-    PartA = AddButton(TEXT("PartA"), NSLOCTEXT("Customization", "A", "A · Cube"));
-    PartB = AddButton(TEXT("PartB"), NSLOCTEXT("Customization", "B", "B · Sphere"));
+    PartA = AddButton(TEXT("PartA"), NSLOCTEXT("Customization", "A", "A · 세 갈래 깃"));
+    PartB = AddButton(TEXT("PartB"), NSLOCTEXT("Customization", "B", "B · 두 갈래 깃"));
     PartA->OnClicked.AddUniqueDynamic(this, &ThisClass::SelectA);
     PartB->OnClicked.AddUniqueDynamic(this, &ThisClass::SelectB);
     AddLabel(NSLOCTEXT("Customization", "Hue", "색상 · Hue 0~1"), 16);
     HueSlider = WidgetTree->ConstructWidget<USlider>(USlider::StaticClass(), TEXT("HueSlider"));
     Controls->AddChildToVerticalBox(HueSlider)->SetPadding(FMargin(0.f, 8.f));
     HueSlider->OnValueChanged.AddUniqueDynamic(this, &ThisClass::ChangeHue);
-    AddLabel(NSLOCTEXT("Customization", "Shape", "형상 · -1~1 (임시 scale 표시)"), 16);
+    AddLabel(NSLOCTEXT("Customization", "Shape", "형상 · -1~1 (Shape Morph)"), 16);
     ShapeSlider = WidgetTree->ConstructWidget<USlider>(USlider::StaticClass(), TEXT("ShapeSlider"));
     ShapeSlider->SetMinValue(-1.f);
     ShapeSlider->SetMaxValue(1.f);
@@ -114,7 +114,7 @@ void UCustomizationScreenWidget::NativeOnInitialized()
     FSlateFontInfo NoticeFont = Notice->GetFont();
     NoticeFont.Size = 16;
     Notice->SetFont(NoticeFont);
-    Notice->SetText(NSLOCTEXT("Customization", "PlaceholderNotice", "엔진 임시 mesh 미리보기\nShape는 scale 대체 표시입니다.\n실제 Skeleton·Morph 검증은 C3에 남습니다."));
+    Notice->SetText(NSLOCTEXT("Customization", "SkeletalNotice", "공통 Skeleton · 실제 Shape Morph\n파츠 교체 시 색상·형상 값을 유지합니다."));
     PreviewColumn->AddChildToVerticalBox(Notice)->SetPadding(FMargin(0.f, 16.f));
     ViewModel = NewObject<UCustomizationViewModel>(this);
 }

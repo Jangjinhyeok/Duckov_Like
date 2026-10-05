@@ -11,6 +11,7 @@
 #include "Blueprint/WidgetTree.h"
 #include "Components/Button.h"
 #include "Components/MeshComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Components/Slider.h"
 #include "Components/TextBlock.h"
 #include "Editor.h"
@@ -58,7 +59,7 @@ private:
 
 void SavePNG(FAutomationTestBase& Test, const TCHAR* Name, const TArray<FColor>& Pixels, FIntPoint Size)
 {
-    const FString Directory = FPaths::ProjectSavedDir() / TEXT("Automation/CustomizationGate/Visual");
+    const FString Directory = FPaths::ProjectSavedDir() / TEXT("Automation/CustomizationSkeletal/Visual");
     IFileManager::Get().MakeDirectory(*Directory, true);
     TArray64<uint8> PNG;
     FImageUtils::PNGCompressImageArray(Size.X, Size.Y, TArrayView64<const FColor>(Pixels.GetData(), Pixels.Num()), PNG);
@@ -79,12 +80,16 @@ struct FScene
     TWeakObjectPtr<UCustomizationScreenWidget> Screen;
     TWeakObjectPtr<UCustomizationModel> Model;
     TWeakObjectPtr<ACustomizationPreviewActor> ReleasedPreview;
+    TWeakObjectPtr<ACustomizationPreviewActor> OtherPreview;
     FCustomizationProfile Confirmed;
     FInventorySaveRecord InventoryBefore;
     FDelegateHandle ChangedHandle;
     int32 Events = 0;
     bool Ready = false;
     TArray<FColor> BeforeFailurePixels;
+    TArray<FColor> ShapePixels[3];
+    TArray<FColor> NeutralPixels;
+    TArray<FColor> OtherPixels;
 };
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCustomizationPIELifecycle, "Duckov.Customization.UI.PIELifecycle", Flags)
@@ -112,6 +117,16 @@ bool FCustomizationPIELifecycle::RunTest(const FString& Parameters)
             && Scene->Model.IsValid() && Scene->Model->IsEditing() && Scene->Screen->GetPreview())) { return; }
         Scene->ChangedHandle = Scene->Model->OnChanged().AddLambda([Scene] { ++Scene->Events; });
         Scene->Ready = true;
+        TestNotNull(TEXT("실제 skeletal body preview"), Scene->Screen->GetPreview()->GetAppearance()->GetDisplayedBody());
+        TestNotNull(TEXT("실제 skeletal part preview"), Cast<USkeletalMeshComponent>(Scene->Screen->GetPreview()->GetAppearance()->GetDisplayedMesh()));
+        auto* Other = GEditor->PlayWorld->SpawnActor<ACustomizationPreviewActor>(
+            Scene->Screen->GetPreview()->GetActorLocation() + FVector(0.f, 2000.f, 0.f), FRotator::ZeroRotator);
+        Scene->OtherPreview = Other;
+        Other->InitializeCapture();
+        FCustomizationProfile OtherProfile; OtherProfile.Hue = 0.2f;
+        TestEqual(TEXT("두 번째 실제 색상 preview 준비"), Other->GetAppearance()->TryApply(OtherProfile), ECustomizationFailure::None);
+        Other->CapturePreview();
+        Scene->Screen->GetViewModel()->SetShape(-1.f);
     }, 0.f));
     ADD_LATENT_AUTOMATION_COMMAND(FWait(*this, [Scene]
     {
@@ -123,6 +138,75 @@ bool FCustomizationPIELifecycle::RunTest(const FString& Parameters)
         return !Scene->Ready || (PartA && PartA->HasUserFocus(Controller) && Router
             && Router->GetActiveInputMode() == ECommonInputMode::Menu && !Router->IsPendingTreeChange());
     }));
+    for (int32 Sample = 0; Sample < 3; ++Sample)
+    {
+        ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene, Sample]
+        {
+            if (!Scene->Ready) { return; }
+            auto* Screen = Scene->Screen.Get();
+            auto* Target = Screen->GetPreview()->GetRenderTarget();
+            TestTrue(TEXT("실제 Shape render pixels"), Target->GameThread_GetRenderTargetResource()->ReadPixels(Scene->ShapePixels[Sample]));
+            SavePNG(*this, *FString::Printf(TEXT("MorphA-%d"), Sample), Scene->ShapePixels[Sample], FIntPoint(Target->SizeX, Target->SizeY));
+            if (Sample == 0)
+            {
+                TestTrue(TEXT("두 번째 대상 최초 pixels"), Scene->OtherPreview->GetRenderTarget()->GameThread_GetRenderTargetResource()->ReadPixels(Scene->OtherPixels));
+            }
+            if (Sample < 2) { Screen->GetViewModel()->SetShape(static_cast<float>(Sample)); }
+            else
+            {
+                TestTrue(TEXT("실제 Morph 최소/중간/최대 표시가 다름"), Scene->ShapePixels[0] != Scene->ShapePixels[1] && Scene->ShapePixels[1] != Scene->ShapePixels[2]);
+                Scene->NeutralPixels = Scene->ShapePixels[2];
+                auto* Appearance = Screen->GetPreview()->GetAppearance();
+                auto Masked = Appearance->GetDefaultResources(TEXT("A"));
+                Masked.MaskParameter = TEXT("ColorMask"); Masked.bMaskRequired = true;
+                Masked.Mask = FSoftObjectPath(TEXT("/Game/Customization/Tests/T_TestMask.T_TestMask"));
+                Appearance->SetResourcesForTests(TEXT("A"), Masked);
+                TestEqual(TEXT("필수 실제 mask 준비 성공"), Appearance->TryApply(Scene->Model->GetDraft()), ECustomizationFailure::None);
+                Screen->GetPreview()->CapturePreview();
+            }
+        }, 0.25f));
+    }
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        if (!Scene->Ready) { return; }
+        auto* Screen = Scene->Screen.Get(); auto* Target = Screen->GetPreview()->GetRenderTarget();
+        TArray<FColor> Masked;
+        Target->GameThread_GetRenderTargetResource()->ReadPixels(Masked);
+        TestTrue(TEXT("실제 mask 효과 pixels"), Masked != Scene->NeutralPixels);
+        SavePNG(*this, TEXT("MaskedA"), Masked, FIntPoint(Target->SizeX, Target->SizeY));
+        auto* Appearance = Screen->GetPreview()->GetAppearance();
+        auto Neutral = Appearance->GetDefaultResources(TEXT("A")); Neutral.MaskParameter = TEXT("ColorMask");
+        Appearance->SetResourcesForTests(TEXT("A"), Neutral);
+        TestEqual(TEXT("선택 mask 미지정 흰색으로 복귀"), Appearance->TryApply(Scene->Model->GetDraft()), ECustomizationFailure::None);
+        Screen->GetPreview()->CapturePreview();
+    }, 0.25f));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        if (!Scene->Ready) { return; }
+        auto* Screen = Scene->Screen.Get(); auto* Target = Screen->GetPreview()->GetRenderTarget();
+        TArray<FColor> Restored; Target->GameThread_GetRenderTargetResource()->ReadPixels(Restored);
+        TestTrue(TEXT("mask 해제는 원래 pixels 복원"), Restored == Scene->NeutralPixels);
+        SavePNG(*this, TEXT("NeutralA"), Restored, FIntPoint(Target->SizeX, Target->SizeY));
+        Screen->GetPreview()->GetAppearance()->SetResourcesForTests(TEXT("A"), UCustomizationAppearanceComponent::GetDefaultResources(TEXT("A")));
+        TestEqual(TEXT("실제 B 표시로 교체"), Screen->GetViewModel()->SelectPart(TEXT("B")), ECustomizationFailure::None);
+    }, 0.25f));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        if (!Scene->Ready) { return; }
+        auto* Screen = Scene->Screen.Get(); auto* Target = Screen->GetPreview()->GetRenderTarget();
+        TArray<FColor> B; Target->GameThread_GetRenderTargetResource()->ReadPixels(B);
+        TestTrue(TEXT("동일 값의 실제 A/B pixels 차이"), B != Scene->NeutralPixels);
+        SavePNG(*this, TEXT("MorphB-Max"), B, FIntPoint(Target->SizeX, Target->SizeY));
+        TestEqual(TEXT("실제 A 표시로 복귀"), Screen->GetViewModel()->SelectPart(TEXT("A")), ECustomizationFailure::None);
+    }, 0.25f));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        if (!Scene->Ready) { return; }
+        auto* Screen = Scene->Screen.Get(); auto* Target = Screen->GetPreview()->GetRenderTarget();
+        TArray<FColor> A; Target->GameThread_GetRenderTargetResource()->ReadPixels(A);
+        TestTrue(TEXT("A/B/A 실제 pixels 잔류 없음"), A == Scene->NeutralPixels);
+        SavePNG(*this, TEXT("RestoredA"), A, FIntPoint(Target->SizeX, Target->SizeY));
+    }, 0.25f));
     ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
     {
         if (!Scene->Ready) { return; }
@@ -165,11 +249,16 @@ bool FCustomizationPIELifecycle::RunTest(const FString& Parameters)
         TestEqual(TEXT("최종 적용 실패 통지 0"), Scene->Events, BeforeEvents);
         Appearance->SetResourcesForTests(TEXT("B"), UCustomizationAppearanceComponent::GetDefaultResources(TEXT("B")));
         Screen->GetPreview()->CapturePreview();
+        Scene->OtherPreview->CapturePreview();
     }, 0.25f));
     ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
     {
         if (!Scene->Ready) { return; }
         auto* Screen = Scene->Screen.Get();
+        TArray<FColor> OtherAfter;
+        TestTrue(TEXT("두 번째 대상 재캡처 pixels"), Scene->OtherPreview->GetRenderTarget()->GameThread_GetRenderTargetResource()->ReadPixels(OtherAfter));
+        TestTrue(TEXT("다른 대상의 실제 색상 pixels 독립"), !Scene->OtherPixels.IsEmpty() && OtherAfter == Scene->OtherPixels);
+        SavePNG(*this, TEXT("IndependentColor"), OtherAfter, FIntPoint(512, 512));
         CaptureWidget(*this, Screen, TEXT("EditedB-FailureNotice"));
         auto* Target = Screen->GetPreview()->GetRenderTarget();
         TArray<FColor> Pixels;
@@ -278,6 +367,7 @@ bool FCustomizationPIELifecycle::RunTest(const FString& Parameters)
         TestTrue(TEXT("기존 inventory snapshot 불변"), Same);
         TestEqual(TEXT("기존 Raid phase 불변"), Scene->Controller->GetRaidPhase(), ERaidDemoPhase::Disabled);
         Scene->Model->OnChanged().Remove(Scene->ChangedHandle);
+        if (Scene->OtherPreview.IsValid()) { Scene->OtherPreview->Destroy(); }
     }, 0.1f));
     ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
     ADD_LATENT_AUTOMATION_COMMAND(FWait(*this, [] { return !GEditor || !GEditor->PlayWorld; }));

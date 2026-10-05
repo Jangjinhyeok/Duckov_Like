@@ -14,7 +14,7 @@ ACustomizationPreviewActor::ACustomizationPreviewActor()
     Capture = CreateDefaultSubobject<USceneCaptureComponent2D>(TEXT("Capture"));
     Capture->SetupAttachment(RootComponent);
     Capture->SetRelativeLocation(FVector(230.f, -230.f, 150.f));
-    Capture->SetRelativeRotation((-Capture->GetRelativeLocation()).Rotation());
+    Capture->SetRelativeRotation((FVector(0.f, 0.f, 57.f) - Capture->GetRelativeLocation()).Rotation());
     Capture->ProjectionType = ECameraProjectionMode::Orthographic;
     Capture->OrthoWidth = 210.f;
     Capture->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;

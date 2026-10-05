@@ -7,6 +7,7 @@
 
 class UMaterialInstanceDynamic;
 class UMeshComponent;
+class USkeletalMeshComponent;
 
 enum class ECustomizationMeshKind : uint8 { StaticPlaceholder, Skeletal };
 
@@ -36,6 +37,8 @@ public:
     void ClearPreview();
     UMeshComponent* GetDisplayedMesh() const { return DisplayedMesh; }
     UMaterialInstanceDynamic* GetDisplayedMID() const { return DisplayedMID; }
+    USkeletalMeshComponent* GetDisplayedBody() const { return DisplayedBody; }
+    UMaterialInstanceDynamic* GetDisplayedBodyMID() const { return DisplayedBodyMID; }
     static FCustomizationPartResources GetDefaultResources(FName PartId);
 
     // 잘못된 리소스는 정상 UI catalog에 등록하지 않고 자동 검사의 seam에서만 교체한다.
@@ -54,4 +57,10 @@ private:
 
     UPROPERTY(Transient)
     TObjectPtr<UMaterialInstanceDynamic> DisplayedMID;
+
+    UPROPERTY(Transient)
+    TObjectPtr<USkeletalMeshComponent> DisplayedBody;
+
+    UPROPERTY(Transient)
+    TObjectPtr<UMaterialInstanceDynamic> DisplayedBodyMID;
 };

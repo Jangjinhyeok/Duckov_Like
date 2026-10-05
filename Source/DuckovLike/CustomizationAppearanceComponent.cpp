@@ -1,15 +1,127 @@
 #include "CustomizationAppearanceComponent.h"
 
+#include "Animation/MorphTarget.h"
 #include "Animation/Skeleton.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/Texture.h"
+#include "Engine/Texture2D.h"
 #include "GameFramework/Actor.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "Materials/Material.h"
 #include "Materials/MaterialInterface.h"
+#include "Rendering/SkeletalMeshRenderData.h"
 #include "UObject/StrongObjectPtr.h"
+
+namespace
+{
+    const FSoftObjectPath BodyMeshPath(TEXT("/Game/Customization/Prototype/SK_CustomizationBody.SK_CustomizationBody"));
+    const FName BodyColorParameter(TEXT("Color"));
+
+    bool HasSkeletalRenderData(const USkeletalMesh* Mesh)
+    {
+        if (!Mesh || Mesh->IsCompiling() || Mesh->GetRefSkeleton().GetNum() == 0) { return false; }
+        const FSkeletalMeshRenderData* RenderData = Mesh->GetResourceForRendering();
+        return RenderData && RenderData->IsInitialized() && RenderData->LODRenderData.IsValidIndex(0)
+            && RenderData->LODRenderData[0].GetNumVertices() > 0;
+    }
+
+    bool HasSkeletalUsage(const UMaterialInterface* Material, bool bMorphRequired)
+    {
+        const UMaterial* Base = Material ? Material->GetMaterial() : nullptr;
+        // runtime에서는 공유 material의 usage flag나 dirty 상태를 바꾸지 않는다.
+        return Base && Base->MaterialDomain == MD_Surface && (Base->bUsedAsSpecialEngineMaterial
+            || (Base->GetUsageByFlag(MATUSAGE_SkeletalMesh)
+                && (!bMorphRequired || Base->GetUsageByFlag(MATUSAGE_MorphTargets))));
+    }
+
+    bool MatchesMaterial(const UMaterialInstanceDynamic* MID, const UMaterialInterface* Parent,
+        FName ColorParameter, const FLinearColor& Color, FName MaskParameter = NAME_None, UTexture* Mask = nullptr)
+    {
+        FLinearColor CurrentColor;
+        UTexture* CurrentMask = nullptr;
+        return MID && MID->Parent == Parent && MID->VectorParameterValues.Num() == 1
+            && MID->VectorParameterValues[0].ParameterInfo.Name == ColorParameter
+            && MID->GetVectorParameterValue(FMaterialParameterInfo(ColorParameter), CurrentColor) && CurrentColor == Color
+            && MID->TextureParameterValues.Num() == (Mask ? 1 : 0)
+            && (!Mask || (MID->TextureParameterValues[0].ParameterInfo.Name == MaskParameter
+                && MID->GetTextureParameterValue(FMaterialParameterInfo(MaskParameter), CurrentMask) && CurrentMask == Mask));
+    }
+
+    bool HasPreparedPose(const USkeletalMeshComponent* Component, FName Morph = NAME_None, float Weight = 0.0f)
+    {
+        const USkeletalMesh* Mesh = Component ? Component->GetSkeletalMeshAsset() : nullptr;
+        if (!Mesh || Component->GetComponentSpaceTransforms().Num() != Mesh->GetRefSkeleton().GetNum()
+            || Component->MorphTargetWeights.Num() != Mesh->GetMorphTargets().Num()) { return false; }
+        for (const FTransform& Bone : Component->GetComponentSpaceTransforms())
+        {
+            if (Bone.ContainsNaN()) { return false; }
+        }
+        int32 MorphIndex = INDEX_NONE;
+        const UMorphTarget* Target = Morph.IsNone() ? nullptr : Mesh->FindMorphTargetAndIndex(Morph, MorphIndex);
+        if (!Morph.IsNone() && (!Target || Component->GetMorphTargetCurves().Num() != 1
+            || !Component->GetMorphTargetCurves().Contains(Morph) || Component->GetMorphTarget(Morph) != Weight))
+        {
+            return false;
+        }
+        if (Morph.IsNone() && Component->GetMorphTargetCurves().Num() != 0) { return false; }
+        // UE 5.7은 UE_SMALL_NUMBER 이하 weight를 active render set에서 제외한다.
+        const bool bActive = Target && Weight > UE_SMALL_NUMBER;
+        const int32* ActiveIndex = Target ? Component->ActiveMorphTargets.Find(Target) : nullptr;
+        if (Component->ActiveMorphTargets.Num() != (bActive ? 1 : 0)
+            || (bActive && (!ActiveIndex || *ActiveIndex != MorphIndex))) { return false; }
+        for (int32 Index = 0; Index < Component->MorphTargetWeights.Num(); ++Index)
+        {
+            const float Expected = bActive && Index == MorphIndex ? Weight : 0.0f;
+            if (Component->MorphTargetWeights[Index] != Expected) { return false; }
+        }
+        return true;
+    }
+
+    void ConfigureSkeletal(USkeletalMeshComponent* Component, USkeletalMesh* Mesh)
+    {
+        Component->PrimaryComponentTick.bCanEverTick = false;
+        Component->PrimaryComponentTick.bStartWithTickEnabled = false;
+        Component->bEnableUpdateRateOptimizations = false;
+        Component->SetDisablePostProcessBlueprint(true);
+        Component->SetForceRefPose(true);
+        Component->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+        Component->SetSkeletalMesh(Mesh);
+        // C3 시험 에셋의 LOD0와 reference pose만 사용한다.
+        Component->SetForcedLOD(1);
+    }
+
+    void RegisterHidden(UMeshComponent* Component, AActor* Owner, const FTransform& Transform)
+    {
+        Component->SetVisibility(false);
+        Component->SetHiddenInGame(true);
+        Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        Component->SetGenerateOverlapEvents(false);
+        Component->SetMobility(EComponentMobility::Movable);
+        Component->SetupAttachment(Owner->GetRootComponent());
+        Component->SetRelativeTransform(Transform);
+        Component->RegisterComponent();
+    }
+
+    void RefreshSkeletal(USkeletalMeshComponent* Component)
+    {
+        // null TickFunction으로 동기 평가하고 실제 Morph render weight를 준비한다.
+        Component->RefreshBoneTransforms();
+        Component->UpdateBounds();
+        Component->MarkRenderTransformDirty();
+        Component->MarkRenderDynamicDataDirty();
+    }
+
+    void DestroyPreview(UMeshComponent* Component)
+    {
+        if (!Component) { return; }
+        Component->SetVisibility(false);
+        Component->SetHiddenInGame(true);
+        Component->DestroyComponent();
+    }
+}
 
 UCustomizationAppearanceComponent::UCustomizationAppearanceComponent()
 {
@@ -21,9 +133,12 @@ UCustomizationAppearanceComponent::UCustomizationAppearanceComponent()
 FCustomizationPartResources UCustomizationAppearanceComponent::GetDefaultResources(FName PartId)
 {
     FCustomizationPartResources Resources;
+    Resources.MeshKind = ECustomizationMeshKind::Skeletal;
     Resources.Mesh = FSoftObjectPath(PartId == TEXT("B")
-        ? TEXT("/Engine/BasicShapes/Sphere.Sphere") : TEXT("/Engine/BasicShapes/Cube.Cube"));
-    Resources.Material = FSoftObjectPath(TEXT("/Engine/EngineDebugMaterials/M_SimpleOpaque.M_SimpleOpaque"));
+        ? TEXT("/Game/Customization/Prototype/SK_CustomizationPartB.SK_CustomizationPartB")
+        : TEXT("/Game/Customization/Prototype/SK_CustomizationPartA.SK_CustomizationPartA"));
+    Resources.ExpectedSkeleton = FSoftObjectPath(TEXT("/Game/Customization/Prototype/SK_CustomizationBody_Skeleton.SK_CustomizationBody_Skeleton"));
+    Resources.Material = FSoftObjectPath(TEXT("/Game/Customization/Prototype/M_CustomizationColor.M_CustomizationColor"));
     return Resources;
 }
 
@@ -61,12 +176,32 @@ ECustomizationFailure UCustomizationAppearanceComponent::TryApply(const FCustomi
         return ECustomizationFailure::MissingMesh;
     }
     TStrongObjectPtr<USkeleton> Skeleton;
+    TStrongObjectPtr<USkeletalMesh> BodyMesh;
     if (Resources.MeshKind == ECustomizationMeshKind::Skeletal)
     {
         Skeleton.Reset(Cast<USkeleton>(Resources.ExpectedSkeleton.TryLoad()));
         if (!Skeleton.IsValid()) { return ECustomizationFailure::MissingSkeleton; }
         if (SkeletalMesh->GetSkeleton() != Skeleton.Get()) { return ECustomizationFailure::SkeletonMismatch; }
-        if (Resources.Morph.IsNone() || !SkeletalMesh->FindMorphTarget(Resources.Morph))
+        if (SkeletalMesh->IsCompiling()) { return ECustomizationFailure::PreparationFailed; }
+        int32 MorphIndex = INDEX_NONE;
+        const UMorphTarget* Morph = Resources.Morph.IsNone() ? nullptr
+            : SkeletalMesh->FindMorphTargetAndIndex(Resources.Morph, MorphIndex);
+        if (!Morph || MorphIndex < 0 || !Morph->HasDataForLOD(0))
+        {
+            return ECustomizationFailure::MissingMorph;
+        }
+        BodyMesh.Reset(Cast<USkeletalMesh>(BodyMeshPath.TryLoad()));
+        if (!BodyMesh.IsValid()) { return ECustomizationFailure::MissingMesh; }
+        if (BodyMesh->GetSkeleton() != Skeleton.Get()) { return ECustomizationFailure::SkeletonMismatch; }
+        if (!HasSkeletalRenderData(SkeletalMesh) || !HasSkeletalRenderData(BodyMesh.Get()))
+        {
+            return ECustomizationFailure::PreparationFailed;
+        }
+        const FMorphTargetVertexInfoBuffers& MorphBuffers = SkeletalMesh->GetResourceForRendering()
+            ->LODRenderData[0].MorphTargetVertexInfoBuffers;
+        if (!MorphBuffers.IsMorphResourcesInitialized()) { return ECustomizationFailure::PreparationFailed; }
+        if (static_cast<uint32>(MorphIndex) >= MorphBuffers.GetNumMorphs()
+            || MorphBuffers.GetNumBatches(MorphIndex) == 0)
         {
             return ECustomizationFailure::MissingMorph;
         }
@@ -78,9 +213,28 @@ ECustomizationFailure UCustomizationAppearanceComponent::TryApply(const FCustomi
     }
     TStrongObjectPtr<UMaterialInterface> Material(Cast<UMaterialInterface>(Resources.Material.TryLoad()));
     if (!Material.IsValid()) { return ECustomizationFailure::MissingMaterial; }
+    if (SkeletalMesh)
+    {
+        if (!HasSkeletalUsage(Material.Get(), true) || BodyMesh->GetMaterials().Num() == 0)
+        {
+            return ECustomizationFailure::MissingMaterial;
+        }
+        for (int32 Slot = 1; Slot < BodyMesh->GetMaterials().Num(); ++Slot)
+        {
+            if (!HasSkeletalUsage(BodyMesh->GetMaterials()[Slot].MaterialInterface, false))
+            {
+                return ECustomizationFailure::MissingMaterial;
+            }
+        }
+    }
     FLinearColor ExistingColor;
     if (Resources.ColorParameter.IsNone()
         || !Material->GetVectorParameterValue(FMaterialParameterInfo(Resources.ColorParameter), ExistingColor))
+    {
+        return ECustomizationFailure::MissingColorParameter;
+    }
+    if (BodyMesh.IsValid()
+        && !Material->GetVectorParameterValue(FMaterialParameterInfo(BodyColorParameter), ExistingColor))
     {
         return ECustomizationFailure::MissingColorParameter;
     }
@@ -98,7 +252,26 @@ ECustomizationFailure UCustomizationAppearanceComponent::TryApply(const FCustomi
         const FSoftObjectPath MaskPath = Resources.Mask.IsNull()
             ? FSoftObjectPath(TEXT("/Engine/EngineResources/WhiteSquareTexture.WhiteSquareTexture")) : Resources.Mask;
         Mask.Reset(Cast<UTexture>(MaskPath.TryLoad()));
-        if (!Mask.IsValid()) { return ECustomizationFailure::MissingMask; }
+        if (!Cast<UTexture2D>(Mask.Get())) { return ECustomizationFailure::MissingMask; }
+    }
+
+    if (SkeletalMesh)
+    {
+        // 첫 draw의 fallback material을 성공 외형으로 공개하지 않는다. 동기 prototype 준비 경로다.
+        Material->EnsureIsComplete();
+        if (!Material->IsComplete() || !Material->GetMaterial()->IsComplete())
+        {
+            return ECustomizationFailure::PreparationFailed;
+        }
+        for (int32 Slot = 1; Slot < BodyMesh->GetMaterials().Num(); ++Slot)
+        {
+            UMaterialInterface* Auxiliary = BodyMesh->GetMaterials()[Slot].MaterialInterface;
+            Auxiliary->EnsureIsComplete();
+            if (!Auxiliary->IsComplete() || !Auxiliary->GetMaterial()->IsComplete())
+            {
+                return ECustomizationFailure::PreparationFailed;
+            }
+        }
     }
 
     const FVector Scale = StaticMesh ? FVector(1.0f, 1.0f, 1.0f + 0.35f * Candidate.Shape) : FVector::OneVector;
@@ -109,29 +282,25 @@ ECustomizationFailure UCustomizationAppearanceComponent::TryApply(const FCustomi
         && DisplayedMesh->GetMaterial(Resources.MaterialSlot) == DisplayedMID
         && ((StaticMesh && CurrentStatic && CurrentStatic->GetStaticMesh() == StaticMesh)
             || (SkeletalMesh && CurrentSkeletal && CurrentSkeletal->GetSkeletalMeshAsset() == SkeletalMesh));
-    FLinearColor CurrentColor;
-    UTexture* CurrentMask = nullptr;
     const FLinearColor Color = GetCustomizationColor(Candidate.Hue);
     const float MorphWeight = (Candidate.Shape + 1.0f) * 0.5f;
-    if (bSameMesh && DisplayedMID->Parent == Material.Get()
-        && DisplayedMID->VectorParameterValues.Num() == 1
-        && DisplayedMID->VectorParameterValues[0].ParameterInfo.Name == Resources.ColorParameter
-        && DisplayedMID->TextureParameterValues.Num() == (Mask.IsValid() ? 1 : 0)
-        && DisplayedMID->GetVectorParameterValue(FMaterialParameterInfo(Resources.ColorParameter), CurrentColor)
-        && CurrentColor == Color
+    const bool bSameBody = BodyMesh.IsValid()
+        ? DisplayedBody && DisplayedBody->IsRegistered() && DisplayedBody->GetSkeletalMeshAsset() == BodyMesh.Get()
+            && DisplayedBody->GetMaterial(0) == DisplayedBodyMID
+            && MatchesMaterial(DisplayedBodyMID, Material.Get(), BodyColorParameter, Color)
+            && DisplayedBody->GetRelativeTransform().Equals(FTransform::Identity)
+            && HasPreparedPose(DisplayedBody)
+        : !DisplayedBody && !DisplayedBodyMID;
+    if (bSameMesh && bSameBody
+        && MatchesMaterial(DisplayedMID, Material.Get(), Resources.ColorParameter, Color, Resources.MaskParameter, Mask.Get())
         && DisplayedMesh->GetRelativeLocation() == FVector::ZeroVector
         && DisplayedMesh->GetRelativeScale3D() == Scale
         && DisplayedMesh->GetRelativeTransform().GetRotation() == FQuat::Identity
-        && (!Mask.IsValid() || (DisplayedMID->GetTextureParameterValue(FMaterialParameterInfo(Resources.MaskParameter), CurrentMask)
-            && CurrentMask == Mask.Get()))
-        && (!CurrentSkeletal || (CurrentSkeletal->GetMorphTargetCurves().Num() == 1
-            && CurrentSkeletal->GetMorphTargetCurves().Contains(Resources.Morph)
-            && CurrentSkeletal->GetMorphTarget(Resources.Morph) == MorphWeight)))
+        && (!CurrentSkeletal || HasPreparedPose(CurrentSkeletal, Resources.Morph, MorphWeight)))
     {
         return ECustomizationFailure::None;
     }
-    // 같은 mesh의 입력은 새 MID를 먼저 준비한 뒤 실패 결과가 없는 setter만 공개한다.
-    // 이전 MID의 mask/vector override를 복사하지 않는다.
+    // 새 override는 이전 파츠의 Morph와 mask를 상속하지 않는다.
     TStrongObjectPtr<UMaterialInstanceDynamic> MID(UMaterialInstanceDynamic::Create(Material.Get(), Owner));
     if (!MID.IsValid()) { return ECustomizationFailure::PreparationFailed; }
     MID->SetVectorParameterValue(Resources.ColorParameter, Color);
@@ -145,15 +314,21 @@ ECustomizationFailure UCustomizationAppearanceComponent::TryApply(const FCustomi
     {
         return ECustomizationFailure::PreparationFailed;
     }
-    if (bSameMesh)
+    TStrongObjectPtr<UMaterialInstanceDynamic> BodyMID;
+    if (BodyMesh.IsValid())
+    {
+        BodyMID.Reset(UMaterialInstanceDynamic::Create(Material.Get(), Owner));
+        if (!BodyMID.IsValid()) { return ECustomizationFailure::PreparationFailed; }
+        BodyMID->SetVectorParameterValue(BodyColorParameter, Color);
+        if (!MatchesMaterial(BodyMID.Get(), Material.Get(), BodyColorParameter, Color))
+        {
+            return ECustomizationFailure::PreparationFailed;
+        }
+    }
+    if (bSameMesh && StaticMesh && !DisplayedBody)
     {
         DisplayedMesh->SetMaterial(Resources.MaterialSlot, MID.Get());
         DisplayedMesh->SetRelativeTransform(Transform);
-        if (CurrentSkeletal)
-        {
-            CurrentSkeletal->ClearMorphTargets();
-            CurrentSkeletal->SetMorphTarget(Resources.Morph, MorphWeight, false);
-        }
         DisplayedMID = MID.Get();
         return ECustomizationFailure::None;
     }
@@ -162,7 +337,8 @@ ECustomizationFailure UCustomizationAppearanceComponent::TryApply(const FCustomi
     if (SkeletalMesh)
     {
         USkeletalMeshComponent* Skeletal = NewObject<USkeletalMeshComponent>(Owner, NAME_None, RF_Transient);
-        Skeletal->SetSkeletalMesh(SkeletalMesh);
+        ConfigureSkeletal(Skeletal, SkeletalMesh);
+        Skeletal->ClearMorphTargets();
         Skeletal->SetMorphTarget(Resources.Morph, MorphWeight, false);
         Staged = Skeletal;
     }
@@ -173,45 +349,58 @@ ECustomizationFailure UCustomizationAppearanceComponent::TryApply(const FCustomi
         Staged = Static;
     }
     TStrongObjectPtr<UMeshComponent> StagedLifetime(Staged);
-    // 등록 전부터 숨긴다. 등록 후 실패해도 기존 mesh/MID를 보존한다.
-    Staged->SetVisibility(false);
-    Staged->SetHiddenInGame(true);
-    Staged->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-    Staged->SetGenerateOverlapEvents(false);
-    Staged->SetMobility(EComponentMobility::Movable);
-    Staged->SetupAttachment(Owner->GetRootComponent());
-    Staged->SetRelativeTransform(Transform);
     Staged->SetMaterial(Resources.MaterialSlot, MID.Get());
-    Staged->RegisterComponent();
+    RegisterHidden(Staged, Owner, Transform);
+    TStrongObjectPtr<USkeletalMeshComponent> StagedBody;
+    if (BodyMesh.IsValid())
+    {
+        StagedBody.Reset(NewObject<USkeletalMeshComponent>(Owner, NAME_None, RF_Transient));
+        ConfigureSkeletal(StagedBody.Get(), BodyMesh.Get());
+        StagedBody->ClearMorphTargets();
+        StagedBody->SetMaterial(0, BodyMID.Get());
+        RegisterHidden(StagedBody.Get(), Owner, FTransform::Identity);
+        if (Staged->IsRegistered()) { RefreshSkeletal(CastChecked<USkeletalMeshComponent>(Staged)); }
+        if (StagedBody->IsRegistered()) { RefreshSkeletal(StagedBody.Get()); }
+    }
     const bool bReady = Staged->IsRegistered() && Staged->GetMaterial(Resources.MaterialSlot) == MID.Get()
-        && (!SkeletalMesh || FMath::IsNearlyEqual(CastChecked<USkeletalMeshComponent>(Staged)->GetMorphTarget(Resources.Morph),
-            MorphWeight));
+        && (!SkeletalMesh || (HasPreparedPose(CastChecked<USkeletalMeshComponent>(Staged), Resources.Morph, MorphWeight)
+            && StagedBody->IsRegistered() && StagedBody->GetMaterial(0) == BodyMID.Get()
+            && HasPreparedPose(StagedBody.Get())));
     if (!bReady)
     {
-        Staged->DestroyComponent();
+        DestroyPreview(Staged);
+        DestroyPreview(StagedBody.Get());
         return ECustomizationFailure::PreparationFailed;
     }
 
-    // 이후 호출은 실패 결과가 없는 공개/폐기뿐이다. Model은 이 성공 뒤에 값을 commit한다.
+    // 두 숨긴 후보의 pose와 render weight 검증 후에만 공개한다.
+    // Model은 이 성공 결과 뒤에 Profile/Draft를 공개한다.
     UMeshComponent* Previous = DisplayedMesh;
+    USkeletalMeshComponent* PreviousBody = DisplayedBody;
     DisplayedMesh = Staged;
     DisplayedMID = MID.Get();
+    DisplayedBody = StagedBody.Get();
+    DisplayedBodyMID = BodyMID.Get();
     Staged->SetHiddenInGame(false);
     Staged->SetVisibility(true);
-    if (Previous)
+    if (DisplayedBody)
     {
-        Previous->SetVisibility(false);
-        Previous->SetHiddenInGame(true);
-        Previous->DestroyComponent();
+        DisplayedBody->SetHiddenInGame(false);
+        DisplayedBody->SetVisibility(true);
     }
+    DestroyPreview(Previous);
+    DestroyPreview(PreviousBody);
     return ECustomizationFailure::None;
 }
 
 void UCustomizationAppearanceComponent::ClearPreview()
 {
-    if (DisplayedMesh) { DisplayedMesh->DestroyComponent(); }
+    DestroyPreview(DisplayedMesh);
+    DestroyPreview(DisplayedBody);
     DisplayedMesh = nullptr;
     DisplayedMID = nullptr;
+    DisplayedBody = nullptr;
+    DisplayedBodyMID = nullptr;
 }
 
 void UCustomizationAppearanceComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)

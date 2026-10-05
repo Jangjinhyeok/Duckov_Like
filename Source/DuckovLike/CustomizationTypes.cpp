@@ -29,7 +29,7 @@ FText GetCustomizationFailureText(ECustomizationFailure Failure)
     case ECustomizationFailure::InvalidNumber: return FText::FromString(TEXT("색상과 형상은 유한한 수여야 합니다."));
     case ECustomizationFailure::HueOutOfRange: return FText::FromString(TEXT("색상 범위는 0부터 1까지입니다."));
     case ECustomizationFailure::ShapeOutOfRange: return FText::FromString(TEXT("형상 범위는 -1부터 1까지입니다."));
-    case ECustomizationFailure::MissingMesh: return FText::FromString(TEXT("파츠 mesh를 준비할 수 없습니다."));
+    case ECustomizationFailure::MissingMesh: return FText::FromString(TEXT("필수 mesh를 준비할 수 없습니다."));
     case ECustomizationFailure::MissingSkeleton: return FText::FromString(TEXT("공통 Skeleton을 준비할 수 없습니다."));
     case ECustomizationFailure::SkeletonMismatch: return FText::FromString(TEXT("파츠 Skeleton이 공통 Skeleton과 다릅니다."));
     case ECustomizationFailure::MissingMaterial: return FText::FromString(TEXT("필수 material 또는 슬롯이 없습니다."));

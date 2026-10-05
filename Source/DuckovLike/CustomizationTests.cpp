@@ -18,6 +18,16 @@ namespace CustomizationTests
 {
 constexpr EAutomationTestFlags Flags = EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter;
 
+// C0~C2의 실제 engine placeholder 회귀를 production skeletal catalog와 분리한다.
+FCustomizationPartResources GetEngineResources(FName PartId)
+{
+    FCustomizationPartResources Resources;
+    Resources.Mesh = FSoftObjectPath(PartId == TEXT("B")
+        ? TEXT("/Engine/BasicShapes/Sphere.Sphere") : TEXT("/Engine/BasicShapes/Cube.Cube"));
+    Resources.Material = FSoftObjectPath(TEXT("/Engine/EngineDebugMaterials/M_SimpleOpaque.M_SimpleOpaque"));
+    return Resources;
+}
+
 // 표시 callback 대역이다. 실제 리소스/렌더링 증거와 구분한다.
 struct FModelFixture
 {
@@ -53,6 +63,8 @@ struct FAppearanceFixture
         Actor->SetRootComponent(Root);
         Root->RegisterComponent();
         UCustomizationAppearanceComponent* Appearance = NewObject<UCustomizationAppearanceComponent>(Actor);
+        Appearance->SetResourcesForTests(TEXT("A"), GetEngineResources(TEXT("A")));
+        Appearance->SetResourcesForTests(TEXT("B"), GetEngineResources(TEXT("B")));
         Appearance->RegisterComponent();
         return Appearance;
     }
@@ -215,7 +227,7 @@ bool FCustomizationRealResources::RunTest(const FString& Parameters)
     TestTrue(TEXT("동일 값은 mesh/MID 재생성 없음"), F.A->GetDisplayedMesh() == OriginalMesh && F.A->GetDisplayedMID() == OriginalMID);
     FCustomizationProfile Invalid = Value; Invalid.Shape = std::numeric_limits<float>::quiet_NaN();
     TestEqual(TEXT("Component 자체 수치 검증"), F.A->TryApply(Invalid), ECustomizationFailure::InvalidNumber);
-    FCustomizationPartResources Broken = F.A->GetDefaultResources(TEXT("B")); Broken.Mesh.Reset();
+    FCustomizationPartResources Broken = GetEngineResources(TEXT("B")); Broken.Mesh.Reset();
     F.A->SetResourcesForTests(TEXT("B"), Broken);
     FCustomizationProfile B = Value; B.PartId = TEXT("B");
     TestEqual(TEXT("실제 표시 후 리소스 실패"), F.A->TryApply(B), ECustomizationFailure::MissingMesh);
@@ -224,7 +236,7 @@ bool FCustomizationRealResources::RunTest(const FString& Parameters)
     TestEqual(TEXT("실제 리소스 실패 이벤트 없음"), Events, 0);
     TestTrue(TEXT("실패는 기존 등록 mesh/MID/visibility 보존"), F.A->GetDisplayedMesh() == OriginalMesh
         && F.A->GetDisplayedMID() == OriginalMID && OriginalMesh->IsRegistered() && OriginalMesh->IsVisible());
-    F.A->SetResourcesForTests(TEXT("B"), F.A->GetDefaultResources(TEXT("B")));
+    F.A->SetResourcesForTests(TEXT("B"), GetEngineResources(TEXT("B")));
     Value.Hue = 0.8f; Value.Shape = 0.75f;
     TestEqual(TEXT("실패 후 색상/형상 편집"), Model->TryEdit(Value, Present), ECustomizationFailure::None);
     TestTrue(TEXT("같은 mesh 수치 편집은 component 유지"), F.A->GetDisplayedMesh() == OriginalMesh);
@@ -292,13 +304,13 @@ bool FCustomizationResourceContracts::RunTest(const FString& Parameters)
         TestTrue(TEXT("각 리소스 실패 후 표시 보존"), F.A->GetDisplayedMesh() == OriginalMesh
             && F.A->GetDisplayedMID() == OriginalMID && OriginalMesh->IsRegistered() && OriginalMesh->IsVisible());
     };
-    FCustomizationPartResources Bad = F.A->GetDefaultResources(TEXT("A"));
+    FCustomizationPartResources Bad = GetEngineResources(TEXT("A"));
     Bad.Material.Reset(); Check(Bad, ECustomizationFailure::MissingMaterial);
-    Bad = F.A->GetDefaultResources(TEXT("A")); Bad.MaterialSlot = 99; Check(Bad, ECustomizationFailure::MissingMaterial);
-    Bad = F.A->GetDefaultResources(TEXT("A")); Bad.ColorParameter = TEXT("AbsentColor"); Check(Bad, ECustomizationFailure::MissingColorParameter);
-    Bad = F.A->GetDefaultResources(TEXT("A")); Bad.bMaskRequired = true; Check(Bad, ECustomizationFailure::MissingMask);
-    Bad = F.A->GetDefaultResources(TEXT("A")); Bad.MaskParameter = TEXT("AbsentMask"); Check(Bad, ECustomizationFailure::MissingMaskParameter);
-    Bad = F.A->GetDefaultResources(TEXT("A")); Bad.MeshKind = ECustomizationMeshKind::Skeletal;
+    Bad = GetEngineResources(TEXT("A")); Bad.MaterialSlot = 99; Check(Bad, ECustomizationFailure::MissingMaterial);
+    Bad = GetEngineResources(TEXT("A")); Bad.ColorParameter = TEXT("AbsentColor"); Check(Bad, ECustomizationFailure::MissingColorParameter);
+    Bad = GetEngineResources(TEXT("A")); Bad.bMaskRequired = true; Check(Bad, ECustomizationFailure::MissingMask);
+    Bad = GetEngineResources(TEXT("A")); Bad.MaskParameter = TEXT("AbsentMask"); Check(Bad, ECustomizationFailure::MissingMaskParameter);
+    Bad = GetEngineResources(TEXT("A")); Bad.MeshKind = ECustomizationMeshKind::Skeletal;
     Check(Bad, ECustomizationFailure::MissingMesh);
 
     // 실제 rig가 없으므로 다음 세 검사는 transient Skeleton/mesh 대역의 사전 진단이다.
@@ -312,7 +324,7 @@ bool FCustomizationResourceContracts::RunTest(const FString& Parameters)
     Check(Bad, ECustomizationFailure::SkeletonMismatch);
     Bad.ExpectedSkeleton = FSoftObjectPath(Skeleton.Get());
     Check(Bad, ECustomizationFailure::MissingMorph);
-    F.A->SetResourcesForTests(TEXT("A"), F.A->GetDefaultResources(TEXT("A")));
+    F.A->SetResourcesForTests(TEXT("A"), GetEngineResources(TEXT("A")));
     TestEqual(TEXT("선택 mask 없음은 정상 기본 경로"), F.A->TryApply(Value), ECustomizationFailure::None);
     return true;
 }
