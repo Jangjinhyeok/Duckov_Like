@@ -74,9 +74,6 @@ struct FAppearanceFixture
         if (World->IsRooted()) { World->RemoveFromRoot(); }
     }
 };
-}
-
-using namespace CustomizationTests;
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCustomizationModelAtomicity, "Duckov.Customization.Model.AtomicFailureAndRetry", Flags)
 bool FCustomizationModelAtomicity::RunTest(const FString& Parameters)
@@ -352,5 +349,6 @@ bool FCustomizationResourceContracts::RunTest(const FString& Parameters)
     F.A->SetResourcesForTests(TEXT("A"), GetEngineResources(TEXT("A")));
     TestEqual(TEXT("선택 mask 없음은 정상 기본 경로"), F.A->TryApply(Value), ECustomizationFailure::None);
     return true;
+}
 }
 #endif

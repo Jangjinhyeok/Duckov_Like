@@ -44,8 +44,6 @@ bool SaveAsset(UObject* Asset)
     Args.TopLevelFlags = RF_Public | RF_Standalone;
     return UPackage::SavePackage(Package, Asset, *Filename, Args);
 }
-}
-using namespace CustomizationEditorAssetsTests;
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCustomizationImportedAssets, "CustomizationAssets.Verify", Flags)
 bool FCustomizationImportedAssets::RunTest(const FString& Parameters)
@@ -99,11 +97,11 @@ bool FCustomizationImportedAssets::RunTest(const FString& Parameters)
             && Auxiliary->GetMaterial()->GetUsageByFlag(MATUSAGE_SkeletalMesh)
             && Auxiliary->GetMaterial()->GetUsageByFlag(MATUSAGE_MorphTargets));
     }
-    const FName BodyMorphs[] = {TEXT("EyeSmall"), TEXT("EyeLarge"), TEXT("BeakShort"),
+    const FName RequiredBodyMorphs[] = {TEXT("EyeSmall"), TEXT("EyeLarge"), TEXT("BeakShort"),
         TEXT("BeakLong"), TEXT("BodyShort"), TEXT("BodyLong")};
     TestEqual(TEXT("body 필수 Morph 여섯 개"), Body->GetMorphTargets().Num(), 6);
     const auto* BodyRender = Body->GetResourceForRendering();
-    for (FName Name : BodyMorphs)
+    for (FName Name : RequiredBodyMorphs)
     {
         int32 Index = INDEX_NONE;
         const UMorphTarget* Morph = Body->FindMorphTargetAndIndex(Name, Index);
@@ -220,5 +218,6 @@ bool FCustomizationBodyRegionsReimport::RunTest(const FString& Parameters)
     TestTrue(TEXT("body reimport 증거 저장"), FFileHelper::SaveStringToFile(Record,
         *(FPaths::ProjectSavedDir() / TEXT("Automation/CustomizationRegions/reimport-body.json"))));
     return true;
+}
 }
 #endif
