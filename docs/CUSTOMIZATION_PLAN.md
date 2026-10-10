@@ -455,3 +455,131 @@ Risk LOW/main 직접 경로다. 현재 main에서 index·LFS·원본 보존을 �
 
 최신 전달용 Build·Automation 증거는 Saved/Automation/CustomizationDelivery의 Stage1/Stage2 로그·report에 있다.
 문서 커밋과 원격 push의 실제 SHA·동기화·clean 상태는 완료 보고에서 확인한다. 과거 commit/push 없음 기록은 당시 상태로 보존한다.
+
+
+## 부위별 최소 조절 확장 — 2026-10-07
+
+사용자의 “눈, 입, 몸통 길이 같은 것도 조절” 요청을 기존 최소 prototype에 연결했다.
+AI가 첫 범위를 눈 크기·입/부리 길이·몸통 앞뒤 길이의 연속 슬라이더 3개로 선택했다.
+이는 7개 탭/정식 에셋 제작 단계 전체의 완료를 뜻하지 않는다. 기존 머리 A/B·Hue·Shape는 유지한다.
+
+- **Risk LOW / 경로**: 가역적인 로컬 데이터·UI·기존 body Morph 확장이다. active autonomy-policy/agent-routing,
+  asset-authoring/verification-loop를 적용했다. main이 계약·통합·검증을 책임지고 gameplay-programmer의 C++ 12개,
+  tools-programmer의 Art 5개·Content 3개를 소유권 인계하며 순차 작성했다. 동일 tree 병렬 writer는 없었다.
+  main은 실패 slider 표시 복원·Skeleton 기준 자세 검사·하단 focus 검사를 보완했다. 독립 cpp-reviewer를 별도 호출했다.
+- **최소 계약**: EyeSize/BeakLength/BodyLength 모두 [-1,1], 기본 0이다. 0은 이전 body Basis 그대로다.
+  각 음수/양수 Morph weight는 max(-value,0)/max(value,0)이다. ID A/B·필수 슬롯·Hue/Shape·mask 규약은 기존과 같다.
+
+| 값 | 실제 body Morph | 제작 기준 |
+| --- | --- | --- |
+| EyeSize | EyeSmall / EyeLarge | 양 눈 고정 중심의 크기 0.65~1.5배 |
+| BeakLength | BeakShort / BeakLong | 입/부리 뒤 anchor에서 앞뒤 길이 0.65~1.5배 |
+| BodyLength | BodyShort / BodyLong | 몸통·날개 앞뒤 길이 0.75~1.35배 |
+
+**상태·적용 책임**: Model만 Profile/Draft/편집 상태를 소유한다. UI/VM은 입력 후보를 만들며
+기존 메모리 적용·초기화·취소·Back·재개방 경로에 세 값을 함께 전달한다. A/B 교체도 모든 값을 유지한다.
+입력의 NaN/Infinity/범위와 body 필수 Morph 6개·CPU/GPU 데이터·공통 Skeleton·material usage/shader를 검사하고,
+숨긴 body/part에서 모든 weight와 기준 자세를 준비한 뒤 외형, Draft, 이벤트 순서로 공개한다.
+동일 Profile fast path도 body weight 전체를 비교한다. 실패한 편집/최종 적용/초기화/취소는 확정 값·직전 Draft·표시를 보존한다.
+Slider 자체 Value가 delegate 전에 변경되는 경우에는 UI만 Model의 정상 값으로 즉시 되돌린다.
+실패·동일 상태의 중복 Model 이벤트는 없으며, 공유 material의 runtime 변경이나 원본 상태 복사본을 추가하지 않았다.
+
+**선택과 대안**: 기존 body에 독립된 양방향 Morph pair를 사용했다. bone/object scale 대안은 머리·다른 부위까지
+영향을 줄 수 있어 채택하지 않았다. component scale은 1이고 실제 정점 delta/렌더 변화로 검증한다.
+조절 항목은 520 높이 ScrollBox로 묶고 포커스 이동 시 해당 항목을 표시한다. 실패 안내는 preview 아래에 고정한다.
+상시 UI polling은 없으며, 동기 shader 준비/후보 교체 비용을 허용하는 prototype이다. 성능 개선을 주장하지 않는다.
+
+### 실제 실행·검토 증거
+
+아래 최신 증거는 Saved/Automation/CustomizationRegions, 엔진 로그는 Saved/Logs/CustomizationRegions*.log에 있다.
+원본 .blend의 Basis/UV/rig/bone weight/A/B signature, A/B FBX, 공통 Skeleton과 다른 Content는 보존했다.
+
+| 검사 | 실제 결과 |
+| --- | --- |
+| Blender 저장·재개방·원본 보존·비대상 정점·대칭·FBX 왕복 | PASS, verify/export/roundtrip/edit-probe/render JSON 및 checked 로그, 실제 비교 렌더 9장 |
+| 같은 production body asset 수정 재import·원본 복원 + Verify | 2 succeeded / 0 failed / 0 notRun / 경고 0, ReimportReport/index.json, process exit 0 |
+| 위 실제 수정 반영 | EyeLarge 최대 delta 길이 1.75 → 3.75 → 1.75 cm, 동일 UObject/Skeleton/material 참조 보존, reimport-body.json |
+| Editor/Game Win64 Development | 각각 **Result: Succeeded**, exit 0, EditorBuild-scroll.log / GameBuild-scroll.log / BuildScrollProcess.json |
+| 최종 Duckov.+InventoryAssets.Verify+CustomizationAssets.Verify | **94 succeeded / 0 failed / 0 notRun / 0 inProcess / 경고 0**, VerifiedReport/index.json·VerifiedProcess.json exit 0 |
+| 기존 회귀 | 이전 94개 test path 누락 0, 인벤토리/Raid/asset 85개 포함, test-path-comparison.json |
+| 실제 에셋·D3D12 SM6 | body Morph 6개 delta/weight/active render, body와 공통 Skeleton의 bone 이름·parent·ref transform 일치, 대상별 색상/MID/형상 독립 PASS |
+| 상태·실패 보존 | 정상 Draft 편집의 확정 불변, 입력/필수 Morph/리소스/최종 적용 실패 후 세 상태·component/MID 보존, 복구 후 정상 적용 PASS |
+| 반복·UI 수명 | -1/0/+1·복합값·A/B/A·반복 적용 잔류/중복 이벤트 없음, 적용/초기화/취소/Back/재개방·preview 폐기·GC PASS |
+| 실제 화면 | 각 부위 최소/중립/최대 pixels 변화, 실패 전후 pixels 동일, 슬라이더 실패 복원, 하단 focus 시 동작 버튼 4개 표시 PASS. main이 Visual PNG를 직접 확인 |
+| self-review | **리뷰 완료, 이슈 없음** — 상태/표시 공개·UObject/MID·UI 실패 복원·범위·실제 렌더 증거 확인 |
+| 독립 cpp-reviewer | **PASS — 리뷰 완료, 이슈 없음.** fresh context로 C++ 12개·호출부·Art script/README·문서 append·Build/report·PNG를 확인. runtime/보호 파일 각 101개 hash 불일치 0을 독립 대조. reviewer의 build/runtime 재실행은 not_run |
+| 이번 확장의 사용자 PIE 수용 | **대기/not_run**. 이전 A/B·Hue·Shape의 사용자 수용을 새 3개 조절의 수용으로 간주하지 않는다 |
+
+Model callback 실패는 테스트 대역이며 static fixture는 새 부위 조절을 UnsupportedBodyAdjustment로 거부한다.
+실제 Morph 지원 증거는 위 skeletal/RHI 검사다. Morph 누락 시험은 같은 Skeleton의 A mesh를 body 준비에 주입한다.
+처음 Blender sandbox 실행은 접근 거부였고 권한을 갖춘 별도 process로 실행했다. Basis value/대칭 rounding 검사와
+pilot Unreal.Array JSON 변환 오류는 수정·재실행하여 PASS를 확보했다. 최초 실패 로그는 남겨 두었다.
+pilot body 재import에는 기존 Shape FBX에서도 보였던 BindPose warning 1건이 있었다.
+fresh pilot 재로드는 0 errors/0 warnings, production Automation은 경고 0이며 ref bone pose 동등도 직접 검증했다.
+
+범위/secret 검사에서 예상 밖 변경·규칙 일치·보호 대상 101개 hash 불일치 0, 기존 계획/worklog/Art README byte prefix 보존이다.
+최종 Source/Content 101개 hash를 tested-source-content.json으로 기록했다. InventoryCore·Raid·저장 형식·Config·GDD·
+INVENTORY_DESIGN은 미수정이다. 현재 main/HEAD 45f23a5/staged 0을 유지하며 이번 확장의 commit/push는 수행하지 않는다.
+
+### 제작 계약과 인계
+
+공통 SK_CustomizationBody_Skeleton 5 bones/동일 ref pose·cm 단위·원래 pivot을 유지한다.
+body의 위 Morph 6개와 A/B Shape는 LOD0 필수다. body 슬롯 0의 Color/ColorMask, 슬롯 1/2의 고정색은 유지하되
+눈·부리 material에도 Skeletal Mesh/Morph Targets usage가 필요하다. 선택 mask 미지정은 흰색 neutral로 복원한다.
+직접 편집 가능한 .blend, body-only export 스크립트 author_regions.py, 비교표 RegionsPreview.png와 상세 규약은 Art README에 있다.
+
+기술적 구현·실제 자동 검증과 새 화면의 사람 수용은 구분한다. reference pose/LOD0만 검증했고 animation/추가 LOD/
+packaged runtime·정식 에셋 증량·지상 플레이 연결·저장/네트워크는 not_run/범위 밖이다.
+검증용 Editor는 종료한 상태로 인계한다. 사용자 직접 확인 순서는 L_InventoryDemo PIE → OpenCustomizationPrototype →
+눈·입·몸통 슬라이더를 각각/함께 조절 → A/B 교체 시 값 유지 → 아래로 스크롤해 적용 → 재개방 값 일치 →
+초기화 후 취소 또는 Escape → 재개방 확정 값 복원 → 개발용 실패 시험에서 값/외형 보존과 사유 확인이다.
+초기화 후 적용·재개방하면 새 세 값은 0으로 확정되어야 한다. 이번 변경은 로컬 구현 완료 범위이며 사람 수용은 별도로 받는다.
+
+
+### 부위별 조절 사용자 수용·Git 전달 — 2026-10-10
+
+사용자가 **“다 확인됐어. 커밋 푸쉬 진행하고 진행상황 업데이트 하자”**고 보고했다.
+새 눈 크기·입/부리 길이·몸통 앞뒤 길이의 직접 PIE 확인을 **사용자 보고 PASS/수용**으로 기록한다.
+안내한 미리보기·A/B 값 유지·적용/재개방·초기화/취소·Back·실패 보존의 수용이며, AI의 사람 입력 직접 관찰과 구분한다.
+
+**현재 진행상황**: C0~C2와 최소 C3에 더해 부위별 3개 조절의 구현·실제 에셋 자동 검증·사용자 수용을 완료했다.
+기존 기능의 독립 C++ PASS를 유지하며, 전달 중 발견한 테스트 컴파일 수정도 별도 재검토 PASS를 받았다.
+7개 탭 전체·정식 에셋 증량·animation/추가 LOD/packaged·지상 플레이 연결·저장/네트워크는 이번 완료 범위가 아니다.
+
+- **Risk LOW / 선택 경로**: main이 보존 검사·문서·Git 전달을 담당한다. 실제 compile 실패 후 cpp-build-resolver에
+  테스트 2개 파일만 순차 인계했고 main이 다시 통합 검증한다. fresh-context cpp-reviewer가 해당 수정과 증거를 재검토한다.
+  active autonomy-policy/agent-routing 및 verification-loop를 적용하며 동일 tree 병렬 writer는 없다.
+- 전달 전 main/HEAD 45f23a5와 origin/main 일치, staged 0, 수용 범위 22개를 확인했다.
+  변경 22개를 Saved/Automation/CustomizationRegionsDelivery/baseline에 hash 검증 사본으로 보존했다.
+- 기능 commit **227a99f**: 눈·부리·몸통 조절 코드와 필수 Morph/원본 에셋 20개를 묶었다.
+  코드와 body 리소스를 분리하면 필수 Morph 계약을 만족하지 못하므로 한 기능 단위로 전달했다.
+  해당 커밋 전 Editor/Game Build는 Target is up to date 및 **Result: Succeeded**, exit 0이었다.
+
+**전달 중 발견·수정한 빌드 실패**: 문서 커밋 전 재빌드는 열린 Editor의 Live Coding으로 차단됐다.
+사용자가 저장 후 Editor 종료를 확인했고, 이후 Unreal의 Unity Build에서 테스트 Flags 모호성(C2872)과
+BodyMorphs 이름 숨김(C4459)이 드러났다. Unity Build는 UnrealBuildTool이 여러 C++ 파일을 묶는 컴파일 방식이다.
+수정 파일이 개별 컴파일되던 앞선 검증으로는 이 경로를 잡지 못했다. 실패 로그는 DocsEditorBuild.log와
+DocsEditorBuild-retry.log에 보존한다. 성공으로 덮어쓰지 않는다.
+
+CustomizationTests.cpp와 CustomizationEditorAssetsTests.cpp의 테스트를 각 고유 namespace 안에 유지하고,
+후자의 지역 배열만 RequiredBodyMorphs로 바꿨다. 테스트 등록 9개와 검사 본문은 동일하다.
+게임 동작·에셋·설정은 변경하지 않았다. 검토된 runtime 101개 중 **99개 hash 동일**, 2개 차이는 이 테스트 수정뿐이다.
+
+| 최종 전달 검증 | 실제 결과 |
+| --- | --- |
+| Editor 전체 묶음 컴파일, -DisableAdaptiveUnity | **Result: Succeeded**, exit 0, 실제 Module.DuckovLike.2.cpp compile, UnityEditorBuild.log |
+| 표준 Editor/Game Win64 Development | 각각 **Result: Succeeded**, exit 0, FixedEditorBuild.log / FixedGameBuild.log / FixedBuildProcess.json |
+| 수정 후 새 process 전체 Automation | **94 succeeded / 0 failed / 0 notRun / 0 inProcess / 테스트 경고 0**, FinalReport/index.json·FinalProcess.json exit 0 |
+| 기존 테스트·범위 보존 | 이전 94개 path 누락 0, 기존 인벤토리/Raid/asset 85개 포함. 테스트 2개 외 수용 코드·에셋 불변 |
+| body 같은 asset 재import | 기존 2026-10-07의 2/0/0 및 1.75→3.75→1.75 cm 증거 유지. 이번 전달에서 mutating reimport는 재실행하지 않음 |
+| self-review | **리뷰 완료, 이슈 없음** — 최소 이름 범위 수정·실제 diff·재실행 검사·LFS/secret·원본/문서 보존 |
+| 수정분 독립 cpp-reviewer | **PASS — 리뷰 완료, 이슈 없음.** fresh context로 테스트 2개·등록 9개·UE macro 수명·3 Build·새 94개 Automation·hash/문서 증거 직접 확인. reviewer의 runtime 재실행은 not_run |
+
+테스트 경고 0은 Automation report의 카운터다. 엔진 시작 시 기존 Slate/VisionOS 이미지·EditorPerf 경고와 구분한다.
+최신 Source/Content 101개 hash는 fixed-runtime.json, 보존/secret 증거는 verify-*.json에 있다.
+InventoryCore·Raid·저장 형식·Config·GDD·INVENTORY_DESIGN과 보호 대상 101개 파일을 보존한다.
+사용자 수용은 게임 동작을 바꾸지 않는 테스트 컴파일 수정 뒤에도 유지하며 새 수용을 만들어내지 않는다.
+
+테스트 compile 수정은 **29801ea**로 커밋했고, 계획/worklog 기록은 별도 문서 커밋으로 전달한다.
+현재 main에서 commit/push하며 branch 변경·history rewrite는 하지 않는다. 각 실제 SHA와 원격 push·동기화·clean 상태는
+완료 보고에서 확인한다. 검증용 process는 테스트 종료 후 닫으며, 사용자 Editor는 사용자가 저장하고 종료했다.
