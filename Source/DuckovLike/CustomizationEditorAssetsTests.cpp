@@ -60,6 +60,18 @@ bool FCustomizationImportedAssets::RunTest(const FString& Parameters)
     TestEqual(TEXT("A 슬롯 수"), A->GetMaterials().Num(), 1);
     TestEqual(TEXT("B 슬롯 수"), B->GetMaterials().Num(), 1);
     TestTrue(TEXT("동일 Skeleton asset"), Body->GetSkeleton() && Body->GetSkeleton() == A->GetSkeleton() && A->GetSkeleton() == B->GetSkeleton());
+    if (Body->GetSkeleton())
+    {
+        const FReferenceSkeleton& BodyBones = Body->GetRefSkeleton();
+        const FReferenceSkeleton& SharedBones = Body->GetSkeleton()->GetReferenceSkeleton();
+        TestEqual(TEXT("body와 보존된 Skeleton의 bone 수 일치"), BodyBones.GetNum(), SharedBones.GetNum());
+        for (int32 Index = 0; Index < FMath::Min(BodyBones.GetNum(), SharedBones.GetNum()); ++Index)
+        {
+            TestEqual(TEXT("body와 Skeleton bone 이름 일치"), BodyBones.GetBoneName(Index), SharedBones.GetBoneName(Index));
+            TestEqual(TEXT("body와 Skeleton bone parent 일치"), BodyBones.GetParentIndex(Index), SharedBones.GetParentIndex(Index));
+            TestTrue(TEXT("body와 Skeleton 기준 자세 일치"), BodyBones.GetRefBonePose()[Index].Equals(SharedBones.GetRefBonePose()[Index], 0.0001f));
+        }
+    }
     TestTrue(TEXT("body 높이 91 cm"), FMath::IsNearlyEqual(Body->GetImportedBounds().BoxExtent.Z * 2.f, 91.f, 0.05f));
     const FName Expected[] = {TEXT("root"), TEXT("body"), TEXT("head"), TEXT("wing_l"), TEXT("wing_r")};
     for (USkeletalMesh* Item : {Body, A, B})
@@ -80,6 +92,29 @@ bool FCustomizationImportedAssets::RunTest(const FString& Parameters)
     TestTrue(TEXT("Color vector parameter"), Material && Material->GetVectorParameterValue(FMaterialParameterInfo(TEXT("Color")), Color));
     TestTrue(TEXT("선택 mask의 흰색 기본 참조"), Material && Material->GetTextureParameterValue(FMaterialParameterInfo(TEXT("ColorMask")), Mask) && Mask);
     TestTrue(TEXT("skeletal/Morph usage"), Material && Material->GetMaterial()->GetUsageByFlag(MATUSAGE_SkeletalMesh) && Material->GetMaterial()->GetUsageByFlag(MATUSAGE_MorphTargets));
+    for (int32 Slot = 1; Slot < Body->GetMaterials().Num(); ++Slot)
+    {
+        UMaterialInterface* Auxiliary = Body->GetMaterials()[Slot].MaterialInterface;
+        TestTrue(TEXT("눈/입 material도 skeletal/Morph usage 지원"), Auxiliary && Auxiliary->GetMaterial()
+            && Auxiliary->GetMaterial()->GetUsageByFlag(MATUSAGE_SkeletalMesh)
+            && Auxiliary->GetMaterial()->GetUsageByFlag(MATUSAGE_MorphTargets));
+    }
+    const FName BodyMorphs[] = {TEXT("EyeSmall"), TEXT("EyeLarge"), TEXT("BeakShort"),
+        TEXT("BeakLong"), TEXT("BodyShort"), TEXT("BodyLong")};
+    TestEqual(TEXT("body 필수 Morph 여섯 개"), Body->GetMorphTargets().Num(), 6);
+    const auto* BodyRender = Body->GetResourceForRendering();
+    for (FName Name : BodyMorphs)
+    {
+        int32 Index = INDEX_NONE;
+        const UMorphTarget* Morph = Body->FindMorphTargetAndIndex(Name, Index);
+        TestTrue(TEXT("body Morph 실제 LOD0 정점 변화"), Morph && Morph->HasDataForLOD(0)
+            && Morph->GetMorphTargetDeltas(0).ContainsByPredicate([](const FMorphTargetDelta& Delta)
+                { return !Delta.PositionDelta.IsNearlyZero(); }));
+        TestTrue(TEXT("body Morph 실제 GPU render batches"), BodyRender && BodyRender->LODRenderData.IsValidIndex(0)
+            && BodyRender->LODRenderData[0].MorphTargetVertexInfoBuffers.IsMorphResourcesInitialized() && Index >= 0
+            && static_cast<uint32>(Index) < BodyRender->LODRenderData[0].MorphTargetVertexInfoBuffers.GetNumMorphs()
+            && BodyRender->LODRenderData[0].MorphTargetVertexInfoBuffers.GetNumBatches(Index) > 0);
+    }
     TestTrue(TEXT("A 실제 Morph 정점 변화"), A->FindMorphTarget(TEXT("Shape")) && MaxMorphZ(A) > 13.f);
     TestTrue(TEXT("B 실제 Morph 정점 변화"), B->FindMorphTarget(TEXT("Shape")) && MaxMorphZ(B) > 13.f);
     return true;
@@ -119,6 +154,71 @@ bool FCustomizationSameAssetReimport::RunTest(const FString& Parameters)
     }
     const FString Record = FString::Printf(TEXT("{\"same_asset\":true,\"before_z\":%.6f,\"edited_z\":%.6f,\"restored_z\":%.6f}"), Before, After, MaxMorphZ(A));
     FFileHelper::SaveStringToFile(Record, *(FPaths::ProjectSavedDir() / TEXT("Automation/CustomizationSkeletal/reimport.json")));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCustomizationBodyRegionsReimport, "CustomizationAssets.ReimportBodyRegions", Flags)
+bool FCustomizationBodyRegionsReimport::RunTest(const FString& Parameters)
+{
+    USkeletalMesh* Body = Mesh(TEXT("SK_CustomizationBody"));
+    if (!TestNotNull(TEXT("부위별 재import 대상 body"), Body)) { return false; }
+    FSkinnedAssetCompilingManager::Get().FinishAllCompilation();
+    if (!TestEqual(TEXT("재import 전 body 슬롯 3개"), Body->GetMaterials().Num(), 3)) { return false; }
+    const auto MaxEyeMorphMagnitude = [](const USkeletalMesh* Item)
+    {
+        float Result = 0.f;
+        const UMorphTarget* Morph = Item->FindMorphTarget(TEXT("EyeLarge"));
+        if (Morph)
+        {
+            for (const FMorphTargetDelta& Delta : Morph->GetMorphTargetDeltas(0))
+            {
+                Result = FMath::Max(Result, Delta.PositionDelta.Size());
+            }
+        }
+        return Result;
+    };
+    const float Before = MaxEyeMorphMagnitude(Body);
+    USkeleton* Skeleton = Body->GetSkeleton();
+    UMaterialInterface* Materials[] = {Body->GetMaterials()[0].MaterialInterface,
+        Body->GetMaterials()[1].MaterialInterface, Body->GetMaterials()[2].MaterialInterface};
+    const FString Edited = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir()
+        / TEXT("Automation/CustomizationRegions/EditProbeExports/SK_CustomizationBody.fbx"));
+    const FString Original = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir()
+        / TEXT("Art/CustomizationPrototype/Exports/SK_CustomizationBody.fbx"));
+    if (!TestTrue(TEXT("편집 body FBX와 복원 원본 존재"), FPaths::FileExists(Edited) && FPaths::FileExists(Original))) { return false; }
+    const auto CheckReferences = [&]
+    {
+        TestTrue(TEXT("동일 body UObject/Skeleton 보존"), Mesh(TEXT("SK_CustomizationBody")) == Body && Body->GetSkeleton() == Skeleton);
+        TestEqual(TEXT("body Morph 여섯 개 보존"), Body->GetMorphTargets().Num(), 6);
+        TestEqual(TEXT("body material 슬롯 3개 보존"), Body->GetMaterials().Num(), 3);
+        for (int32 Slot = 0; Slot < 3 && Slot < Body->GetMaterials().Num(); ++Slot)
+        {
+            TestTrue(TEXT("body 각 material 참조 보존"), Body->GetMaterials()[Slot].MaterialInterface == Materials[Slot]);
+        }
+    };
+    FReimportManager::Instance()->UpdateReimportPaths(Body, {Edited});
+    const bool Changed = FReimportManager::Instance()->Reimport(Body, false, false, Edited, nullptr, INDEX_NONE, false, true);
+    FSkinnedAssetCompilingManager::Get().FinishAllCompilation();
+    const float After = MaxEyeMorphMagnitude(Body);
+    TestTrue(TEXT("편집 body 같은 asset 재import 성공"), Changed);
+    TestTrue(TEXT("EyeLarge source delta 길이 +2 cm 반영"), FMath::IsNearlyEqual(After - Before, 2.f, 0.02f));
+    CheckReferences();
+    // 편집 import나 검사 실패 후에도 production 원본 복원은 수행한다.
+    FReimportManager::Instance()->UpdateReimportPaths(Body, {Original});
+    const bool Restored = FReimportManager::Instance()->Reimport(Body, false, false, Original, nullptr, INDEX_NONE, false, true);
+    FSkinnedAssetCompilingManager::Get().FinishAllCompilation();
+    const float Final = MaxEyeMorphMagnitude(Body);
+    TestTrue(TEXT("production body 원본 재import 복원"), Restored);
+    TestTrue(TEXT("EyeLarge 원본 delta 길이 복원"), FMath::IsNearlyEqual(Final, Before, 0.02f));
+    CheckReferences();
+    Body->GetAssetImportData()->Update(Original);
+    const bool Saved = Restored && SaveAsset(Body);
+    TestTrue(TEXT("최종 body package만 저장"), Saved);
+    const FString Record = FString::Printf(TEXT("{\"same_asset\":%s,\"edited_reimport\":%s,\"restored_reimport\":%s,\"saved\":%s,\"before_magnitude\":%.6f,\"edited_magnitude\":%.6f,\"restored_magnitude\":%.6f}"),
+        Mesh(TEXT("SK_CustomizationBody")) == Body ? TEXT("true") : TEXT("false"), Changed ? TEXT("true") : TEXT("false"),
+        Restored ? TEXT("true") : TEXT("false"), Saved ? TEXT("true") : TEXT("false"), Before, After, Final);
+    TestTrue(TEXT("body reimport 증거 저장"), FFileHelper::SaveStringToFile(Record,
+        *(FPaths::ProjectSavedDir() / TEXT("Automation/CustomizationRegions/reimport-body.json"))));
     return true;
 }
 #endif

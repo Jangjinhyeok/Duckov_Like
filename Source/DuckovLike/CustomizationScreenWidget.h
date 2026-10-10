@@ -11,6 +11,7 @@ class UButton;
 class USlider;
 class UImage;
 class UTextBlock;
+class UScrollBox;
 
 UCLASS(meta=(DisableNativeTick))
 class DUCKOVLIKE_API UCustomizationScreenWidget : public UCommonActivatableWidget
@@ -45,6 +46,14 @@ private:
     UPROPERTY(Transient)
     TObjectPtr<USlider> ShapeSlider;
     UPROPERTY(Transient)
+    TObjectPtr<USlider> EyeSizeSlider;
+    UPROPERTY(Transient)
+    TObjectPtr<USlider> BeakLengthSlider;
+    UPROPERTY(Transient)
+    TObjectPtr<USlider> BodyLengthSlider;
+    UPROPERTY(Transient)
+    TObjectPtr<UScrollBox> ControlsScroll;
+    UPROPERTY(Transient)
     TObjectPtr<UTextBlock> ValueText;
     UPROPERTY(Transient)
     TObjectPtr<UTextBlock> FailureText;
@@ -65,6 +74,12 @@ private:
     void ChangeHue(float Value);
     UFUNCTION()
     void ChangeShape(float Value);
+    UFUNCTION()
+    void ChangeEyeSize(float Value);
+    UFUNCTION()
+    void ChangeBeakLength(float Value);
+    UFUNCTION()
+    void ChangeBodyLength(float Value);
     UFUNCTION()
     void Apply();
     UFUNCTION()

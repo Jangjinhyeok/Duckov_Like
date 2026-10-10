@@ -74,6 +74,30 @@ ECustomizationFailure UCustomizationViewModel::SetShape(float Value)
     return Report(Model->TryEdit(Candidate, [this](const auto& Profile) { return Present(Profile); }));
 }
 
+ECustomizationFailure UCustomizationViewModel::SetEyeSize(float Value)
+{
+    if (!Model) { return Report(ECustomizationFailure::NotEditing); }
+    FCustomizationProfile Candidate = Model->GetDraft();
+    Candidate.EyeSize = Value;
+    return Report(Model->TryEdit(Candidate, [this](const auto& Profile) { return Present(Profile); }));
+}
+
+ECustomizationFailure UCustomizationViewModel::SetBeakLength(float Value)
+{
+    if (!Model) { return Report(ECustomizationFailure::NotEditing); }
+    FCustomizationProfile Candidate = Model->GetDraft();
+    Candidate.BeakLength = Value;
+    return Report(Model->TryEdit(Candidate, [this](const auto& Profile) { return Present(Profile); }));
+}
+
+ECustomizationFailure UCustomizationViewModel::SetBodyLength(float Value)
+{
+    if (!Model) { return Report(ECustomizationFailure::NotEditing); }
+    FCustomizationProfile Candidate = Model->GetDraft();
+    Candidate.BodyLength = Value;
+    return Report(Model->TryEdit(Candidate, [this](const auto& Profile) { return Present(Profile); }));
+}
+
 ECustomizationFailure UCustomizationViewModel::Apply()
 {
     return Report(Model ? Model->Apply([this](const auto& Value) { return Present(Value); }) : ECustomizationFailure::NotEditing);
@@ -92,6 +116,9 @@ ECustomizationFailure UCustomizationViewModel::Cancel()
 FName UCustomizationViewModel::GetPartId() const { return Model ? Model->GetDraft().PartId : NAME_None; }
 float UCustomizationViewModel::GetHue() const { return Model ? Model->GetDraft().Hue : 0.12f; }
 float UCustomizationViewModel::GetShape() const { return Model ? Model->GetDraft().Shape : 0.f; }
+float UCustomizationViewModel::GetEyeSize() const { return Model ? Model->GetDraft().EyeSize : 0.f; }
+float UCustomizationViewModel::GetBeakLength() const { return Model ? Model->GetDraft().BeakLength : 0.f; }
+float UCustomizationViewModel::GetBodyLength() const { return Model ? Model->GetDraft().BodyLength : 0.f; }
 FText UCustomizationViewModel::GetFailureText() const { return GetCustomizationFailureText(LastFailure); }
 
 void UCustomizationViewModel::OnModelChanged()
@@ -112,6 +139,9 @@ void UCustomizationViewModel::OnModelChanged()
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetPartId);
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetHue);
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetShape);
+    UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetEyeSize);
+    UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetBeakLength);
+    UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetBodyLength);
 }
 
 void UCustomizationViewModel::BeginDestroy()

@@ -17,8 +17,9 @@
 
 namespace
 {
-    const FSoftObjectPath BodyMeshPath(TEXT("/Game/Customization/Prototype/SK_CustomizationBody.SK_CustomizationBody"));
     const FName BodyColorParameter(TEXT("Color"));
+    const FName BodyMorphs[] = {TEXT("EyeSmall"), TEXT("EyeLarge"), TEXT("BeakShort"),
+        TEXT("BeakLong"), TEXT("BodyShort"), TEXT("BodyLong")};
 
     bool HasSkeletalRenderData(const USkeletalMesh* Mesh)
     {
@@ -50,31 +51,67 @@ namespace
                 && MID->GetTextureParameterValue(FMaterialParameterInfo(MaskParameter), CurrentMask) && CurrentMask == Mask));
     }
 
-    bool HasPreparedPose(const USkeletalMeshComponent* Component, FName Morph = NAME_None, float Weight = 0.0f)
+    bool HasMorphData(const USkeletalMesh* Mesh, TConstArrayView<FName> Morphs)
+    {
+        for (FName Name : Morphs)
+        {
+            int32 Index = INDEX_NONE;
+            const UMorphTarget* Morph = Name.IsNone() ? nullptr : Mesh->FindMorphTargetAndIndex(Name, Index);
+            if (!Morph || Index < 0 || !Morph->HasDataForLOD(0)) { return false; }
+        }
+        return true;
+    }
+
+    bool HasMorphBatches(const USkeletalMesh* Mesh, TConstArrayView<FName> Morphs)
+    {
+        const FMorphTargetVertexInfoBuffers& Buffers = Mesh->GetResourceForRendering()->LODRenderData[0].MorphTargetVertexInfoBuffers;
+        for (FName Name : Morphs)
+        {
+            int32 Index = INDEX_NONE;
+            Mesh->FindMorphTargetAndIndex(Name, Index);
+            if (Index < 0 || static_cast<uint32>(Index) >= Buffers.GetNumMorphs() || Buffers.GetNumBatches(Index) == 0)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool HasPreparedPose(const USkeletalMeshComponent* Component, TConstArrayView<FName> Morphs,
+        TConstArrayView<float> Weights)
     {
         const USkeletalMesh* Mesh = Component ? Component->GetSkeletalMeshAsset() : nullptr;
         if (!Mesh || Component->GetComponentSpaceTransforms().Num() != Mesh->GetRefSkeleton().GetNum()
-            || Component->MorphTargetWeights.Num() != Mesh->GetMorphTargets().Num()) { return false; }
+            || Component->MorphTargetWeights.Num() != Mesh->GetMorphTargets().Num()
+            || Component->GetMorphTargetCurves().Num() != Morphs.Num()) { return false; }
         for (const FTransform& Bone : Component->GetComponentSpaceTransforms())
         {
             if (Bone.ContainsNaN()) { return false; }
         }
-        int32 MorphIndex = INDEX_NONE;
-        const UMorphTarget* Target = Morph.IsNone() ? nullptr : Mesh->FindMorphTargetAndIndex(Morph, MorphIndex);
-        if (!Morph.IsNone() && (!Target || Component->GetMorphTargetCurves().Num() != 1
-            || !Component->GetMorphTargetCurves().Contains(Morph) || Component->GetMorphTarget(Morph) != Weight))
+        int32 ActiveCount = 0;
+        for (int32 Index = 0; Index < Morphs.Num(); ++Index)
         {
-            return false;
+            int32 MorphIndex = INDEX_NONE;
+            const UMorphTarget* Target = Mesh->FindMorphTargetAndIndex(Morphs[Index], MorphIndex);
+            if (!Target || !Component->GetMorphTargetCurves().Contains(Morphs[Index])
+                || Component->GetMorphTarget(Morphs[Index]) != Weights[Index]) { return false; }
+            // UE 5.7은 UE_SMALL_NUMBER 이하 weight를 active render set에서 제외한다.
+            if (Weights[Index] > UE_SMALL_NUMBER)
+            {
+                const int32* ActiveIndex = Component->ActiveMorphTargets.Find(Target);
+                if (!ActiveIndex || *ActiveIndex != MorphIndex) { return false; }
+                ++ActiveCount;
+            }
         }
-        if (Morph.IsNone() && Component->GetMorphTargetCurves().Num() != 0) { return false; }
-        // UE 5.7은 UE_SMALL_NUMBER 이하 weight를 active render set에서 제외한다.
-        const bool bActive = Target && Weight > UE_SMALL_NUMBER;
-        const int32* ActiveIndex = Target ? Component->ActiveMorphTargets.Find(Target) : nullptr;
-        if (Component->ActiveMorphTargets.Num() != (bActive ? 1 : 0)
-            || (bActive && (!ActiveIndex || *ActiveIndex != MorphIndex))) { return false; }
+        if (Component->ActiveMorphTargets.Num() != ActiveCount) { return false; }
         for (int32 Index = 0; Index < Component->MorphTargetWeights.Num(); ++Index)
         {
-            const float Expected = bActive && Index == MorphIndex ? Weight : 0.0f;
+            float Expected = 0.0f;
+            for (int32 MorphIndex = 0; MorphIndex < Morphs.Num(); ++MorphIndex)
+            {
+                if (Mesh->GetMorphTargets()[Index]->GetFName() == Morphs[MorphIndex]
+                    && Weights[MorphIndex] > UE_SMALL_NUMBER) { Expected = Weights[MorphIndex]; }
+            }
             if (Component->MorphTargetWeights[Index] != Expected) { return false; }
         }
         return true;
@@ -166,6 +203,16 @@ ECustomizationFailure UCustomizationAppearanceComponent::TryApply(const FCustomi
     {
         return ECustomizationFailure::PreparationFailed;
     }
+    if (Resources.MeshKind == ECustomizationMeshKind::StaticPlaceholder
+        && (Candidate.EyeSize != 0.f || Candidate.BeakLength != 0.f || Candidate.BodyLength != 0.f))
+    {
+        return ECustomizationFailure::UnsupportedBodyAdjustment;
+    }
+    const FName PartMorphs[] = {Resources.Morph};
+    const float PartWeights[] = {(Candidate.Shape + 1.0f) * 0.5f};
+    const float BodyWeights[] = {FMath::Max(-Candidate.EyeSize, 0.f), FMath::Max(Candidate.EyeSize, 0.f),
+        FMath::Max(-Candidate.BeakLength, 0.f), FMath::Max(Candidate.BeakLength, 0.f),
+        FMath::Max(-Candidate.BodyLength, 0.f), FMath::Max(Candidate.BodyLength, 0.f)};
     // 동기 로드는 후보에 필요한 리소스를 강하게 보관하며 표시 component에는 아직 손대지 않는다.
     TStrongObjectPtr<UObject> LoadedMesh(Resources.Mesh.TryLoad());
     UStaticMesh* StaticMesh = Cast<UStaticMesh>(LoadedMesh.Get());
@@ -183,25 +230,25 @@ ECustomizationFailure UCustomizationAppearanceComponent::TryApply(const FCustomi
         if (!Skeleton.IsValid()) { return ECustomizationFailure::MissingSkeleton; }
         if (SkeletalMesh->GetSkeleton() != Skeleton.Get()) { return ECustomizationFailure::SkeletonMismatch; }
         if (SkeletalMesh->IsCompiling()) { return ECustomizationFailure::PreparationFailed; }
-        int32 MorphIndex = INDEX_NONE;
-        const UMorphTarget* Morph = Resources.Morph.IsNone() ? nullptr
-            : SkeletalMesh->FindMorphTargetAndIndex(Resources.Morph, MorphIndex);
-        if (!Morph || MorphIndex < 0 || !Morph->HasDataForLOD(0))
+        if (!HasMorphData(SkeletalMesh, PartMorphs))
         {
             return ECustomizationFailure::MissingMorph;
         }
         BodyMesh.Reset(Cast<USkeletalMesh>(BodyMeshPath.TryLoad()));
         if (!BodyMesh.IsValid()) { return ECustomizationFailure::MissingMesh; }
         if (BodyMesh->GetSkeleton() != Skeleton.Get()) { return ECustomizationFailure::SkeletonMismatch; }
+        if (BodyMesh->IsCompiling()) { return ECustomizationFailure::PreparationFailed; }
+        if (!HasMorphData(BodyMesh.Get(), BodyMorphs)) { return ECustomizationFailure::MissingMorph; }
         if (!HasSkeletalRenderData(SkeletalMesh) || !HasSkeletalRenderData(BodyMesh.Get()))
         {
             return ECustomizationFailure::PreparationFailed;
         }
-        const FMorphTargetVertexInfoBuffers& MorphBuffers = SkeletalMesh->GetResourceForRendering()
-            ->LODRenderData[0].MorphTargetVertexInfoBuffers;
-        if (!MorphBuffers.IsMorphResourcesInitialized()) { return ECustomizationFailure::PreparationFailed; }
-        if (static_cast<uint32>(MorphIndex) >= MorphBuffers.GetNumMorphs()
-            || MorphBuffers.GetNumBatches(MorphIndex) == 0)
+        if (!SkeletalMesh->GetResourceForRendering()->LODRenderData[0].MorphTargetVertexInfoBuffers.IsMorphResourcesInitialized()
+            || !BodyMesh->GetResourceForRendering()->LODRenderData[0].MorphTargetVertexInfoBuffers.IsMorphResourcesInitialized())
+        {
+            return ECustomizationFailure::PreparationFailed;
+        }
+        if (!HasMorphBatches(SkeletalMesh, PartMorphs) || !HasMorphBatches(BodyMesh.Get(), BodyMorphs))
         {
             return ECustomizationFailure::MissingMorph;
         }
@@ -221,7 +268,7 @@ ECustomizationFailure UCustomizationAppearanceComponent::TryApply(const FCustomi
         }
         for (int32 Slot = 1; Slot < BodyMesh->GetMaterials().Num(); ++Slot)
         {
-            if (!HasSkeletalUsage(BodyMesh->GetMaterials()[Slot].MaterialInterface, false))
+            if (!HasSkeletalUsage(BodyMesh->GetMaterials()[Slot].MaterialInterface, true))
             {
                 return ECustomizationFailure::MissingMaterial;
             }
@@ -283,20 +330,19 @@ ECustomizationFailure UCustomizationAppearanceComponent::TryApply(const FCustomi
         && ((StaticMesh && CurrentStatic && CurrentStatic->GetStaticMesh() == StaticMesh)
             || (SkeletalMesh && CurrentSkeletal && CurrentSkeletal->GetSkeletalMeshAsset() == SkeletalMesh));
     const FLinearColor Color = GetCustomizationColor(Candidate.Hue);
-    const float MorphWeight = (Candidate.Shape + 1.0f) * 0.5f;
     const bool bSameBody = BodyMesh.IsValid()
         ? DisplayedBody && DisplayedBody->IsRegistered() && DisplayedBody->GetSkeletalMeshAsset() == BodyMesh.Get()
             && DisplayedBody->GetMaterial(0) == DisplayedBodyMID
             && MatchesMaterial(DisplayedBodyMID, Material.Get(), BodyColorParameter, Color)
             && DisplayedBody->GetRelativeTransform().Equals(FTransform::Identity)
-            && HasPreparedPose(DisplayedBody)
+            && HasPreparedPose(DisplayedBody, BodyMorphs, BodyWeights)
         : !DisplayedBody && !DisplayedBodyMID;
     if (bSameMesh && bSameBody
         && MatchesMaterial(DisplayedMID, Material.Get(), Resources.ColorParameter, Color, Resources.MaskParameter, Mask.Get())
         && DisplayedMesh->GetRelativeLocation() == FVector::ZeroVector
         && DisplayedMesh->GetRelativeScale3D() == Scale
         && DisplayedMesh->GetRelativeTransform().GetRotation() == FQuat::Identity
-        && (!CurrentSkeletal || HasPreparedPose(CurrentSkeletal, Resources.Morph, MorphWeight)))
+        && (!CurrentSkeletal || HasPreparedPose(CurrentSkeletal, PartMorphs, PartWeights)))
     {
         return ECustomizationFailure::None;
     }
@@ -339,7 +385,7 @@ ECustomizationFailure UCustomizationAppearanceComponent::TryApply(const FCustomi
         USkeletalMeshComponent* Skeletal = NewObject<USkeletalMeshComponent>(Owner, NAME_None, RF_Transient);
         ConfigureSkeletal(Skeletal, SkeletalMesh);
         Skeletal->ClearMorphTargets();
-        Skeletal->SetMorphTarget(Resources.Morph, MorphWeight, false);
+        Skeletal->SetMorphTarget(Resources.Morph, PartWeights[0], false);
         Staged = Skeletal;
     }
     else
@@ -357,15 +403,19 @@ ECustomizationFailure UCustomizationAppearanceComponent::TryApply(const FCustomi
         StagedBody.Reset(NewObject<USkeletalMeshComponent>(Owner, NAME_None, RF_Transient));
         ConfigureSkeletal(StagedBody.Get(), BodyMesh.Get());
         StagedBody->ClearMorphTargets();
+        for (int32 Index = 0; Index < UE_ARRAY_COUNT(BodyMorphs); ++Index)
+        {
+            StagedBody->SetMorphTarget(BodyMorphs[Index], BodyWeights[Index], false);
+        }
         StagedBody->SetMaterial(0, BodyMID.Get());
         RegisterHidden(StagedBody.Get(), Owner, FTransform::Identity);
         if (Staged->IsRegistered()) { RefreshSkeletal(CastChecked<USkeletalMeshComponent>(Staged)); }
         if (StagedBody->IsRegistered()) { RefreshSkeletal(StagedBody.Get()); }
     }
     const bool bReady = Staged->IsRegistered() && Staged->GetMaterial(Resources.MaterialSlot) == MID.Get()
-        && (!SkeletalMesh || (HasPreparedPose(CastChecked<USkeletalMeshComponent>(Staged), Resources.Morph, MorphWeight)
+        && (!SkeletalMesh || (HasPreparedPose(CastChecked<USkeletalMeshComponent>(Staged), PartMorphs, PartWeights)
             && StagedBody->IsRegistered() && StagedBody->GetMaterial(0) == BodyMID.Get()
-            && HasPreparedPose(StagedBody.Get())));
+            && HasPreparedPose(StagedBody.Get(), BodyMorphs, BodyWeights)));
     if (!bReady)
     {
         DestroyPreview(Staged);

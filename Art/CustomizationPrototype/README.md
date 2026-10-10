@@ -114,3 +114,51 @@ Skeleton/material 참조와 UObject identity를 유지했고 production 원본 F
 새 프로세스의 실제 D3D12 UI에서 Shape 세 값, mask/neutral, A/B/A 복원, 실패 전후 pixels, 다른 대상 색상 독립을 검사했다.
 최종 Build/Automation·독립 C++ 검토 결과와 사람 확인 상태는 `docs/CUSTOMIZATION_PLAN.md`의 후속 UE 연결 기록이 기준이다.
 Blender 제작물 형태는 사용자 수용됐고, 새 UE 화면의 사람 PIE 확인은 별도 대기다.
+
+## 부위별 조절 확장 — 2026-10-07
+
+사용자의 눈·입·몸통 조절 요청에 따라 기존 body에 실제 Morph 여섯 개를 추가했다.
+기존 body Basis, UV, material 슬롯, bone/weight, rig, A/B geometry와 Shape는 보존했다.
+기본값 0의 형태는 확장 전과 같으며 object scale을 바꾸지 않는다.
+
+| UI 값 [-1,1], 기본 0 | 음수 Morph | 양수 Morph | 변하는 부위 |
+| --- | --- | --- | --- |
+| EyeSize | EyeSmall | EyeLarge | 양 눈의 고정 중심 기준 크기 0.65~1.5배 |
+| BeakLength | BeakShort | BeakLong | 부리 뒤 anchor Y=-11 cm 기준 앞뒤 길이 0.65~1.5배 |
+| BodyLength | BodyShort | BodyLong | 몸통과 두 날개의 앞뒤 길이, Y=3 cm 기준 0.75~1.35배 |
+
+pair weight는 `max(-value,0)` / `max(value,0)`이며 neutral은 두 weight 모두 0이다.
+눈 pair는 444 vertices, 부리는 222 vertices, 몸통·날개는 666 vertices를 대상으로 한다.
+anchor에 있는 정점은 움직이지 않아 실제 변화 수는 부리 221 / 몸통 642다. 비대상 정점은 불변이다.
+머리, 발과 다른 UI 부위의 값을 함께 변형하지 않는다. 공통 Skeleton, material 슬롯 0/1/2와
+기존 Color/ColorMask 계약은 동일하다. 눈/부리의 고정색 material에도 Skeletal Mesh·Morph Targets usage를 설정했다.
+
+`author_regions.py`는 기존 `author_assets.py`의 rig/원본 검사와 export 옵션을 재사용한다.
+`initialize`는 기존 body key가 있으면 거부하며, 저장된 사용자 편집을 재생성하지 않는다.
+`export`는 body FBX만 갱신한다. A/B FBX와 기존 `Preview.png`는 보존하며 새 비교표는 `RegionsPreview.png`다.
+
+```powershell
+$regionsScript = Join-Path $PWD 'Art/CustomizationPrototype/author_regions.py'
+& $blenderExe --background --factory-startup --offline-mode --python-exit-code 1 --python $regionsScript -- verify
+& $blenderExe --background --factory-startup --offline-mode --python-exit-code 1 --python $regionsScript -- export
+& $blenderExe --background --factory-startup --offline-mode --python-exit-code 1 --python $regionsScript -- roundtrip
+& $blenderExe --background --factory-startup --offline-mode --python-exit-code 1 --python $regionsScript -- edit-probe
+& $blenderExe --background --factory-startup --offline-mode --python-exit-code 1 --python $regionsScript -- render
+```
+
+`Saved/Automation/CustomizationRegions`에 저장·재개방, 기존 원본 signature 보존, 비대상 정점 불변,
+눈 대칭, body FBX 왕복과 각 부위 -1/0/+1 렌더 아홉 장의 실제 PASS 증거가 있다.
+`edit-probe`는 별도 .blend/FBX 사본에서 EyeLarge 최대 delta 정점 하나를 같은 방향으로 +2 cm 편집한다.
+원본은 최대 1.75 cm, 편집 사본의 저장·재개방·FBX 왕복은 3.75 cm이며 production은 보존한다.
+
+disposable Python-enabled UE 5.7 pilot에서 **기존 동일 body asset**을 FbxFactory/FReimportManager 경로로
+재import했고 UObject identity와 Skeleton/material 참조를 보존했다. 새 process 재로드도 PASS/exit 0이다.
+필수 Morph 여섯 개, body 높이 91 cm, source 상대 경로를 검사했으며 body와 보조 material 두 package만 반영했다.
+공통 Skeleton/A/B/공통 material과 나머지 Content의 byte hash는 baseline과 같다. production plugin/config는 변경하지 않았다.
+
+body 재import에는 `Not all the deformers are stored in this BindPose` warning 1건이 있다.
+기존 C3의 Shape 있는 A/B FBX에도 같은 문구가 있었으며 새 process 재로드는 0 errors/0 warnings다.
+최초 검사에서 Basis의 value와 float 대칭 rounding 조건을 수정했고, pilot report의 Unreal.Array JSON 변환 오류를
+수정한 뒤 같은 초기화·재import 경로를 재실행해 PASS를 확보했다. 최초 실패 로그도 보존한다.
+UE render/ref bone transforms·최종 Build/Automation·독립 검토·사용자 PIE 결과는 main의 후속 검증과
+`docs/CUSTOMIZATION_PLAN.md`를 기준으로 하며 Blender 비교표만으로 runtime 수용을 선언하지 않는다.

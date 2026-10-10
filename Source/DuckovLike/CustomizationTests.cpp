@@ -87,6 +87,7 @@ bool FCustomizationModelAtomicity::RunTest(const FString& Parameters)
     TestEqual(TEXT("편집 시작"), F.Model->BeginEdit(Present), ECustomizationFailure::None);
     FCustomizationProfile Good = Original;
     Good.PartId = TEXT("B"); Good.Hue = 0.7f; Good.Shape = -0.4f;
+    Good.EyeSize = 0.4f; Good.BeakLength = -0.3f; Good.BodyLength = 0.5f;
     TestEqual(TEXT("정상 편집"), F.Model->TryEdit(Good, Present), ECustomizationFailure::None);
     TestTrue(TEXT("편집은 확정 값을 보존"), F.Model->GetProfile() == Original);
     TestTrue(TEXT("표시와 Draft 일치"), F.Display == Good && F.Model->GetDraft() == Good);
@@ -102,10 +103,22 @@ bool FCustomizationModelAtomicity::RunTest(const FString& Parameters)
     Add(ECustomizationFailure::InvalidKind).Kind = static_cast<ECustomizationPartKind>(99);
     Add(ECustomizationFailure::InvalidNumber).Hue = std::numeric_limits<float>::quiet_NaN();
     Add(ECustomizationFailure::InvalidNumber).Shape = std::numeric_limits<float>::infinity();
+    Add(ECustomizationFailure::InvalidNumber).EyeSize = std::numeric_limits<float>::quiet_NaN();
+    Add(ECustomizationFailure::InvalidNumber).EyeSize = std::numeric_limits<float>::infinity();
+    Add(ECustomizationFailure::InvalidNumber).BeakLength = std::numeric_limits<float>::quiet_NaN();
+    Add(ECustomizationFailure::InvalidNumber).BeakLength = -std::numeric_limits<float>::infinity();
+    Add(ECustomizationFailure::InvalidNumber).BodyLength = std::numeric_limits<float>::quiet_NaN();
+    Add(ECustomizationFailure::InvalidNumber).BodyLength = std::numeric_limits<float>::infinity();
     Add(ECustomizationFailure::HueOutOfRange).Hue = -0.01f;
     Add(ECustomizationFailure::HueOutOfRange).Hue = 1.01f;
     Add(ECustomizationFailure::ShapeOutOfRange).Shape = -1.01f;
     Add(ECustomizationFailure::ShapeOutOfRange).Shape = 1.01f;
+    Add(ECustomizationFailure::EyeSizeOutOfRange).EyeSize = -1.01f;
+    Add(ECustomizationFailure::EyeSizeOutOfRange).EyeSize = 1.01f;
+    Add(ECustomizationFailure::BeakLengthOutOfRange).BeakLength = -1.01f;
+    Add(ECustomizationFailure::BeakLengthOutOfRange).BeakLength = 1.01f;
+    Add(ECustomizationFailure::BodyLengthOutOfRange).BodyLength = -1.01f;
+    Add(ECustomizationFailure::BodyLengthOutOfRange).BodyLength = 1.01f;
     const int32 BeforeEvents = F.Events;
     const int32 BeforePresentations = F.Presentations;
     for (const FInvalidCase& Case : Cases)
@@ -140,6 +153,7 @@ bool FCustomizationModelLifecycle::RunTest(const FString& Parameters)
     const auto Present = [&F](const FCustomizationProfile& Value) { return F.Present(Value); };
     FCustomizationProfile Good;
     Good.PartId = TEXT("B"); Good.Hue = 1.0f; Good.Shape = -1.0f;
+    Good.EyeSize = -1.f; Good.BeakLength = 1.f; Good.BodyLength = -1.f;
     F.Model->BeginEdit(Present);
     F.Model->TryEdit(Good, Present);
     const int32 EditedEvents = F.Events;
@@ -149,7 +163,7 @@ bool FCustomizationModelLifecycle::RunTest(const FString& Parameters)
     FCustomizationProfile PartA = Good; PartA.PartId = TEXT("A");
     F.Model->TryEdit(PartA, Present);
     F.Model->TryEdit(Good, Present);
-    TestTrue(TEXT("A/B 교체가 색상/형상 유지"), F.Model->GetDraft() == Good && F.Display == Good);
+    TestTrue(TEXT("A/B 교체가 색상/형상/부위 값 유지"), F.Model->GetDraft() == Good && F.Display == Good);
     F.Model->Apply(Present);
     const int32 AppliedEvents = F.Events;
     TestEqual(TEXT("종료 뒤 반복 적용 거부"), F.Model->Apply(Present), ECustomizationFailure::NotEditing);
@@ -172,6 +186,7 @@ bool FCustomizationModelLifecycle::RunTest(const FString& Parameters)
     TestTrue(TEXT("초기화 후 적용/재개방 기본값 일치"), F.Model->GetProfile() == FCustomizationProfile()
         && F.Model->GetDraft() == FCustomizationProfile() && F.Display == FCustomizationProfile());
     FCustomizationProfile Upper; Upper.Hue = 0.0f; Upper.Shape = 1.0f;
+    Upper.EyeSize = 1.f; Upper.BeakLength = -1.f; Upper.BodyLength = 1.f;
     TestEqual(TEXT("반대쪽 수치 경계 허용"), F.Model->TryEdit(Upper, Present), ECustomizationFailure::None);
     return true;
 }
@@ -227,6 +242,16 @@ bool FCustomizationRealResources::RunTest(const FString& Parameters)
     TestTrue(TEXT("동일 값은 mesh/MID 재생성 없음"), F.A->GetDisplayedMesh() == OriginalMesh && F.A->GetDisplayedMID() == OriginalMID);
     FCustomizationProfile Invalid = Value; Invalid.Shape = std::numeric_limits<float>::quiet_NaN();
     TestEqual(TEXT("Component 자체 수치 검증"), F.A->TryApply(Invalid), ECustomizationFailure::InvalidNumber);
+    for (float FCustomizationProfile::* Member : {&FCustomizationProfile::EyeSize,
+        &FCustomizationProfile::BeakLength, &FCustomizationProfile::BodyLength})
+    {
+        auto Unsupported = Value; Unsupported.*Member = 0.5f;
+        TestEqual(TEXT("static 시험 표시는 부위 조절 성공을 가장하지 않음"), Model->TryEdit(Unsupported, Present),
+            ECustomizationFailure::UnsupportedBodyAdjustment);
+        TestTrue(TEXT("미지원 조절의 Model/표시 보존"), Model->GetProfile() == Value && Model->GetDraft() == Value
+            && F.A->GetDisplayedMesh() == OriginalMesh && F.A->GetDisplayedMID() == OriginalMID);
+    }
+    TestEqual(TEXT("미지원 조절 통지 없음"), Events, 0);
     FCustomizationPartResources Broken = GetEngineResources(TEXT("B")); Broken.Mesh.Reset();
     F.A->SetResourcesForTests(TEXT("B"), Broken);
     FCustomizationProfile B = Value; B.PartId = TEXT("B");

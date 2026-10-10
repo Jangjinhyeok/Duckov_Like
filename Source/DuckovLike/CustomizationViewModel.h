@@ -18,6 +18,9 @@ public:
     ECustomizationFailure SelectPart(FName PartId);
     ECustomizationFailure SetHue(float Value);
     ECustomizationFailure SetShape(float Value);
+    ECustomizationFailure SetEyeSize(float Value);
+    ECustomizationFailure SetBeakLength(float Value);
+    ECustomizationFailure SetBodyLength(float Value);
     ECustomizationFailure Apply();
     ECustomizationFailure Reset();
     ECustomizationFailure Cancel();
@@ -27,6 +30,12 @@ public:
     float GetHue() const;
     UFUNCTION(BlueprintPure, FieldNotify, Category="Customization")
     float GetShape() const;
+    UFUNCTION(BlueprintPure, FieldNotify, Category="Customization")
+    float GetEyeSize() const;
+    UFUNCTION(BlueprintPure, FieldNotify, Category="Customization")
+    float GetBeakLength() const;
+    UFUNCTION(BlueprintPure, FieldNotify, Category="Customization")
+    float GetBodyLength() const;
     UFUNCTION(BlueprintPure, FieldNotify, Category="Customization")
     FText GetFailureText() const;
     virtual void BeginDestroy() override;

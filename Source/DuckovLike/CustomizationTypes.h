@@ -21,6 +21,10 @@ enum class ECustomizationFailure : uint8
     InvalidNumber,
     HueOutOfRange,
     ShapeOutOfRange,
+    EyeSizeOutOfRange,
+    BeakLengthOutOfRange,
+    BodyLengthOutOfRange,
+    UnsupportedBodyAdjustment,
     MissingMesh,
     MissingSkeleton,
     SkeletonMismatch,
@@ -51,9 +55,19 @@ struct DUCKOVLIKE_API FCustomizationProfile
     UPROPERTY()
     float Shape = 0.0f;
 
+    UPROPERTY()
+    float EyeSize = 0.0f;
+
+    UPROPERTY()
+    float BeakLength = 0.0f;
+
+    UPROPERTY()
+    float BodyLength = 0.0f;
+
     bool operator==(const FCustomizationProfile& Other) const
     {
-        return Kind == Other.Kind && PartId == Other.PartId && Hue == Other.Hue && Shape == Other.Shape;
+        return Kind == Other.Kind && PartId == Other.PartId && Hue == Other.Hue && Shape == Other.Shape
+            && EyeSize == Other.EyeSize && BeakLength == Other.BeakLength && BodyLength == Other.BodyLength;
     }
     bool operator!=(const FCustomizationProfile& Other) const { return !(*this == Other); }
 };

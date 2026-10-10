@@ -43,6 +43,7 @@ public:
 
     // 잘못된 리소스는 정상 UI catalog에 등록하지 않고 자동 검사의 seam에서만 교체한다.
     void SetResourcesForTests(FName PartId, const FCustomizationPartResources& Resources);
+    void SetBodyMeshForTests(const FSoftObjectPath& MeshPath) { BodyMeshPath = MeshPath; }
 
 protected:
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -50,6 +51,7 @@ protected:
 private:
     FCustomizationPartResources PartA;
     FCustomizationPartResources PartB;
+    FSoftObjectPath BodyMeshPath = FSoftObjectPath(TEXT("/Game/Customization/Prototype/SK_CustomizationBody.SK_CustomizationBody"));
     bool bPreparing = false;
 
     UPROPERTY(Transient)
