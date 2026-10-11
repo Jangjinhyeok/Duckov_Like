@@ -216,6 +216,7 @@ private 구현을 테스트하려고 Public으로 올리지 않는다. 이미 �
 | docs/INVENTORY_DESIGN.md | 불변식, 연산 계약, MVVM 흐름과 초기 제안 |
 | docs/CONVENTIONS.md | 네이밍, Content 폴더 규약 |
 | docs/COMMONUI_STRUCTURE.md | CommonUI 적용 구조 그림. 구조가 바뀌면 새 절을 추가해 전후를 남긴다 |
+| docs/DUCKOV_UI_REFERENCE.md | 원작 화면 구성 관찰 기록. 아트·스크린샷은 저장소에 넣지 않는다 |
 | docs/architecture/*.md | 구조 결정. TEMPLATE.md는 템플릿, MODULE_MAP.md는 참고 문서 |
 | docs/worklog/M*.md | 마일스톤별 구현·검증·판단 출처 기록 |
 
