@@ -206,6 +206,8 @@ private 구현을 테스트하려고 Public으로 올리지 않는다. 이미 �
 - **`exit 0`을 성공으로 믿지 않는다.** 출력의 `Result: Succeeded`를 확인한다.
 - headless 에디터 부팅으로 모듈 로드를 확인할 수 있다. 단 `-ExecCmds="Quit"`은
   **unattended 에디터를 종료시키지 못한다** — 프로세스가 무한히 남으니 쓰지 않거나 반드시 정리한다.
+- 실제 RHI로 에디터 Automation을 돌릴 때는 `-nocefaccelpaint`를 붙인다. 에디터가 시작 시 띄운 CEF 웹 브라우저가 테스트 중
+  다시 그려지면 엔진의 `BUseSupportedRHIRenderer` assertion으로 에디터가 종료된다(2026-10-11, 세 번 재현). 리포트가 남지 않는다.
 - Model 규칙은 Automation Test로 검증한다. **v1 완료 기준은 30개 이상 통과.**
 
 ## 7. 문서
