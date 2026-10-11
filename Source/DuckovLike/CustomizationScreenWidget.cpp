@@ -226,12 +226,25 @@ void UCustomizationScreenWidget::Reset() { if (ViewModel) { ViewModel->Reset(); 
 void UCustomizationScreenWidget::TestFailure() { if (ViewModel) { ViewModel->SelectPart(TEXT("Unregistered")); } }
 void UCustomizationScreenWidget::Apply()
 {
-    if (ViewModel && ViewModel->Apply() == ECustomizationFailure::None) { DeactivateWidget(); }
+    if (ViewModel && ViewModel->Apply() == ECustomizationFailure::None)
+    {
+        DeactivateWidget();
+        Closed.Broadcast(true);
+    }
 }
 void UCustomizationScreenWidget::Cancel()
 {
-    if (!Model || !Model->IsEditing()) { DeactivateWidget(); return; }
-    if (ViewModel && ViewModel->Cancel() == ECustomizationFailure::None) { DeactivateWidget(); }
+    if (!Model || !Model->IsEditing())
+    {
+        DeactivateWidget();
+        Closed.Broadcast(false);
+        return;
+    }
+    if (ViewModel && ViewModel->Cancel() == ECustomizationFailure::None)
+    {
+        DeactivateWidget();
+        Closed.Broadcast(false);
+    }
 }
 bool UCustomizationScreenWidget::NativeOnHandleBackAction() { Cancel(); return true; }
 UWidget* UCustomizationScreenWidget::NativeGetDesiredFocusTarget() const { return PartA; }

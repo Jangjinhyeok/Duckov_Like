@@ -7,6 +7,8 @@
 #include "ItemDefinitionRow.h"
 #include "InventoryScreenWidget.h"
 #include "GameRootLayoutWidget.h"
+#include "GameSessionSubsystem.h"
+#include "Engine/GameInstance.h"
 #include "Blueprint/WidgetBlueprintLibrary.h"
 #include "Input/CommonUIActionRouterBase.h"
 #include "Widgets/CommonActivatableWidgetContainer.h"
@@ -175,7 +177,8 @@ void AInventoryDemoPlayerController::OpenCustomizationPrototype()
         || (Screen && Screen->IsActivated())) { return; }
     if (CustomizationScreen && CustomizationScreen->IsActivated()) { return; }
     if (!RootLayout) { return; }
-    if (!CustomizationModel) { CustomizationModel = NewObject<UCustomizationModel>(this); }
+    // 타이틀에서 확정한 외형을 이어서 편집하도록 세션이 소유한 Model을 쓴다.
+    if (!CustomizationModel) { CustomizationModel = GetGameInstance()->GetSubsystem<UGameSessionSubsystem>()->GetCustomizationModel(); }
     CustomizationScreen = RootLayout->GetMenuStack()->AddWidget<UCustomizationScreenWidget>(UCustomizationScreenWidget::StaticClass(),
         [this](UCustomizationScreenWidget& NewScreen) { NewScreen.SetSession(CustomizationModel); });
 }

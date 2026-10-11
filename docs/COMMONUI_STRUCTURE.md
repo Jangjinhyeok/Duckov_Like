@@ -183,3 +183,28 @@ sequenceDiagram
 Router는 활성 root가 여럿이면 마지막으로 그려진 `LayerId`가 가장 높은 root를 고른다.
 인벤토리를 막 열어 아직 그려지지 않은 프레임에 HUD가 이겨서, 열린 인벤토리 위에서 Game 입력이 켜졌다.
 그래서 항상 활성인 root를 없애고 복구를 Menu stack 한 곳에 모았다. 근거와 실패 증거는 설계결정기록 021에 있다.
+
+## 2026-10-11 — 타이틀 흐름
+
+결정은 [타이틀 흐름과 레벨을 넘는 세션 상태](architecture/022-title-flow-and-session-state.md)에 있다.
+타이틀 맵도 같은 root layout을 쓴다. 화면을 쌓고 내리는 일은 Menu stack이 맡고, controller는 무엇을 쌓을지만 정한다.
+
+```mermaid
+flowchart LR
+    subgraph Menu["MenuStack (L_Title)"]
+        direction BT
+        Title["UTitleScreenWidget<br/>스플래시 → 메뉴"] --> Cus["UCustomizationScreenWidget<br/>타이틀 위에 쌓임"]
+    end
+    subgraph Notice["NoticeLayer"]
+        Loading["ULoadingScreenWidget"]
+    end
+    Cus -- "OnClosed(false): 내려가면 타이틀 재활성" --> Title
+    Cus -- "OnClosed(true)" --> Loading
+    Loading -- "다음 tick OpenLevel" --> Basement["L_InventoryDemo (임시 베이스먼트)"]
+```
+
+| 화면 | CommonUI에서 하는 일 |
+| --- | --- |
+| 타이틀 | Menu 입력, 스플래시에서는 화면 자체가 focus 대상이고 메뉴에서는 시작 버튼. Back은 소비만 하고 닫히지 않음 |
+| 커스터마이징 | 기존 화면을 그대로 타이틀 위에 push. Back은 취소이며 stack이 타이틀을 다시 활성화 |
+| 로딩 | activatable이 아님. Notice layer에 붙어 입력 경쟁에 끼지 않음 |

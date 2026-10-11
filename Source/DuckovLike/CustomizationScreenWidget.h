@@ -18,6 +18,9 @@ class DUCKOVLIKE_API UCustomizationScreenWidget : public UCommonActivatableWidge
 {
     GENERATED_BODY()
 public:
+    // 확인(true) 또는 취소·Back(false)으로 화면이 닫힌 뒤 알린다. 화면을 연 쪽이 다음 흐름을 정한다.
+    DECLARE_EVENT_OneParam(UCustomizationScreenWidget, FOnClosed, bool /*bApplied*/);
+    FOnClosed& OnClosed() { return Closed; }
     UCustomizationScreenWidget(const FObjectInitializer& Initializer);
     void SetSession(UCustomizationModel* InModel) { Model = InModel; }
     UCustomizationViewModel* GetViewModel() const { return ViewModel; }
@@ -61,6 +64,7 @@ private:
     TObjectPtr<UImage> PreviewImage;
     FDelegateHandle StateHandle;
     FDelegateHandle FailureHandle;
+    FOnClosed Closed;
     bool bSynchronizing = false;
     void Refresh();
     void OnStateChanged(UObject*, UE::FieldNotification::FFieldId);
