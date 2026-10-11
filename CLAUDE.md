@@ -19,7 +19,8 @@ user-level `~/.claude/CLAUDE.md`에 있고 자동으로 함께 로드된다. 여
 - 엔진: **UE 5.7** (`C:\Program Files\Epic Games\UE_5.7`) · 플랫폼: Windows(Desktop)
 - 레퍼런스: Escape From Duckov (Team Soda) — 설계 분석 대상이지 클론 대상이 아니다
 - 기술 증명 축 우선순위: **①CommonUI·UMG 사용자 경험 ②MVVM과 검증 가능한 인벤토리 Model ③GAS**.
-  리소스가 부족하면 ③부터 줄인다. CommonUI는 목표이며 현재 활성화·구현된 상태를 뜻하지 않는다.
+  리소스가 부족하면 ③부터 줄인다. CommonUI는 활성화되어 인벤토리·커스터마이징 화면에 쓰이고 있다.
+  GAS는 플러그인만 활성화되어 있고 게임 모듈 의존과 구현은 아직 없다.
 
 판단이 갈릴 때의 기준: **UI 경험·구조·검증을 보여주는 데 필요한 기능을 우선하고,
 이를 뒷받침하지 않는 게임 시스템 확장은 v1에서 뺀다.** 기존 마일스톤 순서는 별도 범위 합의 없이 바꾸지 않는다.
@@ -29,7 +30,8 @@ user-level `~/.claude/CLAUDE.md`에 있고 자동으로 함께 로드된다. 여
 | 모듈 | 책임 | 의존 |
 | --- | --- | --- |
 | `InventoryCore` | 순수 Model — 그리드, 배치 규칙, 연산 서비스, 저장 레코드 | `Core`, `CoreUObject`, `Engine` |
-| `DuckovLike` | 게임 모듈 — ViewModel, 위젯, 액터, GAS | 위 + `InputCore`, `EnhancedInput`, `InventoryCore`, `UMG`, `ModelViewViewModel` |
+| `DuckovLike` | 게임 모듈 — ViewModel, 위젯, 액터, GAS | 위 + `InputCore`, `EnhancedInput`, `InventoryCore`, `UMG`, `ModelViewViewModel`, `CommonUI` (Private: `Slate`, `SlateCore`, `CommonInput`) |
+| `InventoryCoreTests` | Editor 전용 — `InventoryCore` Public 계약의 Automation Test | 5.5절 |
 
 - **`InventoryCore`의 `Build.cs`에 `UMG`/`Slate`/`SlateCore`/`ModelViewViewModel`을 절대 넣지 않는다.**
   이걸 넣는 순간 이 프로젝트의 핵심 논증이 무너진다. 필요해 보이면 설계가 잘못된 것이다.
@@ -242,11 +244,17 @@ private 구현을 테스트하려고 Public으로 올리지 않는다. 이미 �
 | --- | --- | --- |
 | M0 | 설계 | 초기 문서 작성됨 · ADR별 상태 확인 |
 | M0.5 | UE 프로젝트 스캐폴딩, 모듈 분리 | 완료 |
-| **M1a** | **Model 핵심 — 배치·이동·스택** | 코드 구현됨 · worklog에 24개 통과 기록 · 사용자 검토 별도 |
-| M1b | Model 파생 — 정렬·저장·리사이즈 | |
-| M2 | ViewModel + CommonUI·UMG | |
-| M3 | 게임 루프 — 루팅·장비·탈출·스태시, GAS | |
+| M1a | Model 핵심 — 배치·이동·스택 | 기술적 완료 · 사용자 검토 미확인 |
+| M1b | Model 파생 — 정렬·저장·리사이즈 | Model 범위 완료 · 저장(HIGH) 사용자 수용 · 디스크 저장/슬롯은 미구현 |
+| M2 | ViewModel + CommonUI·UMG | 완료 · 입력 lifecycle 사용자 수용(수동 PIE에 열기·정렬·드래그 포함) · 성능 후속 3건은 사용자 검토 미확인 |
+| **M3** | **게임 루프 — 루팅·장비·탈출·스태시, GAS** | **진행 중** · loot 획득·스택 분할·최소 Raid 탈출·가방 교체 사용자 수용 · 지상 플레이·장비·GAS 미착수 |
+| (추가) | 캐릭터 커스터마이징 — `docs/CUSTOMIZATION_PLAN.md` | 최소 prototype(C0~C3)과 부위 3개 조절 사용자 수용 · 7개 탭 전체는 범위 밖 |
 | M4 | 성능 점검, 문서·영상 정리 | |
+
+최신 전체 Automation 회귀는 2026-10-10의 94개 통과다(`docs/worklog/M3.md`). 상태의 근거는 각 worklog에 있다.
+
+**범위 변경 기록**: 퀵 이동은 빼고 스택 분할로 대체했다(2026-09-29 사용자 결정). Raid 진입은 별도 선행 기능이 아니라
+지상 플레이 구현에서 다룬다. 커스터마이징은 지상 플레이 캐릭터보다 먼저 넣은 추가 범위다. GDD 원문은 읽기 전용이라 그대로 두었다.
 
 **M1 분할 유지**: 배치·이동·스택과 정렬·저장·리사이즈를 독립적으로 구현·검증한다.
 당초에는 헤더를 한꺼번에 확정하는 부담을 줄이고 중간 설명 역전으로 오해를 확인하려고 나눴다.
@@ -268,12 +276,9 @@ private 구현을 테스트하려고 Public으로 올리지 않는다. 이미 �
 ## 9. 다음 작업의 판단 기준
 
 - 다음 기능에 필요한 결정만 검토한다. 과거 ADR를 전부 재작성·재승인하는 단계로 돌아가지 않는다.
-- 저장·리사이즈는 M1b, ViewModel·ChangeSet·CommonUI·UMG는 해당 UI 기능을 구현할 때 구체화한다.
-  단계 순서 변경은 사용자와 범위를 정한 뒤 반영한다.
-- CommonUI는 현재 .uproject에 활성화되어 있지 않다. 이후 UI 작업에서 플러그인·모듈 의존과
-  입력/focus 흐름을 함께 확인한다. 이 지침의 목표를 이미 구현된 기능으로 보고하지 않는다.
-- 현재 상태는 실제 Source와 최신 worklog를 함께 확인한다. M1a는 배치·이동·스택 코드와
-  InventoryCoreTests 모듈이 있으며, worklog에는 테스트 24개 통과가 기록돼 있다.
-  이 정책 변경에서 테스트를 다시 실행한 것은 아니다.
+- 단계 순서 변경은 사용자와 범위를 정한 뒤 반영한다.
+- 새 UI 작업은 기존 CommonUI 화면의 입력/focus·Back 흐름과 상시 Tick 0 기준을 함께 지킨다.
+- 현재 상태는 실제 Source와 최신 worklog를 함께 확인한다. 8절 표는 요약이며 근거는 worklog다.
+- 남은 큰 축: 지상 플레이 캐릭터(이동·카메라·실제 맵에서의 loot·탈출), 가방 외 장비, GAS, M4.
 - 과거 worklog에 남은 설명 역전 대기는 기술 작업의 차단 사유가 아니다.
   사용자 검토를 완료했다고 소급 기록하지 않는다.
