@@ -1,14 +1,15 @@
 #include "InventoryDemoPlayerController.h"
 
 #include "Engine/DataTable.h"
-#include "Blueprint/WidgetBlueprintLibrary.h"
 #include "InputCoreTypes.h"
-#include "Input/CommonUIActionRouterBase.h"
-#include "Input/UIActionBindingHandle.h"
 #include "InventoryModel.h"
 #include "InventoryPlacement.h"
 #include "ItemDefinitionRow.h"
 #include "InventoryScreenWidget.h"
+#include "GameRootLayoutWidget.h"
+#include "Blueprint/WidgetBlueprintLibrary.h"
+#include "Input/CommonUIActionRouterBase.h"
+#include "Widgets/CommonActivatableWidgetContainer.h"
 #include "WorldLootActor.h"
 #include "EngineUtils.h"
 #include "GameFramework/Pawn.h"
@@ -23,6 +24,13 @@
 void AInventoryDemoPlayerController::BeginPlay()
 {
     Super::BeginPlay();
+    if (IsLocalController())
+    {
+        // 모든 메뉴는 이 layout의 Menu stack을 거쳐 열린다. stack이 비면 게임 입력으로 되돌린다.
+        RootLayout = CreateWidget<UGameRootLayoutWidget>(this, UGameRootLayoutWidget::StaticClass());
+        RootLayout->AddToViewport();
+        RootLayout->GetMenuStack()->OnDisplayedWidgetChanged().AddUObject(this, &ThisClass::OnMenuChanged);
+    }
     UDataTable* Definitions = LoadObject<UDataTable>(nullptr, TEXT("/Game/Inventory/DT_ItemDefinitions.DT_ItemDefinitions"));
     if (!ensureMsgf(Definitions, TEXT("인벤토리 Definition DataTable이 없습니다"))) { return; }
     FInventorySaveRecord Record;
@@ -110,33 +118,29 @@ void AInventoryDemoPlayerController::PickupNearestLoot()
 void AInventoryDemoPlayerController::ToggleInventory()
 {
     if (CustomizationScreen && CustomizationScreen->IsActivated()) { return; }
-    if (!Model) { return; }
+    if (!Model || !RootLayout) { return; }
+    // 닫으면 Menu stack이 화면을 pool로 돌려보내고, 다시 열 때 같은 인스턴스를 재사용한다.
     if (Screen && Screen->IsActivated()) { Screen->DeactivateWidget(); return; }
-    if (!Screen)
-    {
-        UClass* ScreenClass = LoadClass<UInventoryScreenWidget>(nullptr, TEXT("/Game/UI/WBP_InventoryScreen.WBP_InventoryScreen_C"));
-        if (!ensureMsgf(ScreenClass, TEXT("인벤토리 화면 Widget Blueprint가 없습니다"))) { return; }
-        Screen = CreateWidget<UInventoryScreenWidget>(this, ScreenClass);
-        Screen->SetSession(Model);
-        Screen->OnDeactivated().AddUObject(this, &ThisClass::OnScreenDeactivated);
-        Screen->SetVisibility(ESlateVisibility::Collapsed);
-        Screen->AddToViewport(10);
-    }
-    Screen->SetStashAccessible(RaidPhase != ERaidDemoPhase::InRaid);
-    bShowMouseCursor = true;
-    Screen->ActivateWidget();
+    UClass* ScreenClass = LoadClass<UInventoryScreenWidget>(nullptr, TEXT("/Game/UI/WBP_InventoryScreen.WBP_InventoryScreen_C"));
+    if (!ensureMsgf(ScreenClass, TEXT("인벤토리 화면 Widget Blueprint가 없습니다"))) { return; }
+    const bool bStashAccessible = RaidPhase != ERaidDemoPhase::InRaid;
+    Screen = RootLayout->GetMenuStack()->AddWidget<UInventoryScreenWidget>(ScreenClass,
+        [this, bStashAccessible](UInventoryScreenWidget& NewScreen)
+        {
+            NewScreen.SetSession(Model);
+            NewScreen.SetStashAccessible(bStashAccessible);
+        });
 }
 
-void AInventoryDemoPlayerController::OnScreenDeactivated()
+void AInventoryDemoPlayerController::OnMenuChanged(UCommonActivatableWidget* DisplayedMenu)
 {
-    bShowMouseCursor = false;
-    RestoreInputHandle = GetWorldTimerManager().SetTimerForNextTick(this, &ThisClass::RestoreGameInput);
+    // 메뉴가 모두 닫혀도 Router는 Game 입력·viewport capture·커서를 되돌리지 않으므로 게임 코드가 되돌린다.
+    if (!DisplayedMenu) { RestoreInputHandle = GetWorldTimerManager().SetTimerForNextTick(this, &ThisClass::RestoreGameInput); }
 }
 
 void AInventoryDemoPlayerController::RestoreGameInput()
 {
-    if (CustomizationScreen && CustomizationScreen->IsActivated()) { return; }
-    if (Screen && Screen->IsActivated()) { return; }
+    if (!RootLayout || RootLayout->GetMenuStack()->GetActiveWidget()) { return; }
     if (ULocalPlayer* LocalPlayer = GetLocalPlayer())
     {
         if (UCommonUIActionRouterBase* Router = LocalPlayer->GetSubsystem<UCommonUIActionRouterBase>())
@@ -149,24 +153,18 @@ void AInventoryDemoPlayerController::RestoreGameInput()
 
 void AInventoryDemoPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-    if (CustomizationScreen)
-    {
-        CustomizationScreen->OnDeactivated().RemoveAll(this);
-        if (CustomizationScreen->IsActivated()) { CustomizationScreen->DeactivateWidget(); }
-        CustomizationScreen->RemoveFromParent();
-        CustomizationScreen = nullptr;
-    }
+    if (RootLayout) { RootLayout->GetMenuStack()->OnDisplayedWidgetChanged().RemoveAll(this); }
+    GetWorldTimerManager().ClearTimer(RestoreInputHandle);
+    if (CustomizationScreen && CustomizationScreen->IsActivated()) { CustomizationScreen->DeactivateWidget(); }
+    CustomizationScreen = nullptr;
     CustomizationModel = nullptr;
     DestroyRaidLoot();
-    if (RaidStatus) { RaidStatus->RemoveFromParent(); RaidStatus = nullptr; }
-    if (Screen)
-    {
-        Screen->OnDeactivated().RemoveAll(this);
-        GetWorldTimerManager().ClearTimer(RestoreInputHandle);
-        if (Screen->IsActivated()) { Screen->DeactivateWidget(); }
-        Screen->RemoveFromParent();
-        Screen = nullptr;
-    }
+    if (Screen && Screen->IsActivated()) { Screen->DeactivateWidget(); }
+    Screen = nullptr;
+    // layout을 viewport에서 떼면 Notice layer의 RaidStatus도 함께 내려간다.
+    if (RootLayout) { RootLayout->RemoveFromParent(); }
+    RootLayout = nullptr;
+    RaidStatus = nullptr;
     Model = nullptr;
     Super::EndPlay(EndPlayReason);
 }
@@ -176,17 +174,10 @@ void AInventoryDemoPlayerController::OpenCustomizationPrototype()
     if (!GetWorld() || !Model || bRaidTransitionInProgress || RaidPhase != ERaidDemoPhase::Disabled
         || (Screen && Screen->IsActivated())) { return; }
     if (CustomizationScreen && CustomizationScreen->IsActivated()) { return; }
+    if (!RootLayout) { return; }
     if (!CustomizationModel) { CustomizationModel = NewObject<UCustomizationModel>(this); }
-    if (!CustomizationScreen)
-    {
-        CustomizationScreen = CreateWidget<UCustomizationScreenWidget>(this, UCustomizationScreenWidget::StaticClass());
-        if (!CustomizationScreen) { return; }
-        CustomizationScreen->SetSession(CustomizationModel);
-        CustomizationScreen->OnDeactivated().AddUObject(this, &ThisClass::OnScreenDeactivated);
-        CustomizationScreen->AddToViewport(30);
-    }
-    bShowMouseCursor = true;
-    CustomizationScreen->ActivateWidget();
+    CustomizationScreen = RootLayout->GetMenuStack()->AddWidget<UCustomizationScreenWidget>(UCustomizationScreenWidget::StaticClass(),
+        [this](UCustomizationScreenWidget& NewScreen) { NewScreen.SetSession(CustomizationModel); });
 }
 
 void AInventoryDemoPlayerController::StartRaidDemo() { ShowRaidResult(TryStartRaidDemo()); }
@@ -288,7 +279,7 @@ ERaidDemoFailure AInventoryDemoPlayerController::TryStartRaidDemo()
     if (CustomizationScreen && CustomizationScreen->IsActivated()) { return ERaidDemoFailure::OperationInProgress; }
     if (bRaidTransitionInProgress) { return ERaidDemoFailure::OperationInProgress; }
     if (RaidPhase != ERaidDemoPhase::Disabled) { return ERaidDemoFailure::InvalidPhase; }
-    if (!Model || !GetWorld()) { return ERaidDemoFailure::WorldUnavailable; }
+    if (!Model || !GetWorld() || !RootLayout) { return ERaidDemoFailure::WorldUnavailable; }
     TGuardValue<bool> Guard(bRaidTransitionInProgress, true);
     UStaticMesh* Cylinder = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
     UMaterialInterface* Material = LoadObject<UMaterialInterface>(nullptr,
@@ -312,7 +303,7 @@ ERaidDemoFailure AInventoryDemoPlayerController::TryStartRaidDemo()
         ExtractionPoint = nullptr;
         return ERaidDemoFailure::WorldUnavailable;
     }
-    RaidStatus->AddToViewport(20);
+    RootLayout->AddNoticeElement(RaidStatus);
     // 원본 map Actor는 비표시 템플릿으로 유지하고 저장된 asset은 변경하지 않는다.
     for (TActorIterator<AWorldLootActor> It(GetWorld()); It; ++It)
     {

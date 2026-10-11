@@ -2,6 +2,7 @@
 
 #if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
 #include "InventoryDemoPlayerController.h"
+#include "GameRootLayoutWidget.h"
 #include "InventoryGridWidget.h"
 #include "InventoryItemWidget.h"
 #include "InventoryModel.h"
@@ -26,6 +27,7 @@
 #include "UObject/UnrealType.h"
 #include "Widgets/SWidget.h"
 #include "Widgets/SViewport.h"
+#include "Widgets/CommonActivatableWidgetContainer.h"
 
 namespace InventoryWidgetLifecycleTests
 {
@@ -39,6 +41,13 @@ T* ReflectedObject(UObject* Owner, FName PropertyName)
 {
     const FObjectProperty* Property = Owner ? FindFProperty<FObjectProperty>(Owner->GetClass(), PropertyName) : nullptr;
     return Property ? Cast<T>(Property->GetObjectPropertyValue_InContainer(Owner)) : nullptr;
+}
+
+// 화면은 viewport가 아니라 root layout의 Menu stack에 표시된다.
+bool IsShownInMenuStack(AInventoryDemoPlayerController* Controller, UInventoryScreenWidget* Screen)
+{
+    UGameRootLayoutWidget* Layout = ReflectedObject<UGameRootLayoutWidget>(Controller, TEXT("RootLayout"));
+    return Screen && Layout && Layout->IsInViewport() && Layout->GetMenuStack()->GetActiveWidget() == Screen;
 }
 
 UInventoryItemWidget* FindAmmoWidget(UInventoryScreenWidget* Screen)
@@ -132,6 +141,7 @@ struct FInventoryLifecycleScene
 {
     TWeakObjectPtr<UInventoryModel> OldModel;
     TWeakObjectPtr<UInventoryScreenWidget> OldScreen;
+    TWeakObjectPtr<UGameRootLayoutWidget> OldLayout;
     TWeakObjectPtr<UInventoryModel> ReleasedModel;
     TWeakObjectPtr<UInventoryScreenWidget> ReleasedScreen;
     TWeakObjectPtr<UInventoryScreenWidget> NewScreen;
@@ -185,7 +195,8 @@ bool FInventoryWidgetLifecycle::RunTest(const FString& Parameters)
         UInventoryScreenWidget* Screen = ReflectedObject<UInventoryScreenWidget>(Controller, TEXT("Screen"));
         if (!TestNotNull(TEXT("실제 WBP Screen"), Screen)) { return; }
         Scene->OldScreen = Screen;
-        TestTrue(TEXT("Screen 활성 및 viewport 등록"), Screen->IsActivated() && Screen->IsInViewport());
+        Scene->OldLayout = ReflectedObject<UGameRootLayoutWidget>(Controller, TEXT("RootLayout"));
+        TestTrue(TEXT("Screen 활성 및 Menu stack 표시"), Screen->IsActivated() && IsShownInMenuStack(Controller, Screen));
         UE_LOG(LogTemp, Display, TEXT("PIELifecycle: 초기 World=%s Controller=%s Screen=%s"),
             *GetNameSafe(World), *GetNameSafe(Controller), *GetNameSafe(Screen));
     }, 0.f));
@@ -245,7 +256,9 @@ bool FInventoryWidgetLifecycle::RunTest(const FString& Parameters)
         UWorld* World = Scene->OldWorld.Get();
         if (!Screen || !World || !StartCapturedDrag(*this, Screen)) { return; }
         TestTrue(TEXT("travel 전 Model 변경 delegate 연결"), Scene->OldModel->OnChanged().IsBound());
-        TestTrue(TEXT("travel 전 Screen deactivation delegate 연결"), Screen->OnDeactivated().IsBound());
+        // controller는 화면 delegate 대신 Menu stack의 표시 변경에 묶여 입력 복구를 건다.
+        TestTrue(TEXT("travel 전 controller의 Menu stack 변경 binding 연결"), Scene->OldLayout.IsValid()
+            && Scene->OldLayout->GetMenuStack()->OnDisplayedWidgetChanged().IsBoundToObject(Scene->OldControllerAddress));
         Scene->bReadyForTravel = true;
         Scene->CleanupHandle = FWorldDelegates::OnWorldCleanup.AddLambda(
             [this, Scene, OldScreen = Screen, OldModel = Scene->OldModel.Get()](UWorld* CleaningWorld, bool, bool)
@@ -255,13 +268,15 @@ bool FInventoryWidgetLifecycle::RunTest(const FString& Parameters)
 
 
             TestFalse(TEXT("이전 Screen 비활성"), OldScreen->IsActivated());
-            TestFalse(TEXT("이전 Screen viewport 제거"), OldScreen->IsInViewport());
+            TestTrue(TEXT("이전 root layout viewport 제거"), Scene->OldLayout.IsValid() && !Scene->OldLayout->IsInViewport());
             CheckCleared(*this, OldScreen);
             TestFalse(TEXT("이전 Model 변경 delegate 제거"), OldModel->OnChanged().IsBound());
-            TestFalse(TEXT("이전 Screen deactivation delegate 제거"), OldScreen->OnDeactivated().IsBound());
+            TestTrue(TEXT("이전 controller의 Menu stack 변경 binding 해제"), Scene->OldLayout.IsValid()
+                && !Scene->OldLayout->GetMenuStack()->OnDisplayedWidgetChanged().IsBoundToObject(Scene->OldControllerAddress));
             // EndPlay 이후이며 LoadMap의 GC 전이므로 기존 객체 필드를 검사할 수 있다.
             TestNull(TEXT("이전 controller Screen 참조 제거"), ReflectedObject<UInventoryScreenWidget>(Scene->OldControllerAddress, TEXT("Screen")));
             TestNull(TEXT("이전 controller Model 참조 제거"), ReflectedObject<UInventoryModel>(Scene->OldControllerAddress, TEXT("Model")));
+            TestNull(TEXT("이전 controller RootLayout 참조 제거"), ReflectedObject<UGameRootLayoutWidget>(Scene->OldControllerAddress, TEXT("RootLayout")));
             Scene->ReleasedScreen = OldScreen;
             Scene->ReleasedModel = OldModel;
             Scene->OldScreen.Reset();
@@ -305,7 +320,7 @@ bool FInventoryWidgetLifecycle::RunTest(const FString& Parameters)
         NewController->ToggleInventory();
         UInventoryScreenWidget* NewScreen = ReflectedObject<UInventoryScreenWidget>(NewController, TEXT("Screen"));
         Scene->NewScreen = NewScreen;
-        TestTrue(TEXT("새 controller에서 Screen 재개방"), NewScreen && NewScreen->IsActivated() && NewScreen->IsInViewport());
+        TestTrue(TEXT("새 controller에서 Screen 재개방"), NewScreen && NewScreen->IsActivated() && IsShownInMenuStack(NewController, NewScreen));
     }, 0.f));
     ADD_LATENT_AUTOMATION_COMMAND(FWaitForCondition(*this, TEXT("travel 후 WBP geometry"), [Scene]
     {

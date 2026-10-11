@@ -13,6 +13,8 @@ class AStaticMeshActor;
 class URaidStatusWidget;
 class UCustomizationModel;
 class UCustomizationScreenWidget;
+class UGameRootLayoutWidget;
+class UCommonActivatableWidget;
 
 UENUM(BlueprintType)
 enum class ERaidDemoPhase : uint8
@@ -67,6 +69,8 @@ private:
     UPROPERTY(Transient)
     TObjectPtr<UInventoryModel> Model;
     UPROPERTY(Transient)
+    TObjectPtr<UGameRootLayoutWidget> RootLayout;
+    UPROPERTY(Transient)
     TObjectPtr<UInventoryScreenWidget> Screen;
     UPROPERTY(Transient)
     TObjectPtr<URaidStatusWidget> RaidStatus;
@@ -88,6 +92,6 @@ private:
     void DestroyRaidLoot();
     void UpdateRaidStatus(const FText& Notice = FText::GetEmpty());
     void ShowRaidResult(ERaidDemoFailure Result);
-    void OnScreenDeactivated();
+    void OnMenuChanged(UCommonActivatableWidget* DisplayedMenu);
     void RestoreGameInput();
 };

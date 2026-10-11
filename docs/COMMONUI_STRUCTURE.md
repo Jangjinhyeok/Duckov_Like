@@ -94,3 +94,92 @@ sequenceDiagram
 | HUD의 CommonUI 편입 | `URaidStatusWidget`이 일반 `UserWidget` | HUD가 CommonUI 입력 흐름 밖에 있다 |
 
 게임패드 입력은 장치가 없어 검증하지 못했다(not_run).
+
+## 2026-10-11 — Menu stack 도입 후
+
+결정과 버린 대안은 [CommonUI root layout과 Menu stack](architecture/021-commonui-layer-stack.md)에 있다.
+아래는 Automation 95개 통과(2026-10-11) 기준의 구조다.
+
+### 전체 구조
+
+viewport에는 root layout 하나만 붙는다. 화면 순서는 Z값이 아니라 layout 안의 순서로 정해진다.
+메뉴는 `MenuStack`에만 들어가므로 Router가 고를 활성 root는 표시 중인 메뉴 하나뿐이다.
+그 위의 Notice layer는 입력을 갖지 않는 안내 표시 전용이며, 열린 메뉴 위에도 Raid 안내가 보이게 한다.
+
+```mermaid
+flowchart TB
+    Config["Project config<br/>CommonGameViewportClient · GenericInputData"]
+    Router["Action router<br/>(LocalPlayer subsystem)<br/>input mode · back routing"]
+    PC["AInventoryDemoPlayerController<br/>layout 생성 · 메뉴 추가 · 비면 입력 복구"]
+
+    subgraph Viewport["Viewport"]
+        subgraph Layout["UGameRootLayoutWidget"]
+            subgraph Menu["MenuStack"]
+                Inv["UInventoryScreenWidget<br/>Menu · NoCapture"]
+                Cus["UCustomizationScreenWidget<br/>Menu · NoCapture"]
+            end
+            subgraph Notice["NoticeLayer — 입력 없음, 위에 그려짐"]
+                Raid["URaidStatusWidget"]
+            end
+        end
+    end
+
+    Config --> Router
+    PC -- "AddWidget(Class, SetSession)" --> Menu
+    PC -- "AddNoticeElement" --> Notice
+    Menu -- "OnDisplayedWidgetChanged(nullptr)" --> PC
+    PC -- "다음 tick: SetActiveUIInputConfig(Game)" --> Router
+    Router -- "input config · back action" --> Menu
+
+    classDef common fill:#E1F5EE,stroke:#0F6E56,color:#085041
+    classDef game fill:#EEEDFE,stroke:#534AB7,color:#3C3489
+    classDef plain fill:#F1EFE8,stroke:#5F5E5A,color:#444441
+    class Router,Inv,Cus common
+    class PC game
+    class Config,Raid plain
+```
+
+### 인벤토리 열기와 닫기
+
+```mermaid
+sequenceDiagram
+    actor Player
+    participant PC as PlayerController
+    participant Menu as MenuStack
+    participant Screen as UInventoryScreenWidget
+    participant Router as Action router
+
+    Player->>PC: I 키
+    PC->>Menu: AddWidget(WBP 클래스, SetSession · SetStashAccessible)
+    Note over Menu: pool에 같은 클래스가 있으면 그 인스턴스를 재사용
+    Menu->>Screen: ActivateWidget()
+    Router->>Screen: Menu · NoCapture 적용, desired focus target에 focus
+
+    Player->>Router: Esc
+    Router->>Screen: back action
+    Note over Screen: NativeOnHandleBackAction<br/>분할창 → 드래그 취소 → 닫기 순으로 처리
+    Screen->>Screen: DeactivateWidget()
+    Screen-->>Menu: OnDeactivated
+    Note over Menu: 화면을 pool로 돌려보내고 빈 상태로 전환
+    Menu-->>PC: OnDisplayedWidgetChanged(nullptr)
+    PC->>PC: 다음 tick에 RestoreGameInput
+    PC->>Router: SetActiveUIInputConfig(Game · CapturePermanently) + viewport focus
+```
+
+### 바뀐 점 요약
+
+| 항목 | 이전 | 이후 |
+| --- | --- | --- |
+| 화면 순서 | `AddToViewport` Z값 10 / 20 / 30 | layout 안에서 `MenuStack` 위에 `NoticeLayer` |
+| 화면 생성 | controller가 `CreateWidget` 후 직접 `ActivateWidget` | `MenuStack->AddWidget`이 생성·재사용·활성화 |
+| 메뉴를 닫은 뒤 입력 | 화면마다 `OnDeactivated`에 복구를 걸고 다음 tick에 처리 | Menu stack이 비는 순간 한 곳에서 다음 tick에 처리 |
+| 마우스 커서 | controller가 `bShowMouseCursor`를 직접 토글 | input config의 mouse capture 모드로 Router가 처리 |
+| Raid 상태 표시 | viewport에 Z20으로 직접 추가 | `NoticeLayer`의 요소. 열린 인벤토리 위에 그려짐 |
+| 아직 없는 것 | — | 메뉴 아래의 지상 플레이 HUD, Modal layer, `CommonButtonBase`, 공통 style, 하단 키 안내 |
+
+### 버린 설계: 항상 활성인 HUD로 입력 복구
+
+처음에는 Lyra처럼 HUD를 `GameStack`의 activatable로 두고 HUD의 Game input config로 복구하게 했다.
+Router는 활성 root가 여럿이면 마지막으로 그려진 `LayerId`가 가장 높은 root를 고른다.
+인벤토리를 막 열어 아직 그려지지 않은 프레임에 HUD가 이겨서, 열린 인벤토리 위에서 Game 입력이 켜졌다.
+그래서 항상 활성인 root를 없애고 복구를 Menu stack 한 곳에 모았다. 근거와 실패 증거는 설계결정기록 021에 있다.
