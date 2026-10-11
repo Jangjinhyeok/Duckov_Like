@@ -130,14 +130,14 @@ namespace
         Component->SetForcedLOD(1);
     }
 
-    void RegisterHidden(UMeshComponent* Component, AActor* Owner, const FTransform& Transform)
+    void RegisterHidden(UMeshComponent* Component, USceneComponent* Parent, const FTransform& Transform)
     {
         Component->SetVisibility(false);
         Component->SetHiddenInGame(true);
         Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
         Component->SetGenerateOverlapEvents(false);
         Component->SetMobility(EComponentMobility::Movable);
-        Component->SetupAttachment(Owner->GetRootComponent());
+        Component->SetupAttachment(Parent);
         Component->SetRelativeTransform(Transform);
         Component->RegisterComponent();
     }
@@ -396,7 +396,8 @@ ECustomizationFailure UCustomizationAppearanceComponent::TryApply(const FCustomi
     }
     TStrongObjectPtr<UMeshComponent> StagedLifetime(Staged);
     Staged->SetMaterial(Resources.MaterialSlot, MID.Get());
-    RegisterHidden(Staged, Owner, Transform);
+    USceneComponent* Parent = AttachParent ? AttachParent.Get() : Owner->GetRootComponent();
+    RegisterHidden(Staged, Parent, Transform);
     TStrongObjectPtr<USkeletalMeshComponent> StagedBody;
     if (BodyMesh.IsValid())
     {
@@ -408,7 +409,7 @@ ECustomizationFailure UCustomizationAppearanceComponent::TryApply(const FCustomi
             StagedBody->SetMorphTarget(BodyMorphs[Index], BodyWeights[Index], false);
         }
         StagedBody->SetMaterial(0, BodyMID.Get());
-        RegisterHidden(StagedBody.Get(), Owner, FTransform::Identity);
+        RegisterHidden(StagedBody.Get(), Parent, FTransform::Identity);
         if (Staged->IsRegistered()) { RefreshSkeletal(CastChecked<USkeletalMeshComponent>(Staged)); }
         if (StagedBody->IsRegistered()) { RefreshSkeletal(StagedBody.Get()); }
     }

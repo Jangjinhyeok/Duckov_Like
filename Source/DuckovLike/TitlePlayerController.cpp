@@ -12,8 +12,7 @@
 
 namespace TitleFlow
 {
-// 전용 베이스먼트 맵을 만들기 전까지는 기존 인벤토리 데모 맵을 베이스먼트로 쓴다.
-const TCHAR* const BasementMap = TEXT("/Game/Maps/L_InventoryDemo");
+const TCHAR* const BasementMap = TEXT("/Game/Maps/L_Basement");
 }
 
 void ATitlePlayerController::BeginPlay()

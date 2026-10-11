@@ -5,6 +5,7 @@
 #include "CustomizationScreenWidget.h"
 #include "GameRootLayoutWidget.h"
 #include "GameSessionSubsystem.h"
+#include "DuckovCharacter.h"
 #include "InventoryDemoPlayerController.h"
 #include "LoadingScreenWidget.h"
 #include "TitleGameMode.h"
@@ -240,7 +241,7 @@ bool FTitleFlowToBasement::RunTest(const FString& Parameters)
         auto* Controller = World ? Cast<AInventoryDemoPlayerController>(UGameplayStatics::GetPlayerController(World, 0)) : nullptr;
         if (!Controller) { AddError(TEXT("베이스먼트 controller unavailable")); return; }
         TestTrue(TEXT("같은 게임 인스턴스 유지"), Scene->GameInstance.Get() == World->GetGameInstance());
-        TestTrue(TEXT("베이스먼트에는 조작 pawn 있음"), Controller->GetPawn() != nullptr);
+        TestTrue(TEXT("베이스먼트에서는 지상 캐릭터를 조작"), Cast<ADuckovCharacter>(Controller->GetPawn()) != nullptr);
         UCustomizationModel* Model = World->GetGameInstance()->GetSubsystem<UGameSessionSubsystem>()->GetCustomizationModel();
         TestTrue(TEXT("레벨 이동 뒤에도 같은 세션 Model"), Model == Scene->SessionModel.Get());
         TestTrue(TEXT("타이틀에서 확정한 외형 유지"), Model && FMath::IsNearlyEqual(Model->GetProfile().EyeSize, 0.5f));

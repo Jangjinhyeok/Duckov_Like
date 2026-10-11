@@ -7,6 +7,7 @@
 
 class UMaterialInstanceDynamic;
 class UMeshComponent;
+class USceneComponent;
 class USkeletalMeshComponent;
 
 enum class ECustomizationMeshKind : uint8 { StaticPlaceholder, Skeletal };
@@ -40,6 +41,9 @@ public:
     USkeletalMeshComponent* GetDisplayedBody() const { return DisplayedBody; }
     UMaterialInstanceDynamic* GetDisplayedBodyMID() const { return DisplayedBodyMID; }
     static FCustomizationPartResources GetDefaultResources(FName PartId);
+    // 표시 mesh를 붙일 부모다. 지정하지 않으면 owner의 root에 붙는다.
+    // 발밑 원점 mesh를 중심 원점 capsule에 맞출 때처럼 owner root와 기준점이 다를 때 쓴다.
+    void SetAttachParent(USceneComponent* Parent) { AttachParent = Parent; }
 
     // 잘못된 리소스는 정상 UI catalog에 등록하지 않고 자동 검사의 seam에서만 교체한다.
     void SetResourcesForTests(FName PartId, const FCustomizationPartResources& Resources);
@@ -53,6 +57,9 @@ private:
     FCustomizationPartResources PartB;
     FSoftObjectPath BodyMeshPath = FSoftObjectPath(TEXT("/Game/Customization/Prototype/SK_CustomizationBody.SK_CustomizationBody"));
     bool bPreparing = false;
+
+    UPROPERTY(Transient)
+    TObjectPtr<USceneComponent> AttachParent;
 
     UPROPERTY(Transient)
     TObjectPtr<UMeshComponent> DisplayedMesh;

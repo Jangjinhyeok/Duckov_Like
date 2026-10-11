@@ -1,0 +1,347 @@
+#include "Misc/AutomationTest.h"
+
+#if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
+#include "BasementGameMode.h"
+#include "CustomizationAppearanceComponent.h"
+#include "CustomizationModel.h"
+#include "DuckovCharacter.h"
+#include "GameSessionSubsystem.h"
+#include "InventoryDemoPlayerController.h"
+#include "InventoryScreenWidget.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Editor.h"
+#include "Engine/DirectionalLight.h"
+#include "Engine/SkyLight.h"
+#include "Engine/StaticMesh.h"
+#include "Engine/StaticMeshActor.h"
+#include "Components/SkyLightComponent.h"
+#include "Components/SkyAtmosphereComponent.h"
+#include "EngineUtils.h"
+#include "FileHelpers.h"
+#include "Framework/Application/SlateApplication.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/PlayerStart.h"
+#include "GameFramework/SpringArmComponent.h"
+#include "GameFramework/WorldSettings.h"
+#include "Input/CommonUIActionRouterBase.h"
+#include "InputCoreTypes.h"
+#include "Kismet/GameplayStatics.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Misc/PackageName.h"
+#include "Tests/AutomationCommon.h"
+#include "Tests/AutomationEditorCommon.h"
+#include "UObject/UnrealType.h"
+#include "Widgets/SViewport.h"
+#include "Engine/GameViewportClient.h"
+
+namespace BasementTests
+{
+namespace
+{
+constexpr EAutomationTestFlags Flags = EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter;
+constexpr const TCHAR* BasementMap = TEXT("/Game/Maps/L_Basement");
+
+template <typename T>
+T* Field(UObject* Owner, FName Name)
+{
+    const FObjectProperty* Property = Owner ? FindFProperty<FObjectProperty>(Owner->GetClass(), Name) : nullptr;
+    return Property ? Cast<T>(Property->GetObjectPropertyValue_InContainer(Owner)) : nullptr;
+}
+
+class FWaitFor final : public IAutomationLatentCommand
+{
+public:
+    FWaitFor(FAutomationTestBase& InTest, FString InDescription, TFunction<bool()> InCondition)
+        : Test(InTest), Description(MoveTemp(InDescription)), Condition(MoveTemp(InCondition)) {}
+    virtual bool Update() override
+    {
+        if (Started == 0.0) { Started = FPlatformTime::Seconds(); }
+        if (Condition()) { return true; }
+        if (FPlatformTime::Seconds() - Started < 20.0) { return false; }
+        Test.AddError(FString::Printf(TEXT("PIE timeout: %s"), *Description));
+        return true;
+    }
+private:
+    FAutomationTestBase& Test;
+    FString Description;
+    TFunction<bool()> Condition;
+    double Started = 0.0;
+};
+
+struct FBasementScene
+{
+    TWeakObjectPtr<AInventoryDemoPlayerController> Controller;
+    TWeakObjectPtr<ADuckovCharacter> Character;
+    FVector Start = FVector::ZeroVector;
+    // 자동 실행 중 프레임이 멈추면 벽시계 시간만으로는 이동이 시뮬레이션되지 않는다. 월드 시간과 프레임 수로 기다린다.
+    double HoldStarted = 0.0;
+    uint64 HoldStartFrame = 0;
+    float PeakSpeed = 0.f;
+    bool bOriginalInactiveInput = false;
+};
+
+AStaticMeshActor* SpawnBlock(UWorld* World, const TCHAR* Label, const FVector& Location, const FVector& Scale)
+{
+    UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
+    AStaticMeshActor* Block = World->SpawnActor<AStaticMeshActor>(Location, FRotator::ZeroRotator);
+    Block->GetStaticMeshComponent()->SetStaticMesh(Cube);
+    Block->SetActorScale3D(Scale);
+    Block->SetActorLabel(Label);
+    return Block;
+}
+
+void SendKey(FKey Key, bool bDown)
+{
+    FSlateApplication& Slate = FSlateApplication::Get();
+    const FKeyEvent Event(Key, FModifierKeysState(), Slate.GetUserIndexForKeyboard(), false, 0, 0);
+    if (bDown) { Slate.ProcessKeyDownEvent(Event); }
+    else { Slate.ProcessKeyUpEvent(Event); }
+}
+
+bool IsViewportFocused()
+{
+    return GEngine->GameViewport && GEngine->GameViewport->GetGameViewportWidget().IsValid()
+        && GEngine->GameViewport->GetGameViewportWidget()->HasAnyUserFocus().IsSet();
+}
+
+ECommonInputMode GetInputMode(AInventoryDemoPlayerController* Controller)
+{
+    UCommonUIActionRouterBase* Router = Controller && Controller->GetLocalPlayer()
+        ? Controller->GetLocalPlayer()->GetSubsystem<UCommonUIActionRouterBase>() : nullptr;
+    return Router ? Router->GetActiveInputMode() : ECommonInputMode::All;
+}
+
+// 앞 단계가 timeout으로 실패해도 다음 단계가 null을 건드리지 않고 실패로 끝나게 한다.
+bool IsSceneValid(const FBasementScene& Scene)
+{
+    return Scene.Controller.IsValid() && Scene.Character.IsValid();
+}
+
+void BeginHold(FBasementScene& Scene)
+{
+    Scene.Start = Scene.Character->GetActorLocation();
+    Scene.HoldStarted = Scene.Character->GetWorld()->GetTimeSeconds();
+    Scene.HoldStartFrame = GFrameCounter;
+}
+
+bool IsHoldDone(const FBasementScene& Scene, double Seconds)
+{
+    return !IsSceneValid(Scene) || (Scene.Character->GetWorld()->GetTimeSeconds() - Scene.HoldStarted > Seconds
+        && GFrameCounter - Scene.HoldStartFrame >= 10);
+}
+
+FVector MovedSinceHold(const FBasementScene& Scene)
+{
+    return (Scene.Character->GetActorLocation() - Scene.Start) * FVector(1.f, 1.f, 0.f);
+}
+
+// 카메라가 고정 yaw이므로 화면 위는 카메라 yaw의 지면 방향이다.
+FVector ScreenUpOnGround(const ADuckovCharacter* Character)
+{
+    return FRotator(0.f, Character->GetCameraBoom()->GetComponentRotation().Yaw, 0.f).Vector();
+}
+}
+
+// 명시적으로 실행하는 에셋 생성 경로다. 기존 맵을 덮어쓰지 않으며 회귀 검사에서는 실행하지 않는다.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCreateBasementAssets, "BasementAssets.Create", Flags)
+bool FCreateBasementAssets::RunTest(const FString& Parameters)
+{
+    if (FPackageName::DoesPackageExist(BasementMap))
+    {
+        AddError(FString::Printf(TEXT("기존 에셋을 덮어쓰지 않습니다: %s"), BasementMap));
+        return false;
+    }
+    UWorld* World = UEditorLoadingAndSavingUtils::NewBlankMap(false);
+    if (!World) { AddError(TEXT("베이스먼트 map 생성 실패")); return false; }
+    World->GetWorldSettings()->DefaultGameMode = ABasementGameMode::StaticClass();
+    // 20 m 정사각형 방. 바닥 윗면이 z=0이다. 카메라 반대쪽 두 벽만 세워 원작처럼 방 안이 보이게 한다.
+    SpawnBlock(World, TEXT("Floor"), FVector(0.f, 0.f, -10.f), FVector(20.f, 20.f, 0.2f));
+    SpawnBlock(World, TEXT("WallFar"), FVector(1010.f, 0.f, 125.f), FVector(0.2f, 20.4f, 2.5f));
+    SpawnBlock(World, TEXT("WallSide"), FVector(0.f, -1010.f, 125.f), FVector(20.4f, 0.2f, 2.5f));
+    SpawnBlock(World, TEXT("Crate_A"), FVector(400.f, 300.f, 50.f), FVector(1.f));
+    SpawnBlock(World, TEXT("Crate_B"), FVector(-300.f, -450.f, 50.f), FVector(1.5f, 1.f, 1.f));
+    SpawnBlock(World, TEXT("Crate_C"), FVector(650.f, -600.f, 75.f), FVector(1.f, 1.f, 1.5f));
+    ADirectionalLight* Sun = World->SpawnActor<ADirectionalLight>(FVector(0.f, 0.f, 800.f), FRotator(-50.f, 30.f, 0.f));
+    Sun->SetActorLabel(TEXT("KeyLight"));
+    ASkyAtmosphere* Sky = World->SpawnActor<ASkyAtmosphere>(FVector::ZeroVector, FRotator::ZeroRotator);
+    Sky->SetActorLabel(TEXT("SkyAtmosphere"));
+    ASkyLight* Ambient = World->SpawnActor<ASkyLight>(FVector(0.f, 0.f, 500.f), FRotator::ZeroRotator);
+    Ambient->SetActorLabel(TEXT("AmbientLight"));
+    Ambient->GetLightComponent()->SetMobility(EComponentMobility::Movable);
+    Ambient->GetLightComponent()->bRealTimeCapture = true;
+    APlayerStart* Start = World->SpawnActor<APlayerStart>(FVector(0.f, 0.f, 100.f), FRotator::ZeroRotator);
+    Start->SetActorLabel(TEXT("PlayerStart"));
+    if (!UEditorLoadingAndSavingUtils::SaveMap(World, BasementMap)) { AddError(TEXT("베이스먼트 map 저장 실패")); return false; }
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBasementAssets, "Duckov.Basement.Assets", Flags)
+bool FBasementAssets::RunTest(const FString& Parameters)
+{
+    UWorld* World = LoadObject<UWorld>(nullptr, TEXT("/Game/Maps/L_Basement.L_Basement"));
+    if (!TestNotNull(TEXT("베이스먼트 map"), World)) { return false; }
+    TestTrue(TEXT("베이스먼트 GameMode override"), World->GetWorldSettings()->DefaultGameMode == ABasementGameMode::StaticClass());
+    const ABasementGameMode* GameMode = GetDefault<ABasementGameMode>();
+    TestTrue(TEXT("베이스먼트 pawn은 지상 캐릭터"), GameMode->DefaultPawnClass == ADuckovCharacter::StaticClass());
+    TestTrue(TEXT("베이스먼트 controller는 기존 인벤토리 controller"), GameMode->PlayerControllerClass == AInventoryDemoPlayerController::StaticClass());
+    int32 PlayerStarts = 0;
+    bool bFloorCollides = false;
+    for (TActorIterator<AActor> It(World); It; ++It)
+    {
+        if (It->IsA<APlayerStart>()) { ++PlayerStarts; }
+        if (const AStaticMeshActor* Mesh = Cast<AStaticMeshActor>(*It); Mesh && Mesh->GetActorLabel() == TEXT("Floor"))
+        {
+            bFloorCollides = Mesh->GetStaticMeshComponent()->IsCollisionEnabled();
+        }
+    }
+    TestEqual(TEXT("PlayerStart 하나"), PlayerStarts, 1);
+    TestTrue(TEXT("바닥 충돌"), bFloorCollides);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FBasementCharacterMovement, "Duckov.Basement.CharacterMovement", Flags)
+bool FBasementCharacterMovement::RunTest(const FString& Parameters)
+{
+    if (!TestTrue(TEXT("Slate initialized"), FSlateApplication::IsInitialized())) { return false; }
+    if (!TestTrue(TEXT("베이스먼트 map load"), AutomationOpenMap(BasementMap))) { return false; }
+    TSharedRef<FBasementScene> Scene = MakeShared<FBasementScene>();
+    Scene->bOriginalInactiveInput = FSlateApplication::Get().GetHandleDeviceInputWhenApplicationNotActive();
+    FSlateApplication::Get().SetHandleDeviceInputWhenApplicationNotActive(true);
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("지상 캐릭터 착지"), [Scene]
+    {
+        UWorld* World = GEditor ? GEditor->PlayWorld : nullptr;
+        auto* Controller = World ? Cast<AInventoryDemoPlayerController>(UGameplayStatics::GetPlayerController(World, 0)) : nullptr;
+        auto* Character = Controller ? Cast<ADuckovCharacter>(Controller->GetPawn()) : nullptr;
+        Scene->Controller = Controller;
+        Scene->Character = Character;
+        return Character && Character->GetCharacterMovement()->IsMovingOnGround();
+    }));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        if (!IsSceneValid(*Scene)) { AddError(TEXT("캐릭터 unavailable")); return; }
+        ADuckovCharacter* Character = Scene->Character.Get();
+        UCustomizationAppearanceComponent* Appearance = Character->GetAppearance();
+        USkeletalMeshComponent* Body = Appearance->GetDisplayedBody();
+        TestTrue(TEXT("세션 Profile로 외형 표시"), Body && Body->IsVisible() && Appearance->GetDisplayedMesh());
+        TestTrue(TEXT("외형은 capsule 바닥 기준점에 붙음"), Body && Body->GetAttachParent() != Character->GetRootComponent()
+            && FMath::IsNearlyEqual(Body->GetComponentLocation().Z,
+                Character->GetActorLocation().Z - Character->GetSimpleCollisionHalfHeight(), 1.f));
+        TestTrue(TEXT("카메라 고정 각도"), Character->GetCameraBoom()->GetComponentRotation().Equals(FRotator(-55.f, -40.f, 0.f), 0.1f));
+        // 확정 Profile이 바뀌면 같은 캐릭터가 바로 다시 그린다.
+        UCustomizationModel* Model = Character->GetGameInstance()->GetSubsystem<UGameSessionSubsystem>()->GetCustomizationModel();
+        auto Present = [](const FCustomizationProfile&) { return ECustomizationFailure::None; };
+        FCustomizationProfile Candidate = Model->GetProfile();
+        Candidate.Hue = 0.6f;
+        TestEqual(TEXT("편집 시작"), Model->BeginEdit(Present), ECustomizationFailure::None);
+        TestEqual(TEXT("편집"), Model->TryEdit(Candidate, Present), ECustomizationFailure::None);
+        TestEqual(TEXT("확정"), Model->Apply(Present), ECustomizationFailure::None);
+        FLinearColor Shown = FLinearColor::Black;
+        UMaterialInstanceDynamic* BodyMID = Appearance->GetDisplayedBodyMID();
+        TestTrue(TEXT("확정 색상이 캐릭터에 반영"), BodyMID && BodyMID->GetVectorParameterValue(FMaterialParameterInfo(TEXT("Color")), Shown)
+            && Shown.Equals(GetCustomizationColor(0.6f), 0.001f));
+        FSlateApplication::Get().SetAllUserFocusToGameViewport();
+    }, 0.f));
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("viewport focus"), [] { return IsViewportFocused(); }));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        if (!IsSceneValid(*Scene)) { AddError(TEXT("베이스먼트 scene unavailable")); return; }
+        BeginHold(*Scene);
+        SendKey(EKeys::W, true);
+    }, 0.f));
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("W 유지"), [Scene] { return IsHoldDone(*Scene, 0.6); }));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        SendKey(EKeys::W, false);
+        if (!IsSceneValid(*Scene)) { AddError(TEXT("베이스먼트 scene unavailable")); return; }
+        ADuckovCharacter* Character = Scene->Character.Get();
+        const FVector Delta = MovedSinceHold(*Scene);
+        UE_LOG(LogTemp, Display, TEXT("Basement: W 이동 %.1f cm, 방향 일치 %.3f"), Delta.Size(),
+            FVector::DotProduct(Delta.GetSafeNormal(), ScreenUpOnGround(Character)));
+        TestTrue(TEXT("W 키로 실제 이동"), Delta.Size() > 80.f);
+        TestTrue(TEXT("W는 화면 위 방향"), FVector::DotProduct(Delta.GetSafeNormal(), ScreenUpOnGround(Character)) > 0.95f);
+        TestTrue(TEXT("진행 방향을 바라봄"), FVector::DotProduct(Character->GetActorForwardVector(), ScreenUpOnGround(Character)) > 0.9f);
+        // 외형 component의 회전 보정이 다시 들어오는 회귀를 막는다. 부리가 +X를 향한다는 사실 자체는 독립 실행 화면으로 확인했다.
+        const USkeletalMeshComponent* Body = Character->GetAppearance()->GetDisplayedBody();
+        TestTrue(TEXT("외형 정면이 진행 방향"), Body
+            && FVector::DotProduct(Body->GetForwardVector(), Character->GetActorForwardVector()) > 0.99f);
+        TestTrue(TEXT("캐릭터가 돌아도 카메라는 고정"), Character->GetCameraBoom()->GetComponentRotation().Equals(FRotator(-55.f, -40.f, 0.f), 0.1f));
+        BeginHold(*Scene);
+        SendKey(EKeys::A, true);
+    }, 0.f));
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("A 유지"), [Scene] { return IsHoldDone(*Scene, 0.4); }));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        SendKey(EKeys::A, false);
+        if (!IsSceneValid(*Scene)) { AddError(TEXT("베이스먼트 scene unavailable")); return; }
+        const FVector ScreenLeft = -FVector::CrossProduct(FVector::UpVector, ScreenUpOnGround(Scene->Character.Get()));
+        const FVector Delta = MovedSinceHold(*Scene);
+        // 키를 바꾼 직후에는 이전 방향의 관성이 남으므로 hold 끝의 속도 방향으로 판정한다.
+        TestTrue(TEXT("A는 화면 왼쪽 방향"), Delta.Size() > 40.f
+            && FVector::DotProduct(Scene->Character->GetVelocity().GetSafeNormal2D(), ScreenLeft) > 0.95f);
+        BeginHold(*Scene);
+        SendKey(EKeys::S, true);
+    }, 0.f));
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("S 유지"), [Scene] { return IsHoldDone(*Scene, 0.4); }));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        SendKey(EKeys::S, false);
+        if (!IsSceneValid(*Scene)) { AddError(TEXT("베이스먼트 scene unavailable")); return; }
+        const FVector Delta = MovedSinceHold(*Scene);
+        TestTrue(TEXT("S는 화면 아래 방향"), Delta.Size() > 40.f
+            && FVector::DotProduct(Scene->Character->GetVelocity().GetSafeNormal2D(), -ScreenUpOnGround(Scene->Character.Get())) > 0.95f);
+        Scene->PeakSpeed = 0.f;
+        BeginHold(*Scene);
+        SendKey(EKeys::LeftShift, true);
+        SendKey(EKeys::D, true);
+    }, 0.f));
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("Shift+D 유지"), [Scene]
+    {
+        if (Scene->Character.IsValid()) { Scene->PeakSpeed = FMath::Max(Scene->PeakSpeed, Scene->Character->GetVelocity().Size2D()); }
+        return IsHoldDone(*Scene, 0.6);
+    }));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        SendKey(EKeys::D, false);
+        SendKey(EKeys::LeftShift, false);
+        if (!IsSceneValid(*Scene)) { AddError(TEXT("베이스먼트 scene unavailable")); return; }
+        const FVector ScreenRight = FVector::CrossProduct(FVector::UpVector, ScreenUpOnGround(Scene->Character.Get()));
+        TestTrue(TEXT("D는 화면 오른쪽 방향"), FVector::DotProduct(Scene->Character->GetVelocity().GetSafeNormal2D(), ScreenRight) > 0.95f);
+        TestTrue(TEXT("Shift로 걷기보다 빠르게 달림"), Scene->PeakSpeed > ADuckovCharacter::WalkSpeed + 100.f);
+        Scene->Controller->ToggleInventory();
+    }, 0.f));
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("인벤토리 Menu 입력과 정지"), [Scene]
+    {
+        return !IsSceneValid(*Scene)
+            || (GetInputMode(Scene->Controller.Get()) == ECommonInputMode::Menu && Scene->Character->GetVelocity().Size2D() < 1.f);
+    }));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        if (!IsSceneValid(*Scene)) { AddError(TEXT("베이스먼트 scene unavailable")); return; }
+        BeginHold(*Scene);
+        SendKey(EKeys::W, true);
+    }, 0.f));
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("메뉴 중 W 유지"), [Scene] { return IsHoldDone(*Scene, 0.5); }));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        SendKey(EKeys::W, false);
+        if (!IsSceneValid(*Scene)) { AddError(TEXT("베이스먼트 scene unavailable")); return; }
+        TestTrue(TEXT("인벤토리가 열린 동안 이동 입력 차단"), MovedSinceHold(*Scene).Size() < 5.f);
+        UInventoryScreenWidget* Screen = Field<UInventoryScreenWidget>(Scene->Controller.Get(), TEXT("Screen"));
+        TestTrue(TEXT("베이스먼트에서 인벤토리 열림"), Screen && Screen->IsActivated());
+        Scene->Controller->ToggleInventory();
+    }, 0.f));
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("인벤토리 닫은 뒤 Game 입력"), [Scene]
+    {
+        return !IsSceneValid(*Scene) || (GetInputMode(Scene->Controller.Get()) == ECommonInputMode::Game && IsViewportFocused());
+    }));
+    ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("PIE 종료"), [] { return !GEditor || !GEditor->PlayWorld; }));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([Scene]
+    {
+        FSlateApplication::Get().SetHandleDeviceInputWhenApplicationNotActive(Scene->bOriginalInactiveInput);
+    }, 0.f));
+    return true;
+}
+}
+#endif
