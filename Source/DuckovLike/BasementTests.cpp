@@ -6,14 +6,18 @@
 #include "CustomizationModel.h"
 #include "DuckovCharacter.h"
 #include "GameSessionSubsystem.h"
-#include "InventoryDemoPlayerController.h"
+#include "DuckovPlayerController.h"
+#include "InteractionPointActor.h"
+#include "InteractionRangeComponent.h"
 #include "InventoryScreenWidget.h"
+#include "WorldLootActor.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Editor.h"
 #include "Engine/DirectionalLight.h"
 #include "Engine/SkyLight.h"
 #include "Engine/StaticMesh.h"
+#include "Materials/MaterialInterface.h"
 #include "Engine/StaticMeshActor.h"
 #include "Components/SkyLightComponent.h"
 #include "Components/SkyAtmosphereComponent.h"
@@ -41,6 +45,7 @@ namespace
 {
 constexpr EAutomationTestFlags Flags = EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter;
 constexpr const TCHAR* BasementMap = TEXT("/Game/Maps/L_Basement");
+constexpr const TCHAR* RaidMap = TEXT("/Game/Maps/L_Raid");
 
 template <typename T>
 T* Field(UObject* Owner, FName Name)
@@ -71,7 +76,7 @@ private:
 
 struct FBasementScene
 {
-    TWeakObjectPtr<AInventoryDemoPlayerController> Controller;
+    TWeakObjectPtr<ADuckovPlayerController> Controller;
     TWeakObjectPtr<ADuckovCharacter> Character;
     FVector Start = FVector::ZeroVector;
     // 자동 실행 중 프레임이 멈추면 벽시계 시간만으로는 이동이 시뮬레이션되지 않는다. 월드 시간과 프레임 수로 기다린다.
@@ -91,6 +96,34 @@ AStaticMeshActor* SpawnBlock(UWorld* World, const TCHAR* Label, const FVector& L
     return Block;
 }
 
+void SpawnLighting(UWorld* World)
+{
+    ADirectionalLight* Sun = World->SpawnActor<ADirectionalLight>(FVector(0.f, 0.f, 800.f), FRotator(-50.f, 30.f, 0.f));
+    Sun->SetActorLabel(TEXT("KeyLight"));
+    ASkyAtmosphere* Sky = World->SpawnActor<ASkyAtmosphere>(FVector::ZeroVector, FRotator::ZeroRotator);
+    Sky->SetActorLabel(TEXT("SkyAtmosphere"));
+    ASkyLight* Ambient = World->SpawnActor<ASkyLight>(FVector(0.f, 0.f, 500.f), FRotator::ZeroRotator);
+    Ambient->SetActorLabel(TEXT("AmbientLight"));
+    Ambient->GetLightComponent()->SetMobility(EComponentMobility::Movable);
+    Ambient->GetLightComponent()->bRealTimeCapture = true;
+}
+
+// 상호작용 지점은 mesh 모양으로 구분한다. 창고는 부딪히는 상자, 출격 지점은 밟고 지나가는 원판이다.
+AInteractionPointActor* SpawnPoint(UWorld* World, const TCHAR* Label, EInteractionKind Kind, const FVector& Location,
+    const TCHAR* MeshPath, const FVector& Scale, bool bBlocks)
+{
+    AInteractionPointActor* Point = World->SpawnActor<AInteractionPointActor>(Location, FRotator::ZeroRotator);
+    Point->GetRange()->Kind = Kind;
+    UStaticMeshComponent* Mesh = Point->GetMesh();
+    Mesh->SetStaticMesh(LoadObject<UStaticMesh>(nullptr, MeshPath));
+    Mesh->SetMaterial(0, LoadObject<UMaterialInterface>(nullptr,
+        TEXT("/Engine/EngineDebugMaterials/DebugMeshMaterialFakeLight.DebugMeshMaterialFakeLight")));
+    Mesh->SetRelativeScale3D(Scale);
+    if (!bBlocks) { Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision); }
+    Point->SetActorLabel(Label);
+    return Point;
+}
+
 void SendKey(FKey Key, bool bDown)
 {
     FSlateApplication& Slate = FSlateApplication::Get();
@@ -105,7 +138,7 @@ bool IsViewportFocused()
         && GEngine->GameViewport->GetGameViewportWidget()->HasAnyUserFocus().IsSet();
 }
 
-ECommonInputMode GetInputMode(AInventoryDemoPlayerController* Controller)
+ECommonInputMode GetInputMode(ADuckovPlayerController* Controller)
 {
     UCommonUIActionRouterBase* Router = Controller && Controller->GetLocalPlayer()
         ? Controller->GetLocalPlayer()->GetSubsystem<UCommonUIActionRouterBase>() : nullptr;
@@ -162,14 +195,12 @@ bool FCreateBasementAssets::RunTest(const FString& Parameters)
     SpawnBlock(World, TEXT("Crate_A"), FVector(400.f, 300.f, 50.f), FVector(1.f));
     SpawnBlock(World, TEXT("Crate_B"), FVector(-300.f, -450.f, 50.f), FVector(1.5f, 1.f, 1.f));
     SpawnBlock(World, TEXT("Crate_C"), FVector(650.f, -600.f, 75.f), FVector(1.f, 1.f, 1.5f));
-    ADirectionalLight* Sun = World->SpawnActor<ADirectionalLight>(FVector(0.f, 0.f, 800.f), FRotator(-50.f, 30.f, 0.f));
-    Sun->SetActorLabel(TEXT("KeyLight"));
-    ASkyAtmosphere* Sky = World->SpawnActor<ASkyAtmosphere>(FVector::ZeroVector, FRotator::ZeroRotator);
-    Sky->SetActorLabel(TEXT("SkyAtmosphere"));
-    ASkyLight* Ambient = World->SpawnActor<ASkyLight>(FVector(0.f, 0.f, 500.f), FRotator::ZeroRotator);
-    Ambient->SetActorLabel(TEXT("AmbientLight"));
-    Ambient->GetLightComponent()->SetMobility(EComponentMobility::Movable);
-    Ambient->GetLightComponent()->bRealTimeCapture = true;
+    // 창고는 옆 벽에 붙이고, 출격 지점은 먼 벽 앞에 둔다. 시작 위치에서 둘 다 범위 밖이다.
+    SpawnPoint(World, TEXT("Stash"), EInteractionKind::Stash, FVector(-250.f, -900.f, 50.f),
+        TEXT("/Engine/BasicShapes/Cube.Cube"), FVector(1.6f, 0.8f, 1.f), true);
+    SpawnPoint(World, TEXT("SortiePoint"), EInteractionKind::Sortie, FVector(850.f, 350.f, 2.f),
+        TEXT("/Engine/BasicShapes/Cylinder.Cylinder"), FVector(2.f, 2.f, 0.04f), false);
+    SpawnLighting(World);
     APlayerStart* Start = World->SpawnActor<APlayerStart>(FVector(0.f, 0.f, 100.f), FRotator::ZeroRotator);
     Start->SetActorLabel(TEXT("PlayerStart"));
     if (!UEditorLoadingAndSavingUtils::SaveMap(World, BasementMap)) { AddError(TEXT("베이스먼트 map 저장 실패")); return false; }
@@ -184,12 +215,14 @@ bool FBasementAssets::RunTest(const FString& Parameters)
     TestTrue(TEXT("베이스먼트 GameMode override"), World->GetWorldSettings()->DefaultGameMode == ABasementGameMode::StaticClass());
     const ABasementGameMode* GameMode = GetDefault<ABasementGameMode>();
     TestTrue(TEXT("베이스먼트 pawn은 지상 캐릭터"), GameMode->DefaultPawnClass == ADuckovCharacter::StaticClass());
-    TestTrue(TEXT("베이스먼트 controller는 기존 인벤토리 controller"), GameMode->PlayerControllerClass == AInventoryDemoPlayerController::StaticClass());
+    TestTrue(TEXT("베이스먼트 controller는 지상 흐름 controller"), GameMode->PlayerControllerClass == ADuckovPlayerController::StaticClass());
     int32 PlayerStarts = 0;
     bool bFloorCollides = false;
+    TMap<EInteractionKind, int32> Points;
     for (TActorIterator<AActor> It(World); It; ++It)
     {
         if (It->IsA<APlayerStart>()) { ++PlayerStarts; }
+        if (const AInteractionPointActor* Point = Cast<AInteractionPointActor>(*It)) { ++Points.FindOrAdd(Point->GetRange()->Kind); }
         if (const AStaticMeshActor* Mesh = Cast<AStaticMeshActor>(*It); Mesh && Mesh->GetActorLabel() == TEXT("Floor"))
         {
             bFloorCollides = Mesh->GetStaticMeshComponent()->IsCollisionEnabled();
@@ -197,6 +230,73 @@ bool FBasementAssets::RunTest(const FString& Parameters)
     }
     TestEqual(TEXT("PlayerStart 하나"), PlayerStarts, 1);
     TestTrue(TEXT("바닥 충돌"), bFloorCollides);
+    TestEqual(TEXT("창고 하나"), Points.FindRef(EInteractionKind::Stash), 1);
+    TestEqual(TEXT("출격 지점 하나"), Points.FindRef(EInteractionKind::Sortie), 1);
+    TestEqual(TEXT("베이스먼트에는 탈출 지점 없음"), Points.FindRef(EInteractionKind::Extraction), 0);
+    return true;
+}
+
+// 명시적으로 실행하는 레이드 맵 생성 경로다. 베이스먼트와 같은 GameMode·조명을 쓰고 loot와 탈출 지점만 다르다.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCreateRaidAssets, "RaidAssets.Create", Flags)
+bool FCreateRaidAssets::RunTest(const FString& Parameters)
+{
+    if (FPackageName::DoesPackageExist(RaidMap))
+    {
+        AddError(FString::Printf(TEXT("기존 에셋을 덮어쓰지 않습니다: %s"), RaidMap));
+        return false;
+    }
+    UWorld* World = UEditorLoadingAndSavingUtils::NewBlankMap(false);
+    if (!World) { AddError(TEXT("레이드 map 생성 실패")); return false; }
+    World->GetWorldSettings()->DefaultGameMode = ABasementGameMode::StaticClass();
+    // 30 m 정사각형 바깥 구역. 시작은 한쪽 모서리, 탈출 지점은 대각선 반대 모서리다.
+    SpawnBlock(World, TEXT("Floor"), FVector(0.f, 0.f, -10.f), FVector(30.f, 30.f, 0.2f));
+    SpawnBlock(World, TEXT("WallFar"), FVector(1510.f, 0.f, 125.f), FVector(0.2f, 30.4f, 2.5f));
+    SpawnBlock(World, TEXT("WallSide"), FVector(0.f, -1510.f, 125.f), FVector(30.4f, 0.2f, 2.5f));
+    SpawnBlock(World, TEXT("Cover_A"), FVector(-600.f, -200.f, 75.f), FVector(3.f, 0.6f, 1.5f));
+    SpawnBlock(World, TEXT("Cover_B"), FVector(300.f, 700.f, 75.f), FVector(0.6f, 3.f, 1.5f));
+    SpawnBlock(World, TEXT("Cover_C"), FVector(800.f, -500.f, 50.f), FVector(1.5f));
+    const TSoftObjectPtr<UDataTable> Definitions(FSoftObjectPath(TEXT("/Game/Inventory/DT_ItemDefinitions.DT_ItemDefinitions")));
+    auto SpawnLoot = [World, &Definitions](const TCHAR* Label, FName Row, int32 Quantity, const FVector& Location)
+    {
+        AWorldLootActor* Loot = World->SpawnActor<AWorldLootActor>(Location, FRotator::ZeroRotator);
+        Loot->DefinitionTable = Definitions;
+        Loot->DefinitionRowName = Row;
+        Loot->Quantity = Quantity;
+        Loot->SetActorLabel(Label);
+    };
+    // 시작 가방(소형 4x4, 구급상자 2개 차지)에 모두 들어가는 양이다.
+    SpawnLoot(TEXT("Loot_Medkit"), TEXT("Medkit"), 1, FVector(-700.f, -800.f, 15.f));
+    SpawnLoot(TEXT("Loot_Ammo"), TEXT("Ammo"), 12, FVector(0.f, -300.f, 15.f));
+    SpawnLoot(TEXT("Loot_Rifle"), TEXT("Rifle"), 1, FVector(500.f, 300.f, 15.f));
+    SpawnPoint(World, TEXT("ExtractionPoint"), EInteractionKind::Extraction, FVector(1150.f, 1150.f, 2.f),
+        TEXT("/Engine/BasicShapes/Cylinder.Cylinder"), FVector(3.f, 3.f, 0.04f), false);
+    SpawnLighting(World);
+    APlayerStart* Start = World->SpawnActor<APlayerStart>(FVector(-1200.f, -1200.f, 100.f), FRotator::ZeroRotator);
+    Start->SetActorLabel(TEXT("PlayerStart"));
+    if (!UEditorLoadingAndSavingUtils::SaveMap(World, RaidMap)) { AddError(TEXT("레이드 map 저장 실패")); return false; }
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRaidAssets, "Duckov.Raid.Assets", Flags)
+bool FRaidAssets::RunTest(const FString& Parameters)
+{
+    UWorld* World = LoadObject<UWorld>(nullptr, TEXT("/Game/Maps/L_Raid.L_Raid"));
+    if (!TestNotNull(TEXT("레이드 map"), World)) { return false; }
+    TestTrue(TEXT("레이드도 지상 GameMode"), World->GetWorldSettings()->DefaultGameMode == ABasementGameMode::StaticClass());
+    int32 PlayerStarts = 0;
+    int32 Loot = 0;
+    TMap<EInteractionKind, int32> Points;
+    for (TActorIterator<AActor> It(World); It; ++It)
+    {
+        if (It->IsA<APlayerStart>()) { ++PlayerStarts; }
+        if (const AWorldLootActor* Item = Cast<AWorldLootActor>(*It); Item && !Item->DefinitionRowName.IsNone()) { ++Loot; }
+        if (const AInteractionPointActor* Point = Cast<AInteractionPointActor>(*It)) { ++Points.FindOrAdd(Point->GetRange()->Kind); }
+    }
+    TestEqual(TEXT("PlayerStart 하나"), PlayerStarts, 1);
+    TestEqual(TEXT("loot 셋"), Loot, 3);
+    TestEqual(TEXT("탈출 지점 하나"), Points.FindRef(EInteractionKind::Extraction), 1);
+    TestEqual(TEXT("레이드에는 창고 없음"), Points.FindRef(EInteractionKind::Stash), 0);
+    TestEqual(TEXT("레이드에는 출격 지점 없음"), Points.FindRef(EInteractionKind::Sortie), 0);
     return true;
 }
 
@@ -211,7 +311,7 @@ bool FBasementCharacterMovement::RunTest(const FString& Parameters)
     ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("지상 캐릭터 착지"), [Scene]
     {
         UWorld* World = GEditor ? GEditor->PlayWorld : nullptr;
-        auto* Controller = World ? Cast<AInventoryDemoPlayerController>(UGameplayStatics::GetPlayerController(World, 0)) : nullptr;
+        auto* Controller = World ? Cast<ADuckovPlayerController>(UGameplayStatics::GetPlayerController(World, 0)) : nullptr;
         auto* Character = Controller ? Cast<ADuckovCharacter>(Controller->GetPawn()) : nullptr;
         Scene->Controller = Controller;
         Scene->Character = Character;

@@ -2,6 +2,7 @@
 
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
+#include "InteractionRangeComponent.h"
 #include "InventoryModel.h"
 #include "Materials/MaterialInterface.h"
 #include "UObject/ConstructorHelpers.h"
@@ -18,6 +19,10 @@ AWorldLootActor::AWorldLootActor()
         TEXT("/Engine/EngineDebugMaterials/DebugMeshMaterialFakeLight.DebugMeshMaterialFakeLight"));
     if (Cube.Succeeded()) { Mesh->SetStaticMesh(Cube.Object); }
     if (Material.Succeeded()) { Mesh->SetMaterial(0, Material.Object); }
+    // 지상 캐릭터의 F 상호작용 대상이다. 데모 controller는 이 범위를 쓰지 않고 거리로 찾는다.
+    Range = CreateDefaultSubobject<UInteractionRangeComponent>(TEXT("PickupRange"));
+    Range->SetupAttachment(Mesh);
+    Range->Kind = EInteractionKind::Loot;
 }
 
 EInventoryOperationFailure AWorldLootActor::TryPickup(UInventoryModel* Model, FName ContainerId)

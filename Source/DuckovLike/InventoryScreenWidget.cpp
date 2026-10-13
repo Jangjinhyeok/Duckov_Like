@@ -70,7 +70,7 @@ void UInventoryScreenWidget::RefreshStashAccess()
 {
     LeftVM->Bind(bStashAccessible ? Model.Get() : nullptr, TEXT("Stash"));
     LeftGrid->SetTitle(bStashAccessible ? NSLOCTEXT("Inventory", "Stash", "보관함")
-        : NSLOCTEXT("Inventory", "StashUnavailableInRaid", "Raid 중 보관함 사용 불가"));
+        : NSLOCTEXT("Inventory", "StashOnlyAtStorage", "보관함: 창고에서만"));
     LeftGrid->Bind(bStashAccessible ? LeftVM.Get() : nullptr, this, TEXT("Stash"));
     LeftGrid->SetIsEnabled(bStashAccessible);
     SortLeftButton->SetIsEnabled(bStashAccessible);

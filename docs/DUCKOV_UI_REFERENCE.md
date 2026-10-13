@@ -73,3 +73,4 @@ AI가 Computer Use로 원작 창을 직접 조작했다. 기존 세이브의 "�
 | 검은 로딩 화면, 하단 중앙 문구 | `ULoadingScreenWidget`. 팁 문구는 내용이 없어 생략 |
 | 로고 | 텍스트 타이틀 "DUCKOV LIKE"로 대체 |
 | 화면 기준 WASD, Shift 달리기, 고정 각도 탑다운 카메라 | `ADuckovCharacter`(설계결정기록 023). 조준·구르기·look-ahead·상호작용 프롬프트는 아직 없음 |
+| 가까이 가면 뜨는 "동작 [F]" pill 프롬프트, 키 F | `UInteractionPromptWidget`(설계결정기록 024). 위치는 물체 옆이 아니라 화면 아래 중앙, 상시 ◎ 표시는 없음 |

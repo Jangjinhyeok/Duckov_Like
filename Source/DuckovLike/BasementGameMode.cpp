@@ -1,10 +1,10 @@
 #include "BasementGameMode.h"
 
 #include "DuckovCharacter.h"
-#include "InventoryDemoPlayerController.h"
+#include "DuckovPlayerController.h"
 
 ABasementGameMode::ABasementGameMode()
 {
-    PlayerControllerClass = AInventoryDemoPlayerController::StaticClass();
+    PlayerControllerClass = ADuckovPlayerController::StaticClass();
     DefaultPawnClass = ADuckovCharacter::StaticClass();
 }

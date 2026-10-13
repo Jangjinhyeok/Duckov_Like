@@ -6,6 +6,7 @@
 #include "WorldLootActor.generated.h"
 
 class UDataTable;
+class UInteractionRangeComponent;
 class UInventoryModel;
 class UStaticMeshComponent;
 
@@ -25,8 +26,11 @@ public:
 
 private:
     friend class AInventoryDemoPlayerController;
+    friend class ADuckovPlayerController;
     UPROPERTY(VisibleAnywhere, Category="Loot")
     TObjectPtr<UStaticMeshComponent> Mesh;
+    UPROPERTY(VisibleAnywhere, Category="Loot")
+    TObjectPtr<UInteractionRangeComponent> Range;
     bool bPickupInProgress = false;
     bool bConsumed = false;
 

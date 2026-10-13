@@ -6,7 +6,7 @@
 #include "GameRootLayoutWidget.h"
 #include "GameSessionSubsystem.h"
 #include "DuckovCharacter.h"
-#include "InventoryDemoPlayerController.h"
+#include "DuckovPlayerController.h"
 #include "LoadingScreenWidget.h"
 #include "TitleGameMode.h"
 #include "TitlePlayerController.h"
@@ -233,19 +233,19 @@ bool FTitleFlowToBasement::RunTest(const FString& Parameters)
     {
         UWorld* World = GEditor ? GEditor->PlayWorld : nullptr;
         return World && !Scene->TitleWorld.HasSameIndexAndSerialNumber(TWeakObjectPtr<UWorld>(World))
-            && Cast<AInventoryDemoPlayerController>(UGameplayStatics::GetPlayerController(World, 0));
+            && Cast<ADuckovPlayerController>(UGameplayStatics::GetPlayerController(World, 0));
     }));
     ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
     {
         UWorld* World = GEditor->PlayWorld;
-        auto* Controller = World ? Cast<AInventoryDemoPlayerController>(UGameplayStatics::GetPlayerController(World, 0)) : nullptr;
+        auto* Controller = World ? Cast<ADuckovPlayerController>(UGameplayStatics::GetPlayerController(World, 0)) : nullptr;
         if (!Controller) { AddError(TEXT("베이스먼트 controller unavailable")); return; }
         TestTrue(TEXT("같은 게임 인스턴스 유지"), Scene->GameInstance.Get() == World->GetGameInstance());
         TestTrue(TEXT("베이스먼트에서는 지상 캐릭터를 조작"), Cast<ADuckovCharacter>(Controller->GetPawn()) != nullptr);
         UCustomizationModel* Model = World->GetGameInstance()->GetSubsystem<UGameSessionSubsystem>()->GetCustomizationModel();
         TestTrue(TEXT("레벨 이동 뒤에도 같은 세션 Model"), Model == Scene->SessionModel.Get());
         TestTrue(TEXT("타이틀에서 확정한 외형 유지"), Model && FMath::IsNearlyEqual(Model->GetProfile().EyeSize, 0.5f));
-        Controller->OpenCustomizationPrototype();
+        Controller->OpenCustomization();
         TestTrue(TEXT("베이스먼트 커스터마이징도 세션 Model 사용"),
             Field<UCustomizationModel>(Controller, TEXT("CustomizationModel")) == Model);
         if (UCustomizationScreenWidget* Screen = Field<UCustomizationScreenWidget>(Controller, TEXT("CustomizationScreen")))
