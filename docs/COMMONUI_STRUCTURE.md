@@ -208,3 +208,25 @@ flowchart LR
 | 타이틀 | Menu 입력, 스플래시에서는 화면 자체가 focus 대상이고 메뉴에서는 시작 버튼. Back은 소비만 하고 닫히지 않음 |
 | 커스터마이징 | 기존 화면을 그대로 타이틀 위에 push. Back은 취소이며 stack이 타이틀을 다시 활성화 |
 | 로딩 | activatable이 아님. Notice layer에 붙어 입력 경쟁에 끼지 않음 |
+
+## 2026-10-14 — HUD layer와 물체에 붙는 프롬프트
+
+결정은 [HUD layer와 물체에 붙는 상호작용 프롬프트](architecture/025-hud-layer-and-anchored-prompt.md)에 있다.
+root layout에 Menu stack 아래 층이 하나 생겼다. HUD는 activatable이 아니라서, 위 절의 "항상 활성인 HUD" 문제를 다시 만들지 않는다.
+
+```mermaid
+flowchart TB
+    subgraph Layout["UGameRootLayoutWidget — 아래에서 위로"]
+        direction BT
+        Hud["HudLayer<br/>UGameHudWidget (일반 UserWidget)"] --> Menu["MenuStack<br/>activatable 화면만"] --> Notice["NoticeLayer<br/>로딩 화면"]
+    end
+    Comp["UWidgetComponent (screen space)<br/>layout 밖, 엔진의 widget component 층"]
+    PC["ADuckovPlayerController"] -- "메뉴가 열리면 Collapsed" --> Hud
+    PC -- "메뉴가 열리면 widget Collapsed" --> Comp
+```
+
+| 요소 | 입력 | 갱신 |
+| --- | --- | --- |
+| HUD(장소, 조작 설명, 결과 문구) | 받지 않음(HitTestInvisible) | controller가 값이 바뀔 때만 |
+| 상호작용 프롬프트 | 받지 않음 | 대상이 바뀔 때 붙일 곳 변경, 보이는 동안만 엔진이 위치 투영 |
+| 메뉴 | Menu stack이 CommonUI 입력 전환 | 기존과 같음 |

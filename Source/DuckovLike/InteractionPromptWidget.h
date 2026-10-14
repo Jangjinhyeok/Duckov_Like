@@ -4,26 +4,19 @@
 #include "Blueprint/UserWidget.h"
 #include "InteractionPromptWidget.generated.h"
 
-class UBorder;
 class UTextBlock;
 
-// 지금 상호작용할 수 있는 대상(pill)과 마지막 상호작용 결과 한 줄을 화면 아래쪽에 보인다.
-// 입력을 받지 않고 root layout의 Notice layer에 붙는다. controller가 대상이나 결과가 바뀔 때만 갱신한다.
+// 원작처럼 물체 위의 ◎에서 오른쪽으로 뻗는 파란 pill이다: "◎ 동작 [F]".
+// 화면 고정이 아니라 screen space widget component에 담겨 상호작용 대상 위치에 붙는다. 입력을 받지 않는다.
 UCLASS(meta=(DisableNativeTick))
 class DUCKOVLIKE_API UInteractionPromptWidget : public UUserWidget
 {
     GENERATED_BODY()
 public:
-    // 빈 text면 pill을 숨긴다.
-    void SetPrompt(const FText& Text);
-    void SetMessage(const FText& Text);
+    void SetAction(const FText& ActionName);
 protected:
     virtual void NativeOnInitialized() override;
 private:
     UPROPERTY(Transient)
-    TObjectPtr<UBorder> PromptPill;
-    UPROPERTY(Transient)
     TObjectPtr<UTextBlock> PromptText;
-    UPROPERTY(Transient)
-    TObjectPtr<UTextBlock> MessageText;
 };

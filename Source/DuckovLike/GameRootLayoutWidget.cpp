@@ -19,6 +19,10 @@ void UGameRootLayoutWidget::NativeOnInitialized()
     Super::NativeOnInitialized();
     UOverlay* Root = WidgetTree->ConstructWidget<UOverlay>(UOverlay::StaticClass(), TEXT("RootLayout"));
     WidgetTree->RootWidget = Root;
+    // HUD는 열린 메뉴 아래에 깔린다. Notice layer처럼 activatable root로 두지 않는다.
+    HudLayer = WidgetTree->ConstructWidget<UOverlay>(UOverlay::StaticClass(), TEXT("HudLayer"));
+    HudLayer->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+    FillOverlaySlot(Root->AddChildToOverlay(HudLayer));
     MenuStack = WidgetTree->ConstructWidget<UCommonActivatableWidgetStack>(UCommonActivatableWidgetStack::StaticClass(), TEXT("MenuStack"));
     // 전환 애니메이션 중에는 container가 입력을 막으므로 즉시 전환해 기존 열기·닫기 반응을 유지한다.
     MenuStack->SetTransitionDuration(0.f);
@@ -28,6 +32,12 @@ void UGameRootLayoutWidget::NativeOnInitialized()
     NoticeLayer = WidgetTree->ConstructWidget<UOverlay>(UOverlay::StaticClass(), TEXT("NoticeLayer"));
     NoticeLayer->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
     FillOverlaySlot(Root->AddChildToOverlay(NoticeLayer));
+}
+
+void UGameRootLayoutWidget::AddHudElement(UWidget* Element)
+{
+    if (!HudLayer || !Element) { return; }
+    FillOverlaySlot(HudLayer->AddChildToOverlay(Element));
 }
 
 void UGameRootLayoutWidget::AddNoticeElement(UWidget* Element)

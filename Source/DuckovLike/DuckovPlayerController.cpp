@@ -1,10 +1,12 @@
 #include "DuckovPlayerController.h"
 
 #include "Blueprint/WidgetBlueprintLibrary.h"
+#include "Components/WidgetComponent.h"
 #include "CustomizationScreenWidget.h"
 #include "Engine/GameInstance.h"
 #include "Engine/LocalPlayer.h"
 #include "GameFramework/Pawn.h"
+#include "GameHudWidget.h"
 #include "GameRootLayoutWidget.h"
 #include "GameSessionSubsystem.h"
 #include "Input/CommonUIActionRouterBase.h"
@@ -15,6 +17,7 @@
 #include "InventoryScreenWidget.h"
 #include "Kismet/GameplayStatics.h"
 #include "LoadingScreenWidget.h"
+#include "Misc/PackageName.h"
 #include "Widgets/CommonActivatableWidgetContainer.h"
 #include "WorldLootActor.h"
 
@@ -59,16 +62,19 @@ void ADuckovPlayerController::BeginPlay()
     RootLayout = CreateWidget<UGameRootLayoutWidget>(this, UGameRootLayoutWidget::StaticClass());
     RootLayout->AddToViewport();
     RootLayout->GetMenuStack()->OnDisplayedWidgetChanged().AddUObject(this, &ThisClass::OnMenuChanged);
-    Prompt = CreateWidget<UInteractionPromptWidget>(this, UInteractionPromptWidget::StaticClass());
-    RootLayout->AddNoticeElement(Prompt);
+    Hud = CreateWidget<UGameHudWidget>(this, UGameHudWidget::StaticClass());
+    RootLayout->AddHudElement(Hud);
+    // 두 맵이 같은 GameMode를 쓰므로 장소 이름은 맵으로 정한다.
+    const bool bInRaid = UWorld::RemovePIEPrefix(GetWorld()->GetMapName()) == FPackageName::GetShortName(DuckovFlow::RaidMap);
+    Hud->SetLocation(bInRaid ? NSLOCTEXT("DuckovFlow", "RaidZone", "레이드 구역") : NSLOCTEXT("DuckovFlow", "Base", "기지"));
     // 레이드에서 돌아온 직후라면 탈출 결과를 한 번 알린다.
     if (const TOptional<EInventoryOperationFailure> Result = Session->ConsumeExtractionResult())
     {
-        Prompt->SetMessage(DuckovFlow::GetExtractionResultText(*Result));
+        Hud->SetMessage(DuckovFlow::GetExtractionResultText(*Result));
     }
     SetInputMode(FInputModeGameOnly());
     bShowMouseCursor = false;
-    RefreshPrompt();
+    RefreshHud();
 }
 
 void ADuckovPlayerController::SetupInputComponent()
@@ -76,6 +82,7 @@ void ADuckovPlayerController::SetupInputComponent()
     Super::SetupInputComponent();
     InputComponent->BindKey(EKeys::I, IE_Pressed, this, &ThisClass::ToggleInventory);
     InputComponent->BindKey(EKeys::F, IE_Pressed, this, &ThisClass::Interact);
+    InputComponent->BindKey(EKeys::O, IE_Pressed, this, &ThisClass::ToggleControls);
 }
 
 void ADuckovPlayerController::OnPossess(APawn* InPawn)
@@ -85,6 +92,23 @@ void ADuckovPlayerController::OnPossess(APawn* InPawn)
     // 상호작용 대상은 pawn의 overlap 이벤트로만 바뀐다. 거리를 매 프레임 확인하지 않는다.
     InPawn->OnActorBeginOverlap.AddUniqueDynamic(this, &ThisClass::OnPawnBeginOverlap);
     InPawn->OnActorEndOverlap.AddUniqueDynamic(this, &ThisClass::OnPawnEndOverlap);
+    // 원작처럼 프롬프트는 물체 위치에 붙는다. 하나만 만들어 대상에 옮겨 붙이고, 대상이 없으면 숨긴다.
+    // 화면 위치 투영은 엔진의 screen layer가 맡고, Automatic tick mode는 widget이 보일 때만 component를 tick한다.
+    if (IsLocalController() && !PromptComponent)
+    {
+        PromptComponent = NewObject<UWidgetComponent>(InPawn);
+        PromptComponent->SetWidgetSpace(EWidgetSpace::Screen);
+        PromptComponent->SetWidgetClass(UInteractionPromptWidget::StaticClass());
+        PromptComponent->SetDrawAtDesiredSize(true);
+        PromptComponent->SetPivot(FVector2D(0.f, 0.5f));
+        PromptComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        PromptComponent->SetOwnerPlayer(GetLocalPlayer());
+        PromptComponent->SetVisibility(false);
+        PromptComponent->SetTickMode(ETickMode::Automatic);
+        PromptComponent->RegisterComponent();
+        PromptComponent->InitWidget();
+        if (UUserWidget* Prompt = PromptComponent->GetUserWidgetObject()) { Prompt->SetVisibility(ESlateVisibility::Collapsed); }
+    }
     TArray<AActor*> Overlapping;
     InPawn->GetOverlappingActors(Overlapping);
     for (AActor* Actor : Overlapping) { OnPawnBeginOverlap(InPawn, Actor); }
@@ -98,7 +122,8 @@ void ADuckovPlayerController::OnUnPossess()
         PossessedPawn->OnActorEndOverlap.RemoveDynamic(this, &ThisClass::OnPawnEndOverlap);
     }
     Targets.Reset();
-    RefreshPrompt();
+    RefreshHud();
+    DestroyPromptComponent();
     Super::OnUnPossess();
 }
 
@@ -108,8 +133,8 @@ void ADuckovPlayerController::OnPawnBeginOverlap(AActor* OverlappedActor, AActor
     if (!Range || Targets.Contains(Range)) { return; }
     Targets.Add(Range);
     // 이전 결과 문구는 다른 대상으로 옮겨 가면 지운다.
-    if (Prompt) { Prompt->SetMessage(FText::GetEmpty()); }
-    RefreshPrompt();
+    if (Hud) { Hud->SetMessage(FText::GetEmpty()); }
+    RefreshHud();
 }
 
 void ADuckovPlayerController::OnPawnEndOverlap(AActor* OverlappedActor, AActor* OtherActor)
@@ -117,8 +142,8 @@ void ADuckovPlayerController::OnPawnEndOverlap(AActor* OverlappedActor, AActor* 
     const int32 Removed = Targets.RemoveAll([OtherActor](const TWeakObjectPtr<UInteractionRangeComponent>& Range)
         { return !Range.IsValid() || Range->GetOwner() == OtherActor; });
     if (Removed == 0) { return; }
-    if (Prompt) { Prompt->SetMessage(FText::GetEmpty()); }
-    RefreshPrompt();
+    if (Hud) { Hud->SetMessage(FText::GetEmpty()); }
+    RefreshHud();
 }
 
 UInteractionRangeComponent* ADuckovPlayerController::GetInteractionTarget() const
@@ -153,8 +178,8 @@ void ADuckovPlayerController::PickupLoot(UInteractionRangeComponent* Target)
     // 성공하면 loot가 사라지며 end overlap이 대상과 문구를 정리한다. 실패만 이유를 남긴다.
     const EInventoryOperationFailure Result = Loot->TryPickup(Model, TEXT("Bag"));
     UE_LOG(LogTemp, Display, TEXT("월드 loot 획득 결과: %s"), *UEnum::GetValueAsString(Result));
-    if (Result == EInventoryOperationFailure::None || !Prompt) { return; }
-    Prompt->SetMessage(Result == EInventoryOperationFailure::NoSpace
+    if (Result == EInventoryOperationFailure::None || !Hud) { return; }
+    Hud->SetMessage(Result == EInventoryOperationFailure::NoSpace
         ? NSLOCTEXT("DuckovFlow", "LootNoSpace", "가방에 넣을 공간이 없습니다")
         : NSLOCTEXT("DuckovFlow", "LootFailed", "지금은 주울 수 없습니다"));
 }
@@ -174,7 +199,7 @@ void ADuckovPlayerController::StartTravel(FName Map)
     if (LoadingScreen || !RootLayout) { return; }
     LoadingScreen = CreateWidget<ULoadingScreenWidget>(this, ULoadingScreenWidget::StaticClass());
     RootLayout->AddNoticeElement(LoadingScreen);
-    RefreshPrompt();
+    RefreshHud();
     // OpenLevel은 이동을 예약만 하고 실제 맵 로드는 다음 engine frame에 한다. 그 사이 로딩 화면이 한 번 그려진다.
     UGameplayStatics::OpenLevel(this, Map);
 }
@@ -213,23 +238,52 @@ bool ADuckovPlayerController::IsMenuOpen() const
     return RootLayout && RootLayout->GetMenuStack()->GetActiveWidget() != nullptr;
 }
 
-void ADuckovPlayerController::RefreshPrompt()
+void ADuckovPlayerController::ToggleControls()
 {
-    if (!Prompt) { return; }
-    // 메뉴나 로딩 화면 위에 프롬프트와 결과 문구가 겹치지 않게 한다.
+    if (Hud && !IsMenuOpen() && !LoadingScreen) { Hud->ToggleControls(); }
+}
+
+void ADuckovPlayerController::RefreshHud()
+{
+    if (!Hud) { return; }
+    // 원작처럼 메뉴나 로딩 화면이 열리면 HUD와 프롬프트를 감춘다.
     const bool bVisible = !IsMenuOpen() && !LoadingScreen;
-    Prompt->SetVisibility(bVisible ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
-    const UInteractionRangeComponent* Target = bVisible ? GetInteractionTarget() : nullptr;
-    Prompt->SetPrompt(Target
-        ? FText::Format(NSLOCTEXT("DuckovFlow", "PromptFormat", "{0}  [F]"), DuckovFlow::GetActionName(Target->Kind))
-        : FText::GetEmpty());
+    Hud->SetVisibility(bVisible ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+    // 프롬프트는 빙의한 pawn이 있을 때만 있다.
+    if (!PromptComponent) { return; }
+    UInteractionRangeComponent* Target = bVisible ? GetInteractionTarget() : nullptr;
+    UUserWidget* Prompt = PromptComponent->GetUserWidgetObject();
+    if (Target)
+    {
+        if (PromptComponent->GetAttachParent() != Target)
+        {
+            PromptComponent->AttachToComponent(Target, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+            // 물체 중심보다 조금 위에 ◎를 둔다.
+            PromptComponent->SetRelativeLocation(FVector(0.f, 0.f, 60.f));
+        }
+        if (auto* PromptWidget = Cast<UInteractionPromptWidget>(Prompt)) { PromptWidget->SetAction(DuckovFlow::GetActionName(Target->Kind)); }
+    }
+    else if (PromptComponent->GetAttachParent())
+    {
+        PromptComponent->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
+    }
+    // Automatic tick mode는 widget이 보이는 동안 tick을 끄지 않으므로 widget 자체를 감춰야 tick 비용이 사라진다.
+    PromptComponent->SetVisibility(Target != nullptr);
+    if (Prompt) { Prompt->SetVisibility(Target ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed); }
+}
+
+void ADuckovPlayerController::DestroyPromptComponent()
+{
+    // pawn이 먼저 파괴됐을 수 있다. 살아 있으면 붙어 있던 대상에서 떼어 함께 정리한다.
+    if (IsValid(PromptComponent)) { PromptComponent->DestroyComponent(); }
+    PromptComponent = nullptr;
 }
 
 void ADuckovPlayerController::OnMenuChanged(UCommonActivatableWidget* DisplayedMenu)
 {
     // 메뉴가 모두 닫혀도 Router는 Game 입력·viewport capture·커서를 되돌리지 않으므로 게임 코드가 되돌린다.
     if (!DisplayedMenu) { RestoreInputHandle = GetWorldTimerManager().SetTimerForNextTick(this, &ThisClass::RestoreGameInput); }
-    RefreshPrompt();
+    RefreshHud();
 }
 
 void ADuckovPlayerController::RestoreGameInput()
@@ -263,7 +317,8 @@ void ADuckovPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
     Screen = nullptr;
     CustomizationScreen = nullptr;
     CustomizationModel = nullptr;
-    Prompt = nullptr;
+    Hud = nullptr;
+    DestroyPromptComponent();
     LoadingScreen = nullptr;
     Model = nullptr;
     Super::EndPlay(EndPlayReason);

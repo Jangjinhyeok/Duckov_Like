@@ -5,6 +5,7 @@
 #include "DuckovPlayerController.h"
 #include "GameSessionSubsystem.h"
 #include "InteractionPointActor.h"
+#include "GameHudWidget.h"
 #include "InteractionPromptWidget.h"
 #include "InteractionRangeComponent.h"
 #include "InventoryModel.h"
@@ -12,6 +13,7 @@
 #include "LoadingScreenWidget.h"
 #include "WorldLootActor.h"
 #include "Components/TextBlock.h"
+#include "Components/WidgetComponent.h"
 #include "Editor.h"
 #include "EngineUtils.h"
 #include "Engine/DataTable.h"
@@ -144,18 +146,50 @@ bool IsTargetKind(const FFlowScene& Scene, EInteractionKind Kind)
     return Target && Target->Kind == Kind;
 }
 
-FString GetPromptText(ADuckovPlayerController* Controller, FName WidgetName)
+FString GetText(UUserWidget* Widget, FName WidgetName)
 {
-    UInteractionPromptWidget* Prompt = Field<UInteractionPromptWidget>(Controller, TEXT("Prompt"));
-    const UTextBlock* Text = Prompt ? Cast<UTextBlock>(Prompt->GetWidgetFromName(WidgetName)) : nullptr;
+    const UTextBlock* Text = Widget ? Cast<UTextBlock>(Widget->GetWidgetFromName(WidgetName)) : nullptr;
     return Text ? Text->GetText().ToString() : FString();
 }
 
+UWidgetComponent* GetPromptComponent(ADuckovPlayerController* Controller)
+{
+    return Field<UWidgetComponent>(Controller, TEXT("PromptComponent"));
+}
+
+FString GetPromptText(ADuckovPlayerController* Controller)
+{
+    UWidgetComponent* Component = GetPromptComponent(Controller);
+    return GetText(Component ? Component->GetUserWidgetObject() : nullptr, TEXT("PromptText"));
+}
+
+FString GetHudText(ADuckovPlayerController* Controller, FName WidgetName)
+{
+    return GetText(Field<UGameHudWidget>(Controller, TEXT("Hud")), WidgetName);
+}
+
+// 프롬프트는 현재 대상의 범위 component에 붙어 있고 보일 때만 위치를 갱신한다.
 bool IsPromptShown(ADuckovPlayerController* Controller)
 {
-    UInteractionPromptWidget* Prompt = Field<UInteractionPromptWidget>(Controller, TEXT("Prompt"));
-    const UWidget* Pill = Prompt ? Prompt->GetWidgetFromName(TEXT("PromptPill")) : nullptr;
-    return Prompt && Pill && Prompt->IsVisible() && Pill->IsVisible();
+    UWidgetComponent* Component = GetPromptComponent(Controller);
+    // 숨은 actor가 소유하면 screen space widget이 그려지지 않으므로 소유 actor의 표시 여부도 본다.
+    return Component && Component->IsVisible() && Component->IsComponentTickEnabled() && !Component->GetOwner()->IsHidden()
+        && Component->GetAttachParent() && Component->GetAttachParent() == Controller->GetInteractionTarget()
+        && Cast<UInteractionPromptWidget>(Component->GetUserWidgetObject()) && Component->GetUserWidgetObject()->IsVisible();
+}
+
+// 화면에 이미 올라간 widget 자체가 감춰졌는지 본다. component만 숨기면 마지막 위치에 남아 그려진다.
+bool IsPromptWidgetVisible(ADuckovPlayerController* Controller)
+{
+    UWidgetComponent* Component = GetPromptComponent(Controller);
+    const UUserWidget* Prompt = Component ? Component->GetUserWidgetObject() : nullptr;
+    return Prompt && Prompt->IsVisible();
+}
+
+bool IsHudShown(ADuckovPlayerController* Controller)
+{
+    const UGameHudWidget* Hud = Field<UGameHudWidget>(Controller, TEXT("Hud"));
+    return Hud && Hud->IsVisible();
 }
 
 bool IsStashGridEnabled(UInventoryScreenWidget* Screen)
@@ -202,6 +236,10 @@ bool FRaidLoopFromBasement::RunTest(const FString& Parameters)
             && Model->GetEquippedBag()->DefinitionRowName == TEXT("SmallBag"));
         TestTrue(TEXT("시작 가방에 구급상자"), GetIds(Model, TEXT("Bag")) == TArray<int32>{3});
         TestFalse(TEXT("시작 위치에서는 프롬프트 없음"), IsPromptShown(Scene->Controller.Get()));
+        UWidgetComponent* PromptComponent = GetPromptComponent(Scene->Controller.Get());
+        TestTrue(TEXT("대상이 없으면 프롬프트 tick 꺼짐"), PromptComponent && !PromptComponent->IsComponentTickEnabled());
+        TestTrue(TEXT("HUD 표시"), IsHudShown(Scene->Controller.Get()));
+        TestEqual(TEXT("베이스먼트 장소"), GetHudText(Scene->Controller.Get(), TEXT("LocationText")), FString(TEXT("기지")));
         AInteractionPointActor* Stash = FindPoint(Scene->World.Get(), EInteractionKind::Stash);
         if (!TestNotNull(TEXT("창고"), Stash)) { return; }
         TeleportNear(Scene->Character.Get(), Stash, FVector2D(0.f, 110.f));
@@ -214,8 +252,18 @@ bool FRaidLoopFromBasement::RunTest(const FString& Parameters)
     ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
     {
         if (!IsSceneValid(*Scene)) { AddError(TEXT("베이스먼트 scene unavailable")); return; }
+        PressKey(EKeys::O);
+    }, 0.f));
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("O로 조작 설명 펼침"), [Scene]
+    {
+        const UGameHudWidget* Hud = Scene->Controller.IsValid() ? Field<UGameHudWidget>(Scene->Controller.Get(), TEXT("Hud")) : nullptr;
+        return !Scene->Controller.IsValid() || (Hud && Hud->AreControlsExpanded());
+    }));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        if (!IsSceneValid(*Scene)) { AddError(TEXT("베이스먼트 scene unavailable")); return; }
         TestTrue(TEXT("창고 프롬프트 표시"), IsPromptShown(Scene->Controller.Get())
-            && GetPromptText(Scene->Controller.Get(), TEXT("PromptText")).Contains(TEXT("창고 열기")));
+            && GetPromptText(Scene->Controller.Get()).Contains(TEXT("창고 열기")));
         PressKey(EKeys::F);
     }, 0.f));
     ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("F로 창고 열림"), [Scene]
@@ -228,7 +276,8 @@ bool FRaidLoopFromBasement::RunTest(const FString& Parameters)
         if (!IsSceneValid(*Scene)) { AddError(TEXT("베이스먼트 scene unavailable")); return; }
         UInventoryScreenWidget* Screen = Field<UInventoryScreenWidget>(Scene->Controller.Get(), TEXT("Screen"));
         TestTrue(TEXT("창고에서는 보관함 사용"), IsStashGridEnabled(Screen));
-        TestFalse(TEXT("메뉴 위에는 프롬프트를 숨김"), IsPromptShown(Scene->Controller.Get()));
+        TestFalse(TEXT("메뉴 위에는 프롬프트를 숨김"), IsPromptShown(Scene->Controller.Get()) || IsPromptWidgetVisible(Scene->Controller.Get()));
+        TestFalse(TEXT("메뉴가 열리면 HUD를 숨김"), IsHudShown(Scene->Controller.Get()));
         Screen->DeactivateWidget();
     }, 0.f));
     ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("창고 닫은 뒤 Game 입력"), [Scene]
@@ -239,6 +288,7 @@ bool FRaidLoopFromBasement::RunTest(const FString& Parameters)
     {
         if (!IsSceneValid(*Scene)) { AddError(TEXT("베이스먼트 scene unavailable")); return; }
         TestTrue(TEXT("닫은 뒤 창고 프롬프트 복귀"), IsPromptShown(Scene->Controller.Get()));
+        TestTrue(TEXT("닫은 뒤 HUD 복귀"), IsHudShown(Scene->Controller.Get()));
         PressKey(EKeys::I);
     }, 0.f));
     ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("I로 가방 열림"), [Scene]
@@ -271,7 +321,7 @@ bool FRaidLoopFromBasement::RunTest(const FString& Parameters)
     ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
     {
         if (!IsSceneValid(*Scene)) { AddError(TEXT("베이스먼트 scene unavailable")); return; }
-        TestTrue(TEXT("출격 프롬프트"), GetPromptText(Scene->Controller.Get(), TEXT("PromptText")).Contains(TEXT("출격")));
+        TestTrue(TEXT("출격 프롬프트"), GetPromptText(Scene->Controller.Get()).Contains(TEXT("출격")));
         PressKey(EKeys::F);
     }, 0.f));
     // 맵 로드는 이동을 예약한 다음 engine frame에 일어나므로 그 사이에 로딩 상태를 관찰한다.
@@ -282,13 +332,14 @@ bool FRaidLoopFromBasement::RunTest(const FString& Parameters)
     ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
     {
         if (!Scene->Controller.IsValid()) { AddError(TEXT("로딩 화면을 관찰하기 전에 맵이 바뀜")); return; }
-        TestFalse(TEXT("로딩 중 프롬프트 숨김"), IsPromptShown(Scene->Controller.Get()));
+        TestFalse(TEXT("로딩 중 프롬프트 숨김"), IsPromptShown(Scene->Controller.Get()) || IsPromptWidgetVisible(Scene->Controller.Get()));
     }, 0.f));
     ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("레이드 맵 이동과 착지"), [Scene] { return CaptureLandedScene(*Scene, TEXT("L_Raid")); }));
     ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
     {
         if (!IsSceneValid(*Scene)) { AddError(TEXT("레이드 scene unavailable")); return; }
         TestTrue(TEXT("같은 게임 인스턴스"), Scene->World->GetGameInstance() == Scene->GameInstance.Get());
+        TestEqual(TEXT("레이드 장소"), GetHudText(Scene->Controller.Get(), TEXT("LocationText")), FString(TEXT("레이드 구역")));
         TestTrue(TEXT("레이드에서도 같은 세션 인벤토리"),
             Field<UInventoryModel>(Scene->Controller.Get(), TEXT("Model")) == Scene->Model.Get());
         AWorldLootActor* Loot = FindLoot(Scene->World.Get(), TEXT("Medkit"));
@@ -304,7 +355,7 @@ bool FRaidLoopFromBasement::RunTest(const FString& Parameters)
     ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
     {
         if (!IsSceneValid(*Scene)) { AddError(TEXT("레이드 scene unavailable")); return; }
-        TestTrue(TEXT("줍기 프롬프트"), GetPromptText(Scene->Controller.Get(), TEXT("PromptText")).Contains(TEXT("줍기")));
+        TestTrue(TEXT("줍기 프롬프트"), GetPromptText(Scene->Controller.Get()).Contains(TEXT("줍기")));
         PressKey(EKeys::F);
     }, 0.f));
     ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("F로 loot 획득"), [Scene]
@@ -329,7 +380,7 @@ bool FRaidLoopFromBasement::RunTest(const FString& Parameters)
     ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
     {
         if (!IsSceneValid(*Scene)) { AddError(TEXT("레이드 scene unavailable")); return; }
-        TestTrue(TEXT("탈출 프롬프트"), GetPromptText(Scene->Controller.Get(), TEXT("PromptText")).Contains(TEXT("탈출")));
+        TestTrue(TEXT("탈출 프롬프트"), GetPromptText(Scene->Controller.Get()).Contains(TEXT("탈출")));
         PressKey(EKeys::F);
     }, 0.f));
     ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("베이스먼트 복귀와 착지"), [Scene] { return CaptureLandedScene(*Scene, TEXT("L_Basement")); }));
@@ -344,7 +395,7 @@ bool FRaidLoopFromBasement::RunTest(const FString& Parameters)
             TestNotNull(*FString::Printf(TEXT("가방 항목 %d이 같은 ID로 창고에"), Id), Model->FindItem(TEXT("Stash"), Id));
         }
         TestTrue(TEXT("장착 가방 유지"), Model->IsBagSlotBound());
-        TestEqual(TEXT("탈출 결과 알림"), GetPromptText(Scene->Controller.Get(), TEXT("MessageText")),
+        TestEqual(TEXT("탈출 결과 알림"), GetHudText(Scene->Controller.Get(), TEXT("MessageText")),
             FString(TEXT("탈출 성공: 가방의 아이템을 창고로 옮겼습니다")));
     }, 0.f));
     ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
@@ -422,13 +473,13 @@ bool FRaidFullInventory::RunTest(const FString& Parameters)
     }, 0.f));
     ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("획득 실패 문구"), [Scene]
     {
-        return !IsSceneValid(*Scene) || !GetPromptText(Scene->Controller.Get(), TEXT("MessageText")).IsEmpty();
+        return !IsSceneValid(*Scene) || !GetHudText(Scene->Controller.Get(), TEXT("MessageText")).IsEmpty();
     }));
     ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
     {
         if (!IsSceneValid(*Scene)) { AddError(TEXT("레이드 scene unavailable")); return; }
         TestTrue(TEXT("가방이 차면 loot가 남음"), Scene->Loot.IsValid() && IsTargetKind(*Scene, EInteractionKind::Loot));
-        TestEqual(TEXT("공간 부족 이유 표시"), GetPromptText(Scene->Controller.Get(), TEXT("MessageText")),
+        TestEqual(TEXT("공간 부족 이유 표시"), GetHudText(Scene->Controller.Get(), TEXT("MessageText")),
             FString(TEXT("가방에 넣을 공간이 없습니다")));
         TestTrue(TEXT("획득 실패는 가방을 바꾸지 않음"), GetIds(Scene->Model.Get(), TEXT("Bag")) == TArray<int32>{25, 26, 27, 28});
         AInteractionPointActor* Extraction = FindPoint(Scene->World.Get(), EInteractionKind::Extraction);
@@ -442,7 +493,7 @@ bool FRaidFullInventory::RunTest(const FString& Parameters)
     ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
     {
         if (!IsSceneValid(*Scene)) { AddError(TEXT("레이드 scene unavailable")); return; }
-        TestTrue(TEXT("대상이 바뀌면 이전 실패 문구 지움"), GetPromptText(Scene->Controller.Get(), TEXT("MessageText")).IsEmpty());
+        TestTrue(TEXT("대상이 바뀌면 이전 실패 문구 지움"), GetHudText(Scene->Controller.Get(), TEXT("MessageText")).IsEmpty());
         PressKey(EKeys::F);
     }, 0.f));
     ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("창고가 차도 베이스먼트 복귀"), [Scene] { return CaptureLandedScene(*Scene, TEXT("L_Basement")); }));
@@ -456,7 +507,7 @@ bool FRaidFullInventory::RunTest(const FString& Parameters)
         TestEqual(TEXT("복귀 뒤 save"), Model->Save(After), EInventorySaveFailure::None);
         TestEqual(TEXT("다음 ID 유지"), After.NextInstanceId, Scene->Snapshot.NextInstanceId);
         TestTrue(TEXT("창고 반영 실패 뒤에도 장착 가방 유지"), Model->IsBagSlotBound());
-        TestEqual(TEXT("창고 공간 부족 알림"), GetPromptText(Scene->Controller.Get(), TEXT("MessageText")),
+        TestEqual(TEXT("창고 공간 부족 알림"), GetHudText(Scene->Controller.Get(), TEXT("MessageText")),
             FString(TEXT("탈출 성공: 창고 공간이 부족해 아이템을 가방에 그대로 두었습니다")));
     }, 0.f));
     ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());

@@ -3,50 +3,42 @@
 #include "Blueprint/WidgetTree.h"
 #include "Brushes/SlateRoundedBoxBrush.h"
 #include "Components/Border.h"
-#include "Components/CanvasPanel.h"
-#include "Components/CanvasPanelSlot.h"
+#include "Components/HorizontalBox.h"
+#include "Components/HorizontalBoxSlot.h"
+#include "Components/SizeBox.h"
 #include "Components/TextBlock.h"
-#include "Components/VerticalBox.h"
-#include "Components/VerticalBoxSlot.h"
+#include "HudStyle.h"
 
 void UInteractionPromptWidget::NativeOnInitialized()
 {
     Super::NativeOnInitialized();
-    UCanvasPanel* Root = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("PromptRoot"));
-    WidgetTree->RootWidget = Root;
-    UVerticalBox* Column = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("PromptColumn"));
-    UCanvasPanelSlot* ColumnSlot = Root->AddChildToCanvas(Column);
-    // 화면 아래 중앙, 캐릭터와 겹치지 않는 높이다.
-    ColumnSlot->SetAnchors(FAnchors(0.5f, 0.72f));
-    ColumnSlot->SetAlignment(FVector2D(0.5f, 0.f));
-    ColumnSlot->SetAutoSize(true);
-    // 원작의 상호작용 프롬프트처럼 둥근 pill에 동작 이름과 키를 함께 쓴다.
-    PromptPill = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("PromptPill"));
-    PromptPill->SetBrush(FSlateRoundedBoxBrush(FLinearColor(0.f, 0.f, 0.f, 0.75f), 16.f));
-    PromptPill->SetPadding(FMargin(18.f, 6.f));
-    PromptPill->SetVisibility(ESlateVisibility::Collapsed);
-    Column->AddChildToVerticalBox(PromptPill)->SetHorizontalAlignment(HAlign_Center);
-    PromptText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("PromptText"));
-    PromptText->SetColorAndOpacity(FSlateColor(FLinearColor::White));
-    PromptPill->SetContent(PromptText);
-    MessageText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("MessageText"));
-    MessageText->SetColorAndOpacity(FSlateColor(FLinearColor(1.f, 0.85f, 0.4f)));
-    MessageText->SetShadowOffset(FVector2D(1.f, 1.f));
-    MessageText->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.8f));
-    UVerticalBoxSlot* MessageSlot = Column->AddChildToVerticalBox(MessageText);
-    MessageSlot->SetHorizontalAlignment(HAlign_Center);
-    MessageSlot->SetPadding(FMargin(0.f, 8.f, 0.f, 0.f));
+    UHorizontalBox* Row = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("PromptRow"));
+    WidgetTree->RootWidget = Row;
+    // 물체의 기준점을 가리키는 흰 고리. widget component의 pivot이 이 고리 중심에 오도록 왼쪽 끝에 둔다.
+    USizeBox* RingSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("PromptRingSize"));
+    RingSize->SetWidthOverride(22.f);
+    RingSize->SetHeightOverride(22.f);
+    UBorder* Ring = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("PromptRing"));
+    Ring->SetBrush(FSlateRoundedBoxBrush(FLinearColor(0.f, 0.f, 0.f, 0.35f), 11.f, FLinearColor::White, 3.f));
+    RingSize->SetContent(Ring);
+    Row->AddChildToHorizontalBox(RingSize)->SetVerticalAlignment(VAlign_Center);
+    UBorder* Pill = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("PromptPill"));
+    Pill->SetBrush(FSlateRoundedBoxBrush(FLinearColor(0.24f, 0.5f, 0.78f, 0.95f), 14.f));
+    Pill->SetPadding(FMargin(14.f, 5.f, 7.f, 5.f));
+    UHorizontalBoxSlot* PillSlot = Row->AddChildToHorizontalBox(Pill);
+    PillSlot->SetVerticalAlignment(VAlign_Center);
+    PillSlot->SetPadding(FMargin(4.f, 0.f, 0.f, 0.f));
+    UHorizontalBox* PillRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("PromptPillRow"));
+    Pill->SetContent(PillRow);
+    PromptText = DuckovHudStyle::MakeShadowText(*WidgetTree, TEXT("PromptText"), FText::GetEmpty(), 17);
+    PillRow->AddChildToHorizontalBox(PromptText)->SetVerticalAlignment(VAlign_Center);
+    UHorizontalBoxSlot* KeySlot = PillRow->AddChildToHorizontalBox(DuckovHudStyle::MakeKeyBadge(*WidgetTree, FText::FromString(TEXT("F"))));
+    KeySlot->SetVerticalAlignment(VAlign_Center);
+    KeySlot->SetPadding(FMargin(10.f, 0.f, 0.f, 0.f));
     SetVisibility(ESlateVisibility::HitTestInvisible);
 }
 
-void UInteractionPromptWidget::SetPrompt(const FText& Text)
+void UInteractionPromptWidget::SetAction(const FText& ActionName)
 {
-    if (!PromptPill) { return; }
-    PromptText->SetText(Text);
-    PromptPill->SetVisibility(Text.IsEmpty() ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
-}
-
-void UInteractionPromptWidget::SetMessage(const FText& Text)
-{
-    if (MessageText) { MessageText->SetText(Text); }
+    if (PromptText) { PromptText->SetText(ActionName); }
 }
