@@ -13,7 +13,7 @@
 #include "Components/MeshComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/Slider.h"
-#include "Components/ScrollBox.h"
+#include "Components/WidgetSwitcher.h"
 #include "Components/TextBlock.h"
 #include "Editor.h"
 #include "Engine/GameViewportClient.h"
@@ -39,6 +39,14 @@ template<class T> T* Field(UObject* Owner, FName Name)
 {
     auto* Property = Owner ? FindFProperty<FObjectProperty>(Owner->GetClass(), Name) : nullptr;
     return Property ? Cast<T>(Property->GetObjectPropertyValue_InContainer(Owner)) : nullptr;
+}
+bool RouteFocusedKey(FKey Key)
+{
+    FSlateApplication& Slate = FSlateApplication::Get();
+    const FKeyEvent Event(Key, FModifierKeysState(), Slate.GetUserIndexForMouse(), false, 0, 0);
+    const bool bDown = Slate.ProcessKeyDownEvent(Event);
+    Slate.ProcessKeyUpEvent(Event);
+    return bDown;
 }
 class FWait final : public IAutomationLatentCommand
 {
@@ -382,28 +390,70 @@ bool FCustomizationPIELifecycle::RunTest(const FString& Parameters)
         if (!Scene->Ready) { return; }
         auto* Screen = Scene->Screen.Get();
         CaptureWidget(*this, Screen, TEXT("ResetDraft"));
-        Screen->GetWidgetFromName(TEXT("FailureButton"))->SetUserFocus(Scene->Controller.Get());
+        Screen->GetWidgetFromName(TEXT("PartA"))->SetUserFocus(Scene->Controller.Get());
     }, 0.25f));
     ADD_LATENT_AUTOMATION_COMMAND(FWait(*this, [Scene]
     {
-        if (!Scene->Ready) { return true; }
-        auto* Screen = Scene->Screen.Get();
-        return Screen->GetWidgetFromName(TEXT("FailureButton"))->HasUserFocus(Scene->Controller.Get())
-            && Cast<UScrollBox>(Screen->GetWidgetFromName(TEXT("ControlsScroll")))->GetScrollOffset() > 0.f;
+        return !Scene->Ready || Scene->Screen->GetWidgetFromName(TEXT("PartA"))->HasUserFocus(Scene->Controller.Get());
     }));
+    // 원작처럼 왼쪽 부위 탭이 옆 조절 열을 바꾼다. keyboard로 탭 ↔ 조절 열을 오간다.
     ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
     {
         if (!Scene->Ready) { return; }
         auto* Screen = Scene->Screen.Get();
-        const FGeometry& Scroll = Screen->GetWidgetFromName(TEXT("ControlsScroll"))->GetCachedGeometry();
-        for (const TCHAR* Name : {TEXT("ResetButton"), TEXT("ApplyButton"), TEXT("CancelButton"), TEXT("FailureButton")})
+        auto* Controller = Scene->Controller.Get();
+        auto* Switcher = Cast<UWidgetSwitcher>(Screen->GetWidgetFromName(TEXT("TabSwitcher")));
+        if (!TestTrue(TEXT("열면 첫 탭(머리)"), Switcher && Switcher->GetActiveWidgetIndex() == 0)) { Scene->Ready = false; return; }
+        RouteFocusedKey(EKeys::Left);
+        TestTrue(TEXT("깃 유형 ← 현재 탭"), Screen->GetWidgetFromName(TEXT("HeadTab"))->HasUserFocus(Controller));
+        RouteFocusedKey(EKeys::Down);
+        TestTrue(TEXT("탭 ↓ 다음 탭"), Screen->GetWidgetFromName(TEXT("EyeTab"))->HasUserFocus(Controller));
+        TestTrue(TEXT("탭 keyboard activation"), RouteFocusedKey(EKeys::Enter));
+        TestEqual(TEXT("눈 탭 선택 시 조절 열 교체"), Switcher->GetActiveWidgetIndex(), 1);
+    }, 0.f));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        if (!Scene->Ready) { return; }
+        auto* Screen = Scene->Screen.Get();
+        auto* Controller = Scene->Controller.Get();
+        RouteFocusedKey(EKeys::Right);
+        TestTrue(TEXT("탭 → 현재 탭의 첫 조절"), Screen->GetWidgetFromName(TEXT("EyeSizeSlider"))->HasUserFocus(Controller));
+        RouteFocusedKey(EKeys::Up);
+        TestTrue(TEXT("첫 조절 ↑ 현재 탭"), Screen->GetWidgetFromName(TEXT("EyeTab"))->HasUserFocus(Controller));
+        TestTrue(TEXT("탭 이동은 편집 값을 바꾸지 않음"), Scene->Model->GetDraft() == FCustomizationProfile());
+    }, 0.1f));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        if (!Scene->Ready) { return; }
+        auto* Screen = Scene->Screen.Get();
+        auto Rect = [Screen](const TCHAR* Name)
         {
-            const FGeometry& Button = Screen->GetWidgetFromName(Name)->GetCachedGeometry();
-            const auto Top = Scroll.AbsoluteToLocal(Button.LocalToAbsolute(FVector2D::ZeroVector));
-            const auto Bottom = Scroll.AbsoluteToLocal(Button.LocalToAbsolute(Button.GetLocalSize()));
-            TestTrue(TEXT("하단 focus 시 모든 동작 버튼이 scroll 안에 표시"), Top.Y >= -1.f && Bottom.Y <= Scroll.GetLocalSize().Y + 1.f);
-        }
+            const FGeometry& Geometry = Screen->GetWidgetFromName(Name)->GetCachedGeometry();
+            return FBox2D(Geometry.GetAbsolutePosition(), Geometry.GetAbsolutePosition() + Geometry.GetAbsoluteSize());
+        };
+        const FBox2D Whole = Rect(TEXT("CustomizationRoot"));
+        const FBox2D Tabs = Rect(TEXT("TabColumn"));
+        const FBox2D Controls = Rect(TEXT("ControlsPanel"));
+        const FBox2D Mirror = Rect(TEXT("MirrorFrame"));
+        const FBox2D Cancel = Rect(TEXT("CancelButton"));
+        const FBox2D Apply = Rect(TEXT("ApplyButton"));
+        const FBox2D Utility = Rect(TEXT("UtilityRow"));
+        const FVector2D Center = Whole.GetCenter();
+        TestTrue(TEXT("탭 열이 조절 열 왼쪽"), Tabs.Max.X <= Controls.Min.X);
+        TestTrue(TEXT("조절 열이 거울 왼쪽, 겹치지 않음"), Controls.Max.X <= Mirror.Min.X);
+        TestTrue(TEXT("거울이 가운데"), Mirror.IsInside(Center));
+        TestTrue(TEXT("포기·확인이 오른쪽 아래"), Cancel.Min.X > Center.X && Apply.Min.X > Center.X
+            && Apply.Max.Y > Mirror.Max.Y && Whole.Max.Y - Apply.Max.Y < 100.f);
+        TestTrue(TEXT("확인이 포기 오른쪽, 더 큼"), Apply.Min.X >= Cancel.Max.X && Apply.GetSize().Y > Cancel.GetSize().Y);
+        TestTrue(TEXT("초기화·실패 시험이 왼쪽 아래"), Utility.Max.X < Center.X && Whole.Max.Y - Utility.Max.Y < 100.f);
+        CaptureWidget(*this, Screen, TEXT("EyeTabLayout"));
+        auto* Switcher = Cast<UWidgetSwitcher>(Screen->GetWidgetFromName(TEXT("TabSwitcher")));
+        Cast<UButton>(Screen->GetWidgetFromName(TEXT("HeadTab")))->OnClicked.Broadcast();
+        TestEqual(TEXT("머리 탭 클릭으로 복귀"), Switcher->GetActiveWidgetIndex(), 0);
         CaptureWidget(*this, Screen, TEXT("FocusedActions"));
+        // 눈 탭인 채로 닫아 재개방 때 머리 탭으로 돌아오는지 아래에서 확인한다.
+        Cast<UButton>(Screen->GetWidgetFromName(TEXT("EyeTab")))->OnClicked.Broadcast();
+        TestEqual(TEXT("닫기 전 눈 탭"), Switcher->GetActiveWidgetIndex(), 1);
         Scene->ReleasedPreview = Screen->GetPreview();
         auto* Router = Scene->Controller->GetLocalPlayer()->GetSubsystem<UCommonUIActionRouterBase>();
         TestEqual(TEXT("CommonUI 실제 Back routing"), Router->ProcessInput(EKeys::Escape, IE_Pressed), ERouteUIInputResult::Handled);
@@ -426,6 +476,11 @@ bool FCustomizationPIELifecycle::RunTest(const FString& Parameters)
         for (int32 Index = 0; Index < 3; ++Index)
         {
             Scene->Controller->OpenCustomizationPrototype();
+            if (Index == 0)
+            {
+                TestEqual(TEXT("눈 탭에서 닫아도 재개방은 머리 탭"),
+                    Cast<UWidgetSwitcher>(Screen->GetWidgetFromName(TEXT("TabSwitcher")))->GetActiveWidgetIndex(), 0);
+            }
             const int32 Before = Scene->Events;
             Screen->GetViewModel()->SetShape(Index % 2 ? 0.3f : -0.2f);
             TestEqual(TEXT("재개방 후 Model 통지 1회"), Scene->Events, Before + 1);

@@ -11,7 +11,8 @@ class UButton;
 class USlider;
 class UImage;
 class UTextBlock;
-class UScrollBox;
+class UWidget;
+class UWidgetSwitcher;
 
 UCLASS(meta=(DisableNativeTick))
 class DUCKOVLIKE_API UCustomizationScreenWidget : public UCommonActivatableWidget
@@ -54,10 +55,22 @@ private:
     TObjectPtr<USlider> BeakLengthSlider;
     UPROPERTY(Transient)
     TObjectPtr<USlider> BodyLengthSlider;
+    // 원작처럼 왼쪽 부위 탭이 옆 조절 열의 내용을 바꾼다. 탭 순서 = Switcher 순서.
     UPROPERTY(Transient)
-    TObjectPtr<UScrollBox> ControlsScroll;
+    TObjectPtr<UWidgetSwitcher> TabSwitcher;
     UPROPERTY(Transient)
-    TObjectPtr<UTextBlock> ValueText;
+    TArray<TObjectPtr<UButton>> TabButtons;
+    // 탭마다 조절 열의 첫 입력. 탭 ↔ 조절 열 keyboard 이동에 쓴다.
+    UPROPERTY(Transient)
+    TArray<TObjectPtr<UWidget>> TabFirstControls;
+    UPROPERTY(Transient)
+    TObjectPtr<UTextBlock> TabTitle;
+    TArray<FText> TabTitles;
+    // 슬라이더 옆 숫자. 같은 index의 슬라이더 값을 보인다.
+    UPROPERTY(Transient)
+    TArray<TObjectPtr<USlider>> ValueSliders;
+    UPROPERTY(Transient)
+    TArray<TObjectPtr<UTextBlock>> ValueTexts;
     UPROPERTY(Transient)
     TObjectPtr<UTextBlock> FailureText;
     UPROPERTY(Transient)
@@ -70,6 +83,19 @@ private:
     void OnStateChanged(UObject*, UE::FieldNotification::FFieldId);
     void OnFailureChanged(UObject*, UE::FieldNotification::FFieldId);
     void ReleasePreview();
+    void SelectTab(int32 Index);
+    UFUNCTION()
+    void ShowHeadTab();
+    UFUNCTION()
+    void ShowEyeTab();
+    UFUNCTION()
+    void ShowBeakTab();
+    UFUNCTION()
+    void ShowBodyTab();
+    UFUNCTION()
+    UWidget* NavigateToTab(EUINavigation Direction);
+    UFUNCTION()
+    UWidget* NavigateToControls(EUINavigation Direction);
     UFUNCTION()
     void SelectA();
     UFUNCTION()
