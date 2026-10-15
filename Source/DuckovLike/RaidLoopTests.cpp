@@ -136,6 +136,16 @@ bool FRaidLoopPIE::RunTest(const FString& Parameters)
         TestTrue(TEXT("비활성 정렬 delegate도 Stash 불변"), SameState(Model, BeforeSort));
         TArray<AWorldLootActor*> Loot = ActiveLoot(World);
         if (!TestEqual(TEXT("획득할 loot 수"), Loot.Num(), 4)) { return; }
+        // 같은 종류 loot는 기존 스택을 먼저 채운다. 획득이 새 ID로 들어가도록 가방의 구급상자 스택을 먼저 가득 채운다.
+        for (const FItemInstance& Item : TArray<FItemInstance>(Model->FindContainer(TEXT("Bag"))->Items))
+        {
+            if (Item.DefinitionRowName == TEXT("Medkit") && Item.Quantity < 5)
+            {
+                TestEqual(TEXT("기존 구급상자 스택 채우기"),
+                    Model->TryAdd(TEXT("Bag"), Item.DefinitionTable, Item.DefinitionRowName, 5 - Item.Quantity),
+                    EInventoryOperationFailure::None);
+            }
+        }
         const int32 AcquiredId = FItemInstanceIdAllocator::GetNextInstanceId();
         const int32 InitialStashCount = Model->FindContainer(TEXT("Stash"))->Items.Num();
         TestEqual(TEXT("Raid loot Bag 획득"), Controller->TryPickupLoot(Loot[0]), EInventoryOperationFailure::None);
@@ -177,7 +187,7 @@ bool FRaidLoopPIE::RunTest(const FString& Parameters)
         TestEqual(TEXT("빈 Bag 탈출"), Controller->TryExtractRaid(), ERaidDemoFailure::None);
         TestEqual(TEXT("빈 Bag은 Stash 복제하지 않음"), Model->FindContainer(TEXT("Stash"))->Items.Num(), StashCountAfterFirstRaid);
 
-        // 첫 항목만 들어가고 둘째는 실패하는 실제 세션을 만들어 부분 반영을 검증한다.
+        // 첫 항목(Ammo)은 창고 Ammo에 합쳐지고 둘째는 공간이 없어 실패하는 실제 세션으로 부분 반영을 검증한다.
         FInventorySaveRecord Small;
         Small.NextInstanceId = FMath::Max(FItemInstanceIdAllocator::GetNextInstanceId(), 203);
         Small.Containers.SetNum(2);
@@ -217,7 +227,8 @@ bool FRaidLoopPIE::RunTest(const FString& Parameters)
         TestEqual(TEXT("실패 후 재시도 성공"), Controller->TryExtractRaid(), ERaidDemoFailure::None);
         TestEqual(TEXT("재시도는 한 번 완료"), Controller->GetCompletedRaidCount(), 3);
         TestTrue(TEXT("재시도 후 Bag 비움"), Model->FindContainer(TEXT("Bag"))->Items.IsEmpty());
-        TestNotNull(TEXT("재시도 후 첫 item ID 보존"), Model->FindItem(TEXT("Stash"), 200));
+        TestTrue(TEXT("재시도 후 Ammo는 창고 Ammo에 합산"), !Model->FindItem(TEXT("Stash"), 200)
+            && Model->FindItem(TEXT("Stash"), 202) && Model->FindItem(TEXT("Stash"), 202)->Quantity == 2);
         TestNotNull(TEXT("재시도 후 둘째 item ID 보존"), Model->FindItem(TEXT("Stash"), 201));
     }, 0.f));
     ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());

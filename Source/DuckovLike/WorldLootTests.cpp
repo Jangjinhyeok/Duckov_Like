@@ -111,6 +111,25 @@ bool FWorldLootPickup::RunTest(const FString& Parameters)
             || !TestNotNull(TEXT("Bag ViewModel"), RightVM) || !TestNotNull(TEXT("Bag Grid"), RightGrid)
             || !TestNotNull(TEXT("Bag Canvas"), Canvas)) { return; }
 
+        // 원작처럼 같은 종류 loot는 가방의 기존 스택을 먼저 채운다. 기존 구급상자(2/5)를 loot 3개로 가득 채운다.
+        const int32 MergeCount = Model->FindContainer(TEXT("Bag"))->Items.Num();
+        const int32 MergeCounter = FItemInstanceIdAllocator::GetNextInstanceId();
+        AWorldLootActor* MergeLoot = World->SpawnActor<AWorldLootActor>();
+        if (!TestNotNull(TEXT("병합 loot Actor 생성"), MergeLoot)) { return; }
+        MergeLoot->DefinitionTable = TSoftObjectPtr<UDataTable>(FSoftObjectPath(Table));
+        MergeLoot->DefinitionRowName = TEXT("Medkit");
+        MergeLoot->Quantity = 3;
+        FInventoryChangeSet MergeChange;
+        const FDelegateHandle MergeHandle = Model->OnChanged().AddLambda([&](const FInventoryChangeSet& Change) { MergeChange = Change; });
+        TestEqual(TEXT("기존 스택으로 획득 성공"), Controller->TryPickupLoot(MergeLoot), EInventoryOperationFailure::None);
+        Model->OnChanged().Remove(MergeHandle);
+        TestTrue(TEXT("병합 획득 뒤 loot 제거 요청"), MergeLoot->IsActorBeingDestroyed());
+        TestEqual(TEXT("병합 획득은 새 항목 없음"), Model->FindContainer(TEXT("Bag"))->Items.Num(), MergeCount);
+        TestEqual(TEXT("병합 획득은 ID 발급 없음"), FItemInstanceIdAllocator::GetNextInstanceId(), MergeCounter);
+        TestEqual(TEXT("기존 구급상자 최대치"), Model->FindItem(TEXT("Bag"), 3)->Quantity, 5);
+        TestTrue(TEXT("병합 획득은 Updated 알림"), MergeChange.Containers.Num() == 1
+            && MergeChange.Containers[0].Added.IsEmpty() && MergeChange.Containers[0].Updated == TArray<int32>{3});
+
         const int32 BeforeCount = Model->FindContainer(TEXT("Bag"))->Items.Num();
         const int32 BeforeId = FItemInstanceIdAllocator::GetNextInstanceId();
         AWorldLootActor* Loot = World->SpawnActor<AWorldLootActor>();
@@ -152,11 +171,11 @@ bool FWorldLootPickup::RunTest(const FString& Parameters)
             && ReflectedObject<UContainerViewModel>(Screen, TEXT("RightVM")) == RightVM);
         TestTrue(TEXT("열린 화면의 새 Item Widget"), HasItemWidget(Canvas, BeforeId));
 
-        // 남은 세 칸을 Model command로 채워 no-space 실패를 검증한다.
-        for (int32 Index = 0; Index < 2; ++Index)
+        // 방금 획득한 스택(1/5)을 채운 뒤 남은 두 자리를 가득 찬 스택으로 채워 no-space 실패를 검증한다.
+        for (const int32 Quantity : {4, 5, 5})
         {
             TestEqual(TEXT("Bag 채우기"), Model->TryAdd(TEXT("Bag"),
-                TSoftObjectPtr<UDataTable>(FSoftObjectPath(Table)), TEXT("Medkit"), 1),
+                TSoftObjectPtr<UDataTable>(FSoftObjectPath(Table)), TEXT("Medkit"), Quantity),
                 EInventoryOperationFailure::None);
         }
         const FInventoryContainer Full = *Model->FindContainer(TEXT("Bag"));

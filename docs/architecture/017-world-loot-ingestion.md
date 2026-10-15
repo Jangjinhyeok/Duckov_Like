@@ -10,6 +10,8 @@
 | 사용자 검토 | 2026-09-28 사용자 실검증 완료 보고 및 commit/push 승인 |
 | 관련 | 식별자(009), 이벤트 기반 Model/ViewModel(015) |
 
+> 2026-10-15: "자동 분할·merge를 하지 않는다"는 사용자 결정으로 [설계결정기록 027](027-stack-merge-on-drop-pickup-transfer.md)이 대체한다. 줍기는 같은 종류 스택을 먼저 채운다. 아래 본문은 당시 결정 그대로 둔다.
+
 ## Context / Decision Question
 
 기존 Model에는 외부 아이템을 생성하는 public command가 없다. 월드 payload를 inventory item으로

@@ -43,6 +43,42 @@ FInventoryContainerChange Compare(FName Id, const FInventoryContainer& Before, c
     Change.bOrderChanged |= Before.Items.Num() != After.Items.Num();
     return Change;
 }
+
+// 같은 정의의 기존 스택을 위쪽 행, 왼쪽 칸 순으로 채우고 남은 수량을 돌려준다.
+// 쌓을 수 없는 정의는 아무것도 바꾸지 않고 Quantity를 그대로 돌려준다.
+int32 FillExistingStacks(FInventoryContainer& Container, const FItemInstance& Incoming)
+{
+    const UDataTable* Table = Incoming.DefinitionTable.LoadSynchronous();
+    const FItemDefinitionRow* Definition = Table && Table->GetRowStruct() &&
+        Table->GetRowStruct()->IsChildOf(FItemDefinitionRow::StaticStruct())
+        ? Table->FindRow<FItemDefinitionRow>(Incoming.DefinitionRowName, TEXT("InventoryFillStacks"), false)
+        : nullptr;
+    if (!Definition || !Definition->bStackable) { return Incoming.Quantity; }
+
+    TArray<FItemInstance*> Stacks;
+    for (FItemInstance& Item : Container.Items)
+    {
+        if (Item.DefinitionRowName == Incoming.DefinitionRowName && Item.DefinitionTable == Incoming.DefinitionTable &&
+            Item.Quantity < Definition->MaxStack)
+        {
+            Stacks.Add(&Item);
+        }
+    }
+    Stacks.Sort([](const FItemInstance& Left, const FItemInstance& Right)
+    {
+        return Left.AnchorCell.Y != Right.AnchorCell.Y ? Left.AnchorCell.Y < Right.AnchorCell.Y
+            : Left.AnchorCell.X < Right.AnchorCell.X;
+    });
+    int32 Remaining = Incoming.Quantity;
+    for (FItemInstance* Stack : Stacks)
+    {
+        const int32 Moved = FMath::Min(Remaining, Definition->MaxStack - Stack->Quantity);
+        Stack->Quantity += Moved;
+        Remaining -= Moved;
+        if (Remaining == 0) { break; }
+    }
+    return Remaining;
+}
 }
 
 namespace InventoryBagEquipmentInternal
@@ -201,6 +237,9 @@ EInventoryOperationFailure UInventoryModel::TryTransferAll(FName Source, FName T
         FInventoryContainer PlannedTarget = To;
         for (FItemInstance Item : From.Items)
         {
+            // 원작처럼 대상의 같은 종류 스택을 먼저 채우고 남은 수량만 새 칸에 둔다.
+            Item.Quantity = FillExistingStacks(PlannedTarget, Item);
+            if (Item.Quantity == 0) { continue; }
             FIntPoint Footprint;
             if (!InventoryPlacementInternal::TryGetFootprint(Item, Footprint) ||
                 Footprint.X <= 0 || Footprint.Y <= 0)
@@ -466,6 +505,13 @@ EInventoryOperationFailure UInventoryModel::TryAdd(FName ContainerId, TSoftObjec
         Item.DefinitionRowName = DefinitionRowName;
         Item.Quantity = Quantity;
         FInventoryContainer Planned = Container;
+        // 원작처럼 같은 종류 스택을 먼저 채운다. 남은 수량을 둘 칸이 없으면 아무것도 바꾸지 않는다.
+        Item.Quantity = FillExistingStacks(Planned, Item);
+        if (Item.Quantity == 0)
+        {
+            Container = MoveTemp(Planned);
+            return EInventoryOperationFailure::None;
+        }
         for (int32 Y = 0; Y <= Container.GridSize.Y - Definition->Size.Y; ++Y)
         {
             for (int32 X = 0; X <= Container.GridSize.X - Definition->Size.X; ++X)

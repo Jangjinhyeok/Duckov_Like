@@ -211,4 +211,62 @@ bool TestModel_AddUniquenessAndExhaustion::RunTest(const FString& Parameters)
     TestEqual(TEXT("고갈 뒤 알림 없음"), Calls, 0);
     return true;
 }
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(TestModel_AddFillsExistingStacksFirst,
+    "Duckov.InventoryCore.Model.Add.FillsExistingStacksFirst", TestFlags)
+bool TestModel_AddFillsExistingStacksFirst::RunTest(const FString& Parameters)
+{
+    FAddFixture F;
+    auto AddStack = [&F](int32 Id, int32 Quantity, FIntPoint Anchor)
+    {
+        F.AddSaved(TEXT("Bag"), Id, Anchor);
+        F.Record.Containers[0].Items.Last().DefinitionRowName = TEXT("Stack");
+        F.Record.Containers[0].Items.Last().Quantity = Quantity;
+    };
+    AddStack(1, 4, FIntPoint(0, 1));
+    AddStack(2, 3, FIntPoint(2, 0));
+    if (!TestEqual(TEXT("초기 데이터 로드"), F.Model->Load(F.Record), EInventorySaveFailure::None)) { return false; }
+    const int32 Counter = FItemInstanceIdAllocator::GetNextInstanceId();
+    FInventoryChangeSet Last;
+    F.Model->OnChanged().AddLambda([&](const FInventoryChangeSet& Change) { Last = Change; });
+    // 1개는 한 스택에만 들어가므로 채우는 순서가 결과에 드러난다.
+    TestEqual(TEXT("기존 스택이 받음"), F.Model->TryAdd(TEXT("Bag"), F.DefinitionTable(), TEXT("Stack"), 1),
+        EInventoryOperationFailure::None);
+    const FInventoryContainer* Bag = F.Model->FindContainer(TEXT("Bag"));
+    TestEqual(TEXT("새 항목 없음"), Bag->Items.Num(), 2);
+    TestEqual(TEXT("위쪽 행 스택이 먼저 받음"), Bag->Items[1].Quantity, 4);
+    TestEqual(TEXT("아래 행 스택은 그대로"), Bag->Items[0].Quantity, 4);
+    TestEqual(TEXT("ID 발급 없음"), FItemInstanceIdAllocator::GetNextInstanceId(), Counter);
+    TestTrue(TEXT("Updated만 발행"), Last.Containers.Num() == 1 && Last.Containers[0].Added.IsEmpty()
+        && Last.Containers[0].Updated == (TArray<int32>{2}));
+    TestEqual(TEXT("두 스택을 채우고 남은 양은 새 칸"), F.Model->TryAdd(TEXT("Bag"), F.DefinitionTable(), TEXT("Stack"), 5),
+        EInventoryOperationFailure::None);
+    if (!TestEqual(TEXT("새 항목 하나"), Bag->Items.Num(), 3)) { return false; }
+    TestTrue(TEXT("두 스택 최대치"), Bag->Items[0].Quantity == 5 && Bag->Items[1].Quantity == 5);
+    TestTrue(TEXT("새 항목 수량·첫 빈 칸"), Bag->Items[2].Quantity == 3 && Bag->Items[2].AnchorCell == FIntPoint(0, 0));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(TestModel_AddFillOnFullGrid,
+    "Duckov.InventoryCore.Model.Add.FillOnFullGrid", TestFlags)
+bool TestModel_AddFillOnFullGrid::RunTest(const FString& Parameters)
+{
+    FAddFixture F(FIntPoint(1, 1));
+    F.AddSaved(TEXT("Bag"), 1, FIntPoint(0, 0));
+    F.Record.Containers[0].Items.Last().DefinitionRowName = TEXT("Stack");
+    F.Record.Containers[0].Items.Last().Quantity = 4;
+    if (!TestEqual(TEXT("초기 데이터 로드"), F.Model->Load(F.Record), EInventorySaveFailure::None)) { return false; }
+    int32 Calls = 0;
+    F.Model->OnChanged().AddLambda([&](const FInventoryChangeSet&) { ++Calls; });
+    TestEqual(TEXT("남은 양을 둘 칸이 없으면 실패"), F.Model->TryAdd(TEXT("Bag"), F.DefinitionTable(), TEXT("Stack"), 3),
+        EInventoryOperationFailure::NoSpace);
+    TestEqual(TEXT("실패하면 기존 스택도 그대로"), F.Model->FindContainer(TEXT("Bag"))->Items[0].Quantity, 4);
+    TestEqual(TEXT("실패 알림 없음"), Calls, 0);
+    TestEqual(TEXT("가득 찬 격자라도 스택이 받으면 성공"), F.Model->TryAdd(TEXT("Bag"), F.DefinitionTable(), TEXT("Stack"), 1),
+        EInventoryOperationFailure::None);
+    TestEqual(TEXT("스택 최대치"), F.Model->FindContainer(TEXT("Bag"))->Items[0].Quantity, 5);
+    TestEqual(TEXT("다른 종류는 칸이 없어 실패"), F.Model->TryAdd(TEXT("Bag"), F.DefinitionTable(), TEXT("Unit"), 1),
+        EInventoryOperationFailure::NoSpace);
+    return true;
+}
+
 #endif

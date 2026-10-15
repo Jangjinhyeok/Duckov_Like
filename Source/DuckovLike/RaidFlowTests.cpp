@@ -70,6 +70,8 @@ struct FFlowScene
     TWeakObjectPtr<UInventoryModel> Model;
     TWeakObjectPtr<AWorldLootActor> Loot;
     TArray<int32> CarriedIds;
+    int32 BagQuantityBefore = 0;
+    int32 LootQuantity = 0;
     FInventorySaveRecord Snapshot;
     bool bOriginalInactiveInput = false;
 };
@@ -202,6 +204,16 @@ bool IsStashGridEnabled(UInventoryScreenWidget* Screen)
 {
     const UWidget* Grid = Screen ? Screen->GetWidgetFromName(TEXT("LeftGrid")) : nullptr;
     return Grid && Grid->GetIsEnabled();
+}
+
+int32 GetTotalQuantity(const UInventoryModel* Model, FName ContainerId)
+{
+    int32 Total = 0;
+    if (const FInventoryContainer* Container = Model->FindContainer(ContainerId))
+    {
+        for (const FItemInstance& Item : Container->Items) { Total += Item.Quantity; }
+    }
+    return Total;
 }
 
 TArray<int32> GetIds(const UInventoryModel* Model, FName ContainerId)
@@ -351,6 +363,8 @@ bool FRaidLoopFromBasement::RunTest(const FString& Parameters)
         AWorldLootActor* Loot = FindLoot(Scene->World.Get(), TEXT("Medkit"));
         Scene->Loot = Loot;
         if (!TestNotNull(TEXT("레이드 구급상자 loot"), Loot)) { return; }
+        Scene->BagQuantityBefore = GetTotalQuantity(Scene->Model.Get(), TEXT("Bag"));
+        Scene->LootQuantity = Loot->Quantity;
         TeleportNear(Scene->Character.Get(), Loot, FVector2D(-80.f, 0.f));
         FSlateApplication::Get().SetAllUserFocusToGameViewport();
     }, 0.f));
@@ -366,13 +380,15 @@ bool FRaidLoopFromBasement::RunTest(const FString& Parameters)
     }, 0.f));
     ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("F로 loot 획득"), [Scene]
     {
-        return !IsSceneValid(*Scene) || (!Scene->Loot.IsValid() && GetIds(Scene->Model.Get(), TEXT("Bag")).Num() == 2);
+        return !IsSceneValid(*Scene) || (!Scene->Loot.IsValid()
+            && GetTotalQuantity(Scene->Model.Get(), TEXT("Bag")) == Scene->BagQuantityBefore + Scene->LootQuantity);
     }));
     ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
     {
         if (!IsSceneValid(*Scene)) { AddError(TEXT("레이드 scene unavailable")); return; }
         Scene->CarriedIds = GetIds(Scene->Model.Get(), TEXT("Bag"));
-        TestEqual(TEXT("가방에 기존 + 획득 구급상자"), Scene->CarriedIds.Num(), 2);
+        // 세션 가방의 구급상자(2/5)에 loot가 합쳐진다.
+        TestEqual(TEXT("획득 구급상자는 기존 스택에 합산"), Scene->CarriedIds.Num(), 1);
         TestFalse(TEXT("획득한 loot는 대상에서 빠짐"), IsTargetKind(*Scene, EInteractionKind::Loot));
         TestNull(TEXT("레이드에는 창고 없음"), FindPoint(Scene->World.Get(), EInteractionKind::Stash));
         PressKey(EKeys::I);

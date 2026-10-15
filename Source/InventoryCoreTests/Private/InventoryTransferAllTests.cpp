@@ -26,6 +26,8 @@ struct FTransferAllFixture
         Wide.bStackable = true;
         Wide.MaxStack = 5;
         Table->AddRow(TEXT("Wide"), Wide);
+        // Wide와 같은 크기의 다른 종류. 같은 종류끼리는 전체 이전 중 병합된다.
+        Table->AddRow(TEXT("WideOther"), Wide);
         Record.NextInstanceId = 20;
         FInventoryContainerSaveRecord& Bag = Record.Containers.AddDefaulted_GetRef();
         Bag.ContainerId = TEXT("Bag");
@@ -79,7 +81,7 @@ bool TestModel_TransferAllSuccessAndChangeSet::RunTest(const FString& Parameters
 {
     FTransferAllFixture F(FIntPoint(4, 3), FIntPoint(4, 3));
     F.AddSaved(TEXT("Bag"), 4, TEXT("Wide"), 3, FIntPoint(3, 1), true);
-    F.AddSaved(TEXT("Bag"), 3, TEXT("Wide"), 2, FIntPoint(0, 0));
+    F.AddSaved(TEXT("Bag"), 3, TEXT("WideOther"), 2, FIntPoint(0, 0));
     F.AddSaved(TEXT("Stash"), 9, TEXT("Unit"), 1, FIntPoint(0, 0));
     F.AddSaved(TEXT("Stash"), 8, TEXT("Unit"), 1, FIntPoint(2, 0));
     if (!TestEqual(TEXT("초기 데이터 로드"), F.Model->Load(F.Record), EInventorySaveFailure::None)) { return false; }
@@ -216,4 +218,65 @@ bool TestModel_TransferAllEmptyAndInvalidContainers::RunTest(const FString& Para
     TestEqual(TEXT("no-op과 실패 알림 없음"), Calls, 0);
     return true;
 }
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(TestModel_TransferAllFillsTargetStacksFirst,
+    "Duckov.InventoryCore.Model.TransferAll.FillsTargetStacksFirst", TestFlags)
+bool TestModel_TransferAllFillsTargetStacksFirst::RunTest(const FString& Parameters)
+{
+    FTransferAllFixture F(FIntPoint(3, 1), FIntPoint(3, 1));
+    F.AddSaved(TEXT("Bag"), 3, TEXT("Wide"), 2, FIntPoint(0, 0));
+    F.AddSaved(TEXT("Bag"), 5, TEXT("Unit"), 1, FIntPoint(2, 0));
+    F.AddSaved(TEXT("Stash"), 9, TEXT("Wide"), 3, FIntPoint(0, 0));
+    if (!TestEqual(TEXT("초기 데이터 로드"), F.Model->Load(F.Record), EInventorySaveFailure::None)) { return false; }
+    FInventoryChangeSet Last;
+    F.Model->OnChanged().AddLambda([&](const FInventoryChangeSet& Change) { Last = Change; });
+    TestEqual(TEXT("대상 스택이 다 받으면 새 칸 없이 성공"), F.Model->TryTransferAll(TEXT("Bag"), TEXT("Stash")),
+        EInventoryOperationFailure::None);
+    const FInventoryContainer* Stash = F.Model->FindContainer(TEXT("Stash"));
+    if (!TestEqual(TEXT("대상 항목 수"), Stash->Items.Num(), 2)) { return false; }
+    TestTrue(TEXT("기존 스택에 합산, 위치 유지"), Stash->Items[0].InstanceId == 9 && Stash->Items[0].Quantity == 5
+        && Stash->Items[0].AnchorCell == FIntPoint(0, 0));
+    TestTrue(TEXT("다른 종류는 빈 칸에"), Stash->Items[1].InstanceId == 5 && Stash->Items[1].AnchorCell == FIntPoint(2, 0));
+    TestTrue(TEXT("원본 비움"), F.Model->FindContainer(TEXT("Bag"))->Items.IsEmpty());
+    if (!TestEqual(TEXT("두 Container 변경"), Last.Containers.Num(), 2)) { return false; }
+    TestTrue(TEXT("원본 Removed"), Last.Containers[0].Removed == TArray<int32>{3, 5});
+    TestTrue(TEXT("대상 Updated는 채운 스택"), Last.Containers[1].Updated == TArray<int32>{9});
+    TestTrue(TEXT("대상 Added는 새 칸 항목만"), Last.Containers[1].Added == TArray<int32>{5});
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(TestModel_TransferAllFillThenNoSpaceIsAtomic,
+    "Duckov.InventoryCore.Model.TransferAll.FillThenNoSpaceIsAtomic", TestFlags)
+bool TestModel_TransferAllFillThenNoSpaceIsAtomic::RunTest(const FString& Parameters)
+{
+    FTransferAllFixture F(FIntPoint(3, 1), FIntPoint(3, 1));
+    F.AddSaved(TEXT("Bag"), 3, TEXT("Wide"), 4, FIntPoint(0, 0));
+    F.AddSaved(TEXT("Stash"), 9, TEXT("Wide"), 3, FIntPoint(0, 0));
+    if (!TestEqual(TEXT("초기 데이터 로드"), F.Model->Load(F.Record), EInventorySaveFailure::None)) { return false; }
+    const FInventoryContainer BeforeSource = *F.Model->FindContainer(TEXT("Bag"));
+    const FInventoryContainer BeforeTarget = *F.Model->FindContainer(TEXT("Stash"));
+    int32 Calls = 0;
+    F.Model->OnChanged().AddLambda([&](const FInventoryChangeSet&) { ++Calls; });
+    TestEqual(TEXT("남은 2개를 둘 칸 없음"), F.Model->TryTransferAll(TEXT("Bag"), TEXT("Stash")),
+        EInventoryOperationFailure::NoSpace);
+    TestTrue(TEXT("원본 보존"), SameContainer(BeforeSource, *F.Model->FindContainer(TEXT("Bag"))));
+    TestTrue(TEXT("채우던 대상 스택도 보존"), SameContainer(BeforeTarget, *F.Model->FindContainer(TEXT("Stash"))));
+    TestEqual(TEXT("알림 없음"), Calls, 0);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(TestModel_TransferAllMergesSourceStacksTogether,
+    "Duckov.InventoryCore.Model.TransferAll.MergesSourceStacksTogether", TestFlags)
+bool TestModel_TransferAllMergesSourceStacksTogether::RunTest(const FString& Parameters)
+{
+    FTransferAllFixture F(FIntPoint(4, 1), FIntPoint(4, 1));
+    F.AddSaved(TEXT("Bag"), 3, TEXT("Wide"), 2, FIntPoint(0, 0));
+    F.AddSaved(TEXT("Bag"), 4, TEXT("Wide"), 2, FIntPoint(2, 0));
+    if (!TestEqual(TEXT("초기 데이터 로드"), F.Model->Load(F.Record), EInventorySaveFailure::None)) { return false; }
+    TestEqual(TEXT("전체 이전"), F.Model->TryTransferAll(TEXT("Bag"), TEXT("Stash")), EInventoryOperationFailure::None);
+    const FInventoryContainer* Stash = F.Model->FindContainer(TEXT("Stash"));
+    if (!TestEqual(TEXT("원본 두 스택이 대상에서 하나로"), Stash->Items.Num(), 1)) { return false; }
+    TestTrue(TEXT("먼저 옮긴 스택에 합산"), Stash->Items[0].InstanceId == 3 && Stash->Items[0].Quantity == 4);
+    return true;
+}
+
 #endif
