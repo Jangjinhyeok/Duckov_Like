@@ -7,7 +7,7 @@
 | 작업 범위 | M3 / UI 구조 개편 1단계 — 베이스먼트·레이드 HUD |
 | Risk | LOW — 표시 widget과 root layout layer 추가, controller 연결 변경. Model·저장 형식·공개 API 변경 없음 |
 | 판단 주체 | AI(위임 범위). 화면 순서(HUD → 인벤토리 → 커스터마이징)와 원작 관찰은 사용자 지시 |
-| 사용자 검토 | 미검토 |
+| 사용자 검토 | 2026-10-15 사용자 보고 "pie 확인 다했고"로 PIE 확인. AI의 사람 조작 직접 관찰과는 구분 |
 | 관련 | CommonUI root layout과 Menu stack(021), 월드 오브젝트 상호작용(024), `docs/DUCKOV_UI_REFERENCE.md`의 HUD 관찰 |
 
 ## Context / Decision Question
