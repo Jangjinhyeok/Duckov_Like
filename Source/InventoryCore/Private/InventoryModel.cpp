@@ -129,6 +129,26 @@ EInventoryOperationFailure UInventoryModel::CanMove(FName Source, FName Target, 
     return FInventoryOperations::CanMove(*From, *To, InstanceId, Anchor, bRotated);
 }
 
+EInventoryOperationFailure UInventoryModel::CanStack(FName Source, FName Target, int32 SourceId, int32 TargetId) const
+{
+    if (IsProtectedBagSlot(Source) || IsProtectedBagSlot(Target))
+    {
+        return EInventoryOperationFailure::InvalidContainer;
+    }
+    const auto* From = FindContainer(Source);
+    const auto* To = FindContainer(Target);
+    if (!From || !To) { return EInventoryOperationFailure::InvalidContainer; }
+    return FInventoryOperations::CanStack(*From, *To, SourceId, TargetId);
+}
+
+int32 UInventoryModel::FindSingleOverlap(FName Source, FName Target, int32 InstanceId, FIntPoint Anchor, bool bRotated) const
+{
+    if (IsProtectedBagSlot(Source) || IsProtectedBagSlot(Target)) { return INDEX_NONE; }
+    const auto* From = FindContainer(Source);
+    const auto* To = FindContainer(Target);
+    return From && To ? FInventoryOperations::FindSingleOverlap(*From, *To, InstanceId, Anchor, bRotated) : INDEX_NONE;
+}
+
 EInventoryOperationFailure UInventoryModel::Apply(FName Source, FName Target,
     TFunctionRef<EInventoryOperationFailure(FInventoryContainer&, FInventoryContainer&)> Operation)
 {

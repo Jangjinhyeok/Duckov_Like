@@ -114,8 +114,8 @@ bool TestVM_DragPreviewDrop::RunTest(const FString& Parameters)
     TestEqual(TEXT("드래그 시작"), F.Interaction->BeginDrag(TEXT("A"), 1), EInventoryOperationFailure::None);
     TestEqual(TEXT("회전"), F.Interaction->Rotate(), EInventoryOperationFailure::None);
     TestFalse(TEXT("프리뷰 회전은 Model 불변"), F.Model->FindItem(TEXT("A"), 1)->bRotated);
-    TestEqual(TEXT("겹침 프리뷰"), F.Interaction->Preview(TEXT("B"), FIntPoint(0, 0)), EInventoryOperationFailure::Occupied);
-    TestEqual(TEXT("실패 drop"), F.Interaction->Drop(), EInventoryOperationFailure::Occupied);
+    TestEqual(TEXT("격자 밖 프리뷰"), F.Interaction->Preview(TEXT("B"), FIntPoint(3, 3)), EInventoryOperationFailure::NoSpace);
+    TestEqual(TEXT("실패 drop"), F.Interaction->Drop(), EInventoryOperationFailure::NoSpace);
     TestTrue(TEXT("실패 drop은 drag 유지"), F.Interaction->IsDragging());
     TestFalse(TEXT("사용자 실패 이유"), F.Interaction->GetFailureText().IsEmpty());
     TestEqual(TEXT("유효 프리뷰"), F.Interaction->Preview(TEXT("B"), FIntPoint(1, 2)), EInventoryOperationFailure::None);
@@ -129,15 +129,63 @@ bool TestVM_DragPreviewDrop::RunTest(const FString& Parameters)
     return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(TestVM_DropOntoSameKindStacks, "Duckov.ViewModel.DropOntoSameKindStacks", TestFlags)
+bool TestVM_DropOntoSameKindStacks::RunTest(const FString& Parameters)
+{
+    FViewModelFixture F;
+    F.Interaction->BeginDrag(TEXT("A"), 1);
+    TestEqual(TEXT("같은 종류 위 프리뷰는 병합 가능"), F.Interaction->Preview(TEXT("B"), FIntPoint(0, 0)), EInventoryOperationFailure::None);
+    TestTrue(TEXT("병합 프리뷰 표시"), F.Interaction->IsPreviewStacking());
+    TestEqual(TEXT("프리뷰는 Model 불변"), F.Model->FindItem(TEXT("B"), 2)->Quantity, 3);
+    TestEqual(TEXT("빈 칸 프리뷰는 이동"), F.Interaction->Preview(TEXT("B"), FIntPoint(2, 0)), EInventoryOperationFailure::None);
+    TestFalse(TEXT("이동 프리뷰는 병합 아님"), F.Interaction->IsPreviewStacking());
+    F.Interaction->Preview(TEXT("B"), FIntPoint(0, 1));
+    TestEqual(TEXT("병합 drop"), F.Interaction->Drop(), EInventoryOperationFailure::None);
+    TestFalse(TEXT("병합 뒤 drag 종료"), F.Interaction->IsDragging());
+    TestNull(TEXT("완전 병합 source 제거"), F.Model->FindItem(TEXT("A"), 1));
+    TestEqual(TEXT("대상 수량 합산"), F.Model->FindItem(TEXT("B"), 2)->Quantity, 6);
+    TestEqual(TEXT("대상 위치 유지"), F.Model->FindItem(TEXT("B"), 2)->AnchorCell, FIntPoint::ZeroValue);
+    TestEqual(TEXT("대상 VM 수량"), F.B->GetItems()[0]->GetQuantity(), 6);
+
+    FInventorySaveRecord Partial = F.Record;
+    Partial.Containers[0].Items[0].Quantity = 9;
+    F.Model->Load(Partial);
+    F.Interaction->BeginDrag(TEXT("A"), 1);
+    F.Interaction->Preview(TEXT("B"), FIntPoint(0, 0));
+    TestEqual(TEXT("부분 병합 drop"), F.Interaction->Drop(), EInventoryOperationFailure::None);
+    TestEqual(TEXT("부분 병합 source 남은 수량"), F.Model->FindItem(TEXT("A"), 1)->Quantity, 2);
+    TestEqual(TEXT("부분 병합 대상 최대치"), F.Model->FindItem(TEXT("B"), 2)->Quantity, 10);
+
+    F.Interaction->BeginDrag(TEXT("A"), 1);
+    TestEqual(TEXT("가득 찬 대상 프리뷰"), F.Interaction->Preview(TEXT("B"), FIntPoint(0, 0)), EInventoryOperationFailure::StackFull);
+    TestEqual(TEXT("가득 찬 대상 drop 거부"), F.Interaction->Drop(), EInventoryOperationFailure::StackFull);
+    TestTrue(TEXT("실패 drop은 drag 유지"), F.Interaction->IsDragging() && !F.Interaction->IsPreviewStacking());
+    TestEqual(TEXT("실패 Model 불변"), F.Model->FindItem(TEXT("A"), 1)->Quantity, 2);
+    F.Interaction->Cancel();
+
+    FItemDefinitionRow Rod;
+    Rod.Size = FIntPoint(1, 2);
+    F.Table->AddRow(TEXT("Rod"), Rod);
+    FInventorySaveRecord Mismatch = F.Record;
+    Mismatch.Containers[1].Items[0].DefinitionRowName = TEXT("Rod");
+    Mismatch.Containers[1].Items[0].Quantity = 1;
+    F.Model->Load(Mismatch);
+    F.Interaction->BeginDrag(TEXT("A"), 1);
+    TestEqual(TEXT("다른 종류 위는 기존 Occupied"), F.Interaction->Preview(TEXT("B"), FIntPoint(0, 0)), EInventoryOperationFailure::Occupied);
+    TestFalse(TEXT("다른 종류는 병합 아님"), F.Interaction->IsPreviewStacking());
+    return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(TestVM_CancelAndStalePreview, "Duckov.ViewModel.CancelAndStalePreview", TestFlags)
 bool TestVM_CancelAndStalePreview::RunTest(const FString& Parameters)
 {
     FViewModelFixture F;
     F.Interaction->BeginDrag(TEXT("A"), 1);
     F.Interaction->Preview(TEXT("B"), FIntPoint(1, 1));
-    F.Model->TryMove(TEXT("B"), TEXT("B"), 2, FIntPoint(1, 1), false);
-    TestEqual(TEXT("외부 변경 후 프리뷰 재검증"), F.Interaction->GetPreviewFailure(), EInventoryOperationFailure::Occupied);
-    TestEqual(TEXT("stale 프리뷰 drop 거부"), F.Interaction->Drop(), EInventoryOperationFailure::Occupied);
+    // 같은 종류 위는 병합되므로, 프리뷰 자리를 격자 밖으로 만드는 외부 변경으로 재검증을 본다.
+    F.Model->TryResize(TEXT("B"), FIntPoint(1, 2));
+    TestEqual(TEXT("외부 변경 후 프리뷰 재검증"), F.Interaction->GetPreviewFailure(), EInventoryOperationFailure::NoSpace);
+    TestEqual(TEXT("stale 프리뷰 drop 거부"), F.Interaction->Drop(), EInventoryOperationFailure::NoSpace);
     F.Interaction->Cancel();
     TestFalse(TEXT("ESC/닫힘 취소 API"), F.Interaction->IsDragging());
     TestEqual(TEXT("취소 Model 불변"), F.Model->FindItem(TEXT("A"), 1)->AnchorCell, FIntPoint::ZeroValue);

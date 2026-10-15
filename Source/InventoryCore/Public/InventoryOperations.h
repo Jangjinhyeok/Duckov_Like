@@ -13,6 +13,19 @@ struct INVENTORYCORE_API FInventoryOperations
         const FInventoryContainer& DestContainer,
         int32 InstanceId, FIntPoint DestAnchorCell, bool bDestRotated);
 
+    // Model을 변경하지 않는 병합 검증. TryStack도 동일 검증을 사용한다.
+    static EInventoryOperationFailure CanStack(
+        const FInventoryContainer& SourceContainer,
+        const FInventoryContainer& DestContainer,
+        int32 SourceInstanceId, int32 TargetInstanceId);
+
+    // 배치 예정 칸이 옮기는 항목이 아닌 다른 항목 하나와만 겹치면 그 InstanceId, 아니면 INDEX_NONE.
+    // 병합할지는 호출자가 정한다(설계결정기록 012).
+    static int32 FindSingleOverlap(
+        const FInventoryContainer& SourceContainer,
+        const FInventoryContainer& DestContainer,
+        int32 InstanceId, FIntPoint DestAnchorCell, bool bDestRotated);
+
 	// 면적 내림차순, InstanceId 오름차순으로 재배치하며 현재 회전을 유지한다.
 	// 전체 배치가 불가능하면 NoSpace를 반환하고 원본을 보존한다.
 	static EInventoryOperationFailure TrySort(FInventoryContainer& Container);

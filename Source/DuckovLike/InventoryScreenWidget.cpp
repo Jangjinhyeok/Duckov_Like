@@ -363,7 +363,8 @@ void UInventoryScreenWidget::RefreshDragView()
     if (Item->IsRotated() != Interaction->IsPreviewRotated()) { Swap(Footprint.X, Footprint.Y); }
     const bool bValid = Interaction->GetPreviewFailure() == EInventoryOperationFailure::None;
     Target->ShowPreview(Interaction->GetPreviewCell(), Footprint, bValid,
-        bValid ? NSLOCTEXT("Inventory", "PreviewValid", "배치 가능") : Interaction->GetFailureText());
+        !bValid ? Interaction->GetFailureText() : Interaction->IsPreviewStacking()
+            ? NSLOCTEXT("Inventory", "PreviewStack", "합치기") : NSLOCTEXT("Inventory", "PreviewValid", "배치 가능"));
 }
 
 void UInventoryScreenWidget::CreateSplitDialog()

@@ -149,6 +149,42 @@ EInventoryOperationFailure FInventoryOperations::CanMove(
     return EInventoryOperationFailure::None;
 }
 
+int32 FInventoryOperations::FindSingleOverlap(
+    const FInventoryContainer& SourceContainer,
+    const FInventoryContainer& DestContainer,
+    const int32 InstanceId,
+    const FIntPoint DestAnchorCell,
+    const bool bDestRotated)
+{
+    const int32 SourceIndex = SourceContainer.Items.IndexOfByPredicate(
+        [InstanceId](const FItemInstance& Item) { return Item.InstanceId == InstanceId; });
+    if (SourceIndex == INDEX_NONE) { return INDEX_NONE; }
+
+    FItemInstance MovedItem = SourceContainer.Items[SourceIndex];
+    MovedItem.bRotated = bDestRotated;
+    FIntPoint Footprint;
+    if (!InventoryPlacementInternal::TryGetFootprint(MovedItem, Footprint) ||
+        !InventoryPlacementInternal::FitsInContainer(DestContainer, DestAnchorCell, Footprint))
+    {
+        return INDEX_NONE;
+    }
+
+    const bool bSameContainer = &SourceContainer == &DestContainer;
+    int32 OverlapIndex = INDEX_NONE;
+    for (int32 Y = DestAnchorCell.Y; Y < DestAnchorCell.Y + Footprint.Y; ++Y)
+    {
+        for (int32 X = DestAnchorCell.X; X < DestAnchorCell.X + Footprint.X; ++X)
+        {
+            const int32 OccupantIndex = DestContainer.OccupancyCache[
+                InventoryPlacementInternal::GetCellIndex(FIntPoint(X, Y), DestContainer.GridSize)];
+            if (OccupantIndex == INDEX_NONE || (bSameContainer && OccupantIndex == SourceIndex)) { continue; }
+            if (OverlapIndex != INDEX_NONE && OverlapIndex != OccupantIndex) { return INDEX_NONE; }
+            OverlapIndex = OccupantIndex;
+        }
+    }
+    return OverlapIndex == INDEX_NONE ? INDEX_NONE : DestContainer.Items[OverlapIndex].InstanceId;
+}
+
 EInventoryOperationFailure FInventoryOperations::TryMove(
     FInventoryContainer& SourceContainer,
     FInventoryContainer& DestContainer,
@@ -179,9 +215,9 @@ EInventoryOperationFailure FInventoryOperations::TryMove(
     return EInventoryOperationFailure::None;
 }
 
-EInventoryOperationFailure FInventoryOperations::TryStack(
-    FInventoryContainer& SourceContainer,
-    FInventoryContainer& DestContainer,
+EInventoryOperationFailure FInventoryOperations::CanStack(
+    const FInventoryContainer& SourceContainer,
+    const FInventoryContainer& DestContainer,
     const int32 SourceInstanceId,
     const int32 TargetInstanceId)
 {
@@ -205,8 +241,8 @@ EInventoryOperationFailure FInventoryOperations::TryStack(
         return EInventoryOperationFailure::ItemNotFound;
     }
 
-    FItemInstance& Source = SourceContainer.Items[SourceIndex];
-    FItemInstance& Target = DestContainer.Items[TargetIndex];
+    const FItemInstance& Source = SourceContainer.Items[SourceIndex];
+    const FItemInstance& Target = DestContainer.Items[TargetIndex];
     if (Source.DefinitionRowName != Target.DefinitionRowName ||
         Source.DefinitionTable != Target.DefinitionTable)
     {
@@ -219,12 +255,30 @@ EInventoryOperationFailure FInventoryOperations::TryStack(
         return EInventoryOperationFailure::StackMismatch;
     }
 
-    const int32 AvailableCapacity = Definition->MaxStack - Target.Quantity;
-    if (AvailableCapacity <= 0)
+    if (Definition->MaxStack - Target.Quantity <= 0)
     {
         return EInventoryOperationFailure::StackFull;
     }
 
+    return EInventoryOperationFailure::None;
+}
+
+EInventoryOperationFailure FInventoryOperations::TryStack(
+    FInventoryContainer& SourceContainer,
+    FInventoryContainer& DestContainer,
+    const int32 SourceInstanceId,
+    const int32 TargetInstanceId)
+{
+    const EInventoryOperationFailure Failure = CanStack(
+        SourceContainer, DestContainer, SourceInstanceId, TargetInstanceId);
+    if (Failure != EInventoryOperationFailure::None) { return Failure; }
+    const int32 SourceIndex = SourceContainer.Items.IndexOfByPredicate(
+        [SourceInstanceId](const FItemInstance& Item) { return Item.InstanceId == SourceInstanceId; });
+    const int32 TargetIndex = DestContainer.Items.IndexOfByPredicate(
+        [TargetInstanceId](const FItemInstance& Item) { return Item.InstanceId == TargetInstanceId; });
+    FItemInstance& Source = SourceContainer.Items[SourceIndex];
+    FItemInstance& Target = DestContainer.Items[TargetIndex];
+    const int32 AvailableCapacity = TryGetDefinition(Target)->MaxStack - Target.Quantity;
     const int32 MoveQuantity = FMath::Min(Source.Quantity, AvailableCapacity);
     Target.Quantity += MoveQuantity;
     Source.Quantity -= MoveQuantity;

@@ -43,6 +43,9 @@ public:
         FIntPoint Anchor, bool bRotated);
     // 현재 회전으로 전체 항목을 원자적으로 이전한다. 같은 컨테이너는 InvalidContainer다.
     EInventoryOperationFailure TryTransferAll(FName Source, FName Target);
+    EInventoryOperationFailure CanStack(FName Source, FName Target, int32 SourceId, int32 TargetId) const;
+    // 드롭 위치가 다른 항목 하나와만 겹치면 그 InstanceId, 아니면 INDEX_NONE. 병합 여부는 호출자가 정한다.
+    int32 FindSingleOverlap(FName Source, FName Target, int32 InstanceId, FIntPoint Anchor, bool bRotated) const;
     EInventoryOperationFailure TryStack(FName Source, FName Target, int32 SourceId, int32 TargetId);
     EInventoryOperationFailure TrySplit(FName ContainerId, int32 InstanceId, int32 Quantity);
     EInventoryOperationFailure TrySort(FName ContainerId);

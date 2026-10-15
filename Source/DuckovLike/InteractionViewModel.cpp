@@ -48,6 +48,7 @@ void UInteractionViewModel::ClearDrag()
 {
     bDragging = false;
     DraggedId = INDEX_NONE;
+    StackTargetId = INDEX_NONE;
     SourceId = TargetId = NAME_None;
     PreviewCell = FIntPoint::ZeroValue;
     bPreviewRotated = false;
@@ -61,7 +62,18 @@ EInventoryOperationFailure UInteractionViewModel::Revalidate()
         ClearDrag();
         return EInventoryOperationFailure::ItemNotFound;
     }
+    StackTargetId = INDEX_NONE;
     PreviewFailure = Model->CanMove(SourceId, TargetId, DraggedId, PreviewCell, bPreviewRotated);
+    if (PreviewFailure == EInventoryOperationFailure::Occupied)
+    {
+        // 같은 종류의 항목 하나 위에 놓으면 병합한다. 이동/병합 판정은 호출자 책임이다(설계결정기록 012).
+        // 쌓을 수 없는 종류면 원래의 Occupied를 보인다.
+        const int32 Overlap = Model->FindSingleOverlap(SourceId, TargetId, DraggedId, PreviewCell, bPreviewRotated);
+        const EInventoryOperationFailure StackFailure = Overlap == INDEX_NONE
+            ? EInventoryOperationFailure::StackMismatch : Model->CanStack(SourceId, TargetId, DraggedId, Overlap);
+        if (StackFailure == EInventoryOperationFailure::None) { StackTargetId = Overlap; PreviewFailure = StackFailure; }
+        else if (StackFailure == EInventoryOperationFailure::StackFull) { PreviewFailure = StackFailure; }
+    }
     return PreviewFailure;
 }
 
@@ -114,7 +126,9 @@ EInventoryOperationFailure UInteractionViewModel::Drop()
     LastFailure = Revalidate();
     if (LastFailure == EInventoryOperationFailure::None)
     {
-        LastFailure = Model->TryMove(SourceId, TargetId, DraggedId, PreviewCell, bPreviewRotated);
+        LastFailure = StackTargetId != INDEX_NONE
+            ? Model->TryStack(SourceId, TargetId, DraggedId, StackTargetId)
+            : Model->TryMove(SourceId, TargetId, DraggedId, PreviewCell, bPreviewRotated);
         if (LastFailure == EInventoryOperationFailure::None) { ClearDrag(); }
     }
     NotifyState();
@@ -212,6 +226,7 @@ void UInteractionViewModel::NotifyState()
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(IsPreviewRotated);
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetTargetContainerId);
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetPreviewFailure);
+    UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(IsPreviewStacking);
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetFailureText);
 }
 

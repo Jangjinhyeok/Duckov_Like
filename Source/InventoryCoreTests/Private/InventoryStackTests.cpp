@@ -331,4 +331,84 @@ bool TestStack_ToDifferentContainer_Succeeds::RunTest(const FString& Parameters)
     return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    TestStack_CanStack_MatchesTryStackWithoutChange,
+    "Duckov.InventoryCore.Stack.TestStack_CanStack_MatchesTryStackWithoutChange",
+    TestFlags)
+
+bool TestStack_CanStack_MatchesTryStackWithoutChange::RunTest(const FString& Parameters)
+{
+    FItemInstanceIdAllocator::ResetInstanceIdCounter_ForTests();
+    UDataTable* Stackable = MakeDefinitionTable(FIntPoint(1, 1), true, 10);
+    UDataTable* Single = MakeDefinitionTable(FIntPoint(1, 1));
+    FInventoryContainer Container = FInventoryContainer::MakeEmpty(FIntPoint(4, 1));
+    const FItemInstance Source = MakeItem(Stackable, FIntPoint(0, 0), false, 4);
+    const FItemInstance Target = MakeItem(Stackable, FIntPoint(1, 0), false, 6);
+    const FItemInstance Full = MakeItem(Stackable, FIntPoint(2, 0), false, 10);
+    const FItemInstance Other = MakeItem(Single, FIntPoint(3, 0));
+    for (const FItemInstance& Item : {Source, Target, Full, Other}) { FInventoryPlacement::TryPlace(Container, Item); }
+    const FInventoryContainer Before = Container;
+
+    TestEqual(TEXT("병합 가능"), FInventoryOperations::CanStack(Container, Container, Source.InstanceId, Target.InstanceId),
+        EInventoryOperationFailure::None);
+    TestEqual(TEXT("가득 찬 대상"), FInventoryOperations::CanStack(Container, Container, Source.InstanceId, Full.InstanceId),
+        EInventoryOperationFailure::StackFull);
+    TestEqual(TEXT("다른 정의"), FInventoryOperations::CanStack(Container, Container, Source.InstanceId, Other.InstanceId),
+        EInventoryOperationFailure::StackMismatch);
+    TestEqual(TEXT("없는 대상"), FInventoryOperations::CanStack(Container, Container, Source.InstanceId, 999),
+        EInventoryOperationFailure::ItemNotFound);
+    TestContainerUnchanged(*this, Before, Container);
+    TestEqual(TEXT("TryStack도 같은 검증으로 실패"), FInventoryOperations::TryStack(Container, Container, Source.InstanceId, Full.InstanceId),
+        EInventoryOperationFailure::StackFull);
+    TestContainerUnchanged(*this, Before, Container);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    TestStack_FindSingleOverlap_ReturnsOnlyLoneOccupant,
+    "Duckov.InventoryCore.Stack.TestStack_FindSingleOverlap_ReturnsOnlyLoneOccupant",
+    TestFlags)
+
+bool TestStack_FindSingleOverlap_ReturnsOnlyLoneOccupant::RunTest(const FString& Parameters)
+{
+    FItemInstanceIdAllocator::ResetInstanceIdCounter_ForTests();
+    UDataTable* Small = MakeDefinitionTable(FIntPoint(1, 1));
+    UDataTable* Wide = MakeDefinitionTable(FIntPoint(2, 1));
+    FInventoryContainer Source = FInventoryContainer::MakeEmpty(FIntPoint(2, 1));
+    FInventoryContainer Dest = FInventoryContainer::MakeEmpty(FIntPoint(5, 1));
+    const FItemInstance Dragged = MakeItem(Wide, FIntPoint(0, 0));
+    const FItemInstance First = MakeItem(Wide, FIntPoint(1, 0));
+    const FItemInstance Second = MakeItem(Small, FIntPoint(3, 0));
+    FInventoryPlacement::TryPlace(Source, Dragged);
+    FInventoryPlacement::TryPlace(Dest, First);
+    FInventoryPlacement::TryPlace(Dest, Second);
+    const FInventoryContainer SourceBefore = Source;
+    const FInventoryContainer DestBefore = Dest;
+
+    TestEqual(TEXT("한 항목과만 겹침"), FInventoryOperations::FindSingleOverlap(Source, Dest, Dragged.InstanceId, FIntPoint(0, 0), false),
+        First.InstanceId);
+    TestEqual(TEXT("두 항목과 겹치면 없음"), FInventoryOperations::FindSingleOverlap(Source, Dest, Dragged.InstanceId, FIntPoint(2, 0), false),
+        INDEX_NONE);
+    TestEqual(TEXT("격자 밖이면 없음"), FInventoryOperations::FindSingleOverlap(Source, Dest, Dragged.InstanceId, FIntPoint(4, 0), false),
+        INDEX_NONE);
+    TestEqual(TEXT("회전 footprint 사용(1x2는 높이 1 격자 밖)"), FInventoryOperations::FindSingleOverlap(Source, Dest, Dragged.InstanceId, FIntPoint(0, 0), true),
+        INDEX_NONE);
+
+    FInventoryContainer Same = FInventoryContainer::MakeEmpty(FIntPoint(4, 1));
+    const FItemInstance Moving = MakeItem(Small, FIntPoint(0, 0));
+    const FItemInstance Neighbor = MakeItem(Small, FIntPoint(2, 0));
+    FInventoryPlacement::TryPlace(Same, Moving);
+    FInventoryPlacement::TryPlace(Same, Neighbor);
+    TestEqual(TEXT("같은 컨테이너의 자기 칸은 겹침 아님"), FInventoryOperations::FindSingleOverlap(Same, Same, Moving.InstanceId, FIntPoint(0, 0), false),
+        INDEX_NONE);
+    TestEqual(TEXT("빈 칸은 겹침 아님"), FInventoryOperations::FindSingleOverlap(Same, Same, Moving.InstanceId, FIntPoint(1, 0), false),
+        INDEX_NONE);
+    TestEqual(TEXT("같은 컨테이너의 다른 항목"), FInventoryOperations::FindSingleOverlap(Same, Same, Moving.InstanceId, FIntPoint(2, 0), false),
+        Neighbor.InstanceId);
+    TestEqual(TEXT("없는 항목"), FInventoryOperations::FindSingleOverlap(Source, Dest, 999, FIntPoint(0, 0), false), INDEX_NONE);
+    TestContainerUnchanged(*this, SourceBefore, Source);
+    TestContainerUnchanged(*this, DestBefore, Dest);
+    return true;
+}
+
 #endif

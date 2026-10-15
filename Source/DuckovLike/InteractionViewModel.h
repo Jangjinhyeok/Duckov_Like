@@ -50,6 +50,9 @@ public:
     FName GetTargetContainerId() const { return TargetId; }
     UFUNCTION(BlueprintPure, FieldNotify, Category="Inventory")
     EInventoryOperationFailure GetPreviewFailure() const { return PreviewFailure; }
+    // 지금 놓으면 이동이 아니라 아래 항목과 병합된다.
+    UFUNCTION(BlueprintPure, FieldNotify, Category="Inventory")
+    bool IsPreviewStacking() const { return StackTargetId != INDEX_NONE; }
     UFUNCTION(BlueprintPure, FieldNotify, Category="Inventory")
     FText GetFailureText() const;
 
@@ -62,6 +65,7 @@ private:
     FName SourceId;
     FName TargetId;
     int32 DraggedId = INDEX_NONE;
+    int32 StackTargetId = INDEX_NONE;
     FIntPoint PreviewCell = FIntPoint::ZeroValue;
     bool bPreviewRotated = false;
     bool bDragging = false;

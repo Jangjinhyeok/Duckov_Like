@@ -278,11 +278,12 @@ bool TestUI_ScreenDragState::RunTest(const FString& Parameters)
     UInteractionViewModel* Interaction = FInventoryScreenWidgetTestAccess::Interaction(Screen.Get());
     TestEqual(TEXT("drag 시작"), Interaction->BeginDrag(TEXT("A"), 1), EInventoryOperationFailure::None);
     FInventoryScreenWidgetTestAccess::Capture(Screen.Get());
-    TestEqual(TEXT("점유된 대상 preview"), Interaction->Preview(TEXT("B"), FIntPoint::ZeroValue), EInventoryOperationFailure::Occupied);
-    TestEqual(TEXT("실패 Drop"), Interaction->Drop(), EInventoryOperationFailure::Occupied);
+    // 같은 종류 위는 병합되므로 격자 밖으로 실패를 만든다.
+    TestEqual(TEXT("격자 밖 preview"), Interaction->Preview(TEXT("B"), FIntPoint(3, 3)), EInventoryOperationFailure::NoSpace);
+    TestEqual(TEXT("실패 Drop"), Interaction->Drop(), EInventoryOperationFailure::NoSpace);
     TestTrue(TEXT("실패 뒤 화면 capture 상태 유지"), FInventoryScreenWidgetTestAccess::Captured(Screen.Get()));
     TestTrue(TEXT("실패 뒤 원본 유지"), Model->FindItem(TEXT("A"), 1) != nullptr);
-    TestEqual(TEXT("회전"), Interaction->Rotate(), EInventoryOperationFailure::Occupied);
+    TestEqual(TEXT("회전"), Interaction->Rotate(), EInventoryOperationFailure::NoSpace);
     TestEqual(TEXT("다음 위치 preview"), Interaction->Preview(TEXT("B"), FIntPoint(1, 2)), EInventoryOperationFailure::None);
     TestEqual(TEXT("교차 Container Drop"), Interaction->Drop(), EInventoryOperationFailure::None);
     TestFalse(TEXT("성공 뒤 화면 capture 해제"), FInventoryScreenWidgetTestAccess::Captured(Screen.Get()));
@@ -308,6 +309,14 @@ bool TestUI_ScreenDragState::RunTest(const FString& Parameters)
     Screen->CancelItemDrag();
     TestFalse(TEXT("ESC 경로 취소는 capture 정리"), FInventoryScreenWidgetTestAccess::Captured(Screen.Get()));
     TestFalse(TEXT("ESC 경로 drag 취소"), Interaction->IsDragging());
+
+    Interaction->BeginDrag(TEXT("A"), 1);
+    FInventoryScreenWidgetTestAccess::Capture(Screen.Get());
+    Interaction->Preview(TEXT("B"), FIntPoint::ZeroValue);
+    TestTrue(TEXT("같은 종류 위 병합 preview"), Interaction->IsPreviewStacking());
+    TestEqual(TEXT("병합 Drop"), Interaction->Drop(), EInventoryOperationFailure::None);
+    TestFalse(TEXT("병합 성공 뒤 화면 capture 해제"), FInventoryScreenWidgetTestAccess::Captured(Screen.Get()));
+    TestTrue(TEXT("병합 결과"), !Model->FindItem(TEXT("A"), 1) && Model->FindItem(TEXT("B"), 2)->Quantity == 5);
     FItemInstanceIdAllocator::ResetInstanceIdCounter_ForTests(OriginalCounter);
     return true;
 }
