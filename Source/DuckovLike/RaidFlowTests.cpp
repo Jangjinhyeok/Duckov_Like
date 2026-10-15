@@ -192,6 +192,12 @@ bool IsHudShown(ADuckovPlayerController* Controller)
     return Hud && Hud->IsVisible();
 }
 
+bool IsStashPanelShown(UInventoryScreenWidget* Screen)
+{
+    const UWidget* Panel = Screen ? Screen->GetWidgetFromName(TEXT("StashPanel")) : nullptr;
+    return Panel && Panel->GetVisibility() != ESlateVisibility::Collapsed;
+}
+
 bool IsStashGridEnabled(UInventoryScreenWidget* Screen)
 {
     const UWidget* Grid = Screen ? Screen->GetWidgetFromName(TEXT("LeftGrid")) : nullptr;
@@ -300,7 +306,7 @@ bool FRaidLoopFromBasement::RunTest(const FString& Parameters)
     {
         if (!IsSceneValid(*Scene)) { AddError(TEXT("베이스먼트 scene unavailable")); return; }
         UInventoryScreenWidget* Screen = Field<UInventoryScreenWidget>(Scene->Controller.Get(), TEXT("Screen"));
-        TestFalse(TEXT("I로 연 화면은 보관함 잠금"), IsStashGridEnabled(Screen));
+        TestTrue(TEXT("원작처럼 베이스먼트의 I는 창고까지 엶"), IsStashGridEnabled(Screen) && IsStashPanelShown(Screen));
         Screen->DeactivateWidget();
     }, 0.f));
     ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("가방 닫은 뒤 Game 입력"), [Scene]
@@ -369,6 +375,27 @@ bool FRaidLoopFromBasement::RunTest(const FString& Parameters)
         TestEqual(TEXT("가방에 기존 + 획득 구급상자"), Scene->CarriedIds.Num(), 2);
         TestFalse(TEXT("획득한 loot는 대상에서 빠짐"), IsTargetKind(*Scene, EInteractionKind::Loot));
         TestNull(TEXT("레이드에는 창고 없음"), FindPoint(Scene->World.Get(), EInteractionKind::Stash));
+        PressKey(EKeys::I);
+    }, 0.f));
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("레이드에서 I로 가방 열림"), [Scene]
+    {
+        UInventoryScreenWidget* Screen = Scene->Controller.IsValid() ? Field<UInventoryScreenWidget>(Scene->Controller.Get(), TEXT("Screen")) : nullptr;
+        return !Scene->Controller.IsValid() || (Screen && Screen->IsActivated());
+    }));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        if (!IsSceneValid(*Scene)) { AddError(TEXT("레이드 scene unavailable")); return; }
+        UInventoryScreenWidget* Screen = Field<UInventoryScreenWidget>(Scene->Controller.Get(), TEXT("Screen"));
+        TestTrue(TEXT("레이드의 I는 가방만 열고 창고 패널을 감춤"), !IsStashGridEnabled(Screen) && !IsStashPanelShown(Screen));
+        Screen->DeactivateWidget();
+    }, 0.f));
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("레이드 가방 닫은 뒤 Game 입력"), [Scene]
+    {
+        return !Scene->Controller.IsValid() || IsGameInputActive(Scene->Controller.Get());
+    }));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        if (!IsSceneValid(*Scene)) { AddError(TEXT("레이드 scene unavailable")); return; }
         AInteractionPointActor* Extraction = FindPoint(Scene->World.Get(), EInteractionKind::Extraction);
         if (!TestNotNull(TEXT("탈출 지점"), Extraction)) { return; }
         TeleportNear(Scene->Character.Get(), Extraction, FVector2D(-60.f, -60.f));

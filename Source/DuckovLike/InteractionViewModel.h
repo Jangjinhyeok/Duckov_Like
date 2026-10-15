@@ -36,6 +36,9 @@ public:
     EInventoryOperationFailure Resize(FName ContainerId, FIntPoint Size);
     UFUNCTION(BlueprintCallable, Category="Inventory")
     EInventoryOperationFailure EquipBag(int32 InstanceId);
+    // 한 컨테이너의 모든 항목을 다른 컨테이너로 옮긴다. 다 들어가지 않으면 아무것도 옮기지 않는다.
+    UFUNCTION(BlueprintCallable, Category="Inventory")
+    EInventoryOperationFailure TransferAll(FName Source, FName Target);
 
     UFUNCTION(BlueprintPure, FieldNotify, Category="Inventory")
     bool IsDragging() const { return bDragging; }

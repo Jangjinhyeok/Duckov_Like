@@ -17,8 +17,9 @@ class ULoadingScreenWidget;
 class UWidgetComponent;
 
 // 베이스먼트와 레이드 맵의 controller다. 세션 인벤토리를 화면과 월드 오브젝트에 잇는다.
-// 지상 캐릭터가 상호작용 범위에 들어오면 F로 창고 열기·출격·loot 획득·탈출을 한다. I는 가방만 열고 O는 조작 설명을 펼친다.
-// 인벤토리 상태는 세션 Model이, 레이드 여부는 맵에 놓인 오브젝트가 정하므로 이 controller는 단계를 저장하지 않는다.
+// 지상 캐릭터가 상호작용 범위에 들어오면 F로 창고 열기·출격·loot 획득·탈출을 한다. O는 조작 설명을 펼친다.
+// I는 원작처럼 베이스먼트에서는 창고까지, 레이드에서는 가방만 연다.
+// 인벤토리 상태는 세션 Model이 소유한다. 레이드 여부는 맵에서 정하며 이 controller는 단계를 바꾸지 않는다.
 UCLASS()
 class DUCKOVLIKE_API ADuckovPlayerController : public APlayerController
 {
@@ -62,6 +63,7 @@ private:
     // 범위에 들어온 순서다.
     TArray<TWeakObjectPtr<UInteractionRangeComponent>> Targets;
     FTimerHandle RestoreInputHandle;
+    bool bInRaid = false;
     UFUNCTION()
     void OnPawnBeginOverlap(AActor* OverlappedActor, AActor* OtherActor);
     UFUNCTION()

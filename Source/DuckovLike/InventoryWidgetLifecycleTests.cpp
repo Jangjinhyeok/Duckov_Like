@@ -416,14 +416,17 @@ bool FInventoryWidgetPIEInputLifecycle::RunTest(const FString& Parameters)
         }
         UButton* Left = Cast<UButton>(Screen->GetWidgetFromName(TEXT("SortLeftButton")));
         UButton* Right = Cast<UButton>(Screen->GetWidgetFromName(TEXT("SortRightButton")));
+        // 원작 배치: 가방(왼쪽 패널)·창고(오른쪽 패널) 머리줄의 버튼, 아래 가운데 Close. 방향 키 이동은 WBP에 명시돼 있다.
         RouteFocusedKey(EKeys::Up);
-        const bool bFirstLeft = Left && Left->HasUserFocus(Controller);
-        TestTrue(TEXT("Close에서 기본 위 navigation으로 정렬 버튼 도달"), bFirstLeft || (Right && Right->HasUserFocus(Controller)));
-        TestTrue(TEXT("첫 정렬 버튼 keyboard activation"), RouteFocusedKey(EKeys::Enter));
-        RouteFocusedKey(bFirstLeft ? EKeys::Right : EKeys::Left);
-        TestTrue(TEXT("기본 좌우 navigation으로 다른 정렬 버튼 도달"),
-            bFirstLeft ? (Right && Right->HasUserFocus(Controller)) : (Left && Left->HasUserFocus(Controller)));
-        TestTrue(TEXT("다른 정렬 버튼 keyboard activation"), RouteFocusedKey(EKeys::Enter));
+        TestTrue(TEXT("Close에서 위 navigation으로 가방 정리 도달"), Right && Right->HasUserFocus(Controller));
+        TestTrue(TEXT("가방 정리 keyboard activation"), RouteFocusedKey(EKeys::Enter));
+        RouteFocusedKey(EKeys::Right);
+        TestTrue(TEXT("오른쪽 navigation으로 창고 정리 도달"), Left && Left->HasUserFocus(Controller));
+        TestTrue(TEXT("창고 정리 keyboard activation"), RouteFocusedKey(EKeys::Enter));
+        RouteFocusedKey(EKeys::Left);
+        RouteFocusedKey(EKeys::Left);
+        UButton* StoreAll = Cast<UButton>(Screen->GetWidgetFromName(TEXT("StoreAllButton")));
+        TestTrue(TEXT("왼쪽 navigation으로 전부 창고에 보관 도달"), StoreAll && StoreAll->HasUserFocus(Controller));
         UInventoryModel* Model = Scene->Model.Get();
         const FItemInstance* Rifle = Model ? Model->FindItem(TEXT("Stash"), 1) : nullptr;
         const FItemInstance* Medkit = Model ? Model->FindItem(TEXT("Bag"), 3) : nullptr;
@@ -431,7 +434,7 @@ bool FInventoryWidgetPIEInputLifecycle::RunTest(const FString& Parameters)
         TestTrue(TEXT("Sort Bag activation이 Model 정렬 실행"), Medkit && Medkit->AnchorCell != FIntPoint(2, 2));
         UButton* Close = Cast<UButton>(Screen->GetWidgetFromName(TEXT("CloseButton")));
         RouteFocusedKey(EKeys::Down);
-        TestTrue(TEXT("기본 아래 navigation으로 Close 복귀"), Close && Close->HasUserFocus(Controller));
+        TestTrue(TEXT("아래 navigation으로 Close 복귀"), Close && Close->HasUserFocus(Controller));
         TestTrue(TEXT("Close keyboard activation"), RouteFocusedKey(EKeys::Enter));
         TestFalse(TEXT("Close로 화면 비활성"), Screen->IsActivated());
     }, 0.f));

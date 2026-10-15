@@ -61,10 +61,16 @@ void UInventoryItemWidget::Refresh()
     }
     if (ItemText)
     {
-        ItemText->SetText(Item && Item->IsAvailable()
-            ? FText::Format(NSLOCTEXT("Inventory", "ItemLabel", "{0}\nx{1}"),
-                FText::FromName(Item->GetDefinitionRowName()), FText::AsNumber(Item->GetQuantity()))
-            : FText::GetEmpty());
+        FText Label;
+        if (Item && Item->IsAvailable())
+        {
+            // 원작 칸처럼 오른쪽 아래에 수량, 그 아래 이름을 둔다. 한 칸 너비에는 5글자 정도만 들어가므로
+            // 더 긴 이름은 원작처럼 말줄임표로 줄인다. 전체 이름은 툴팁에 있다.
+            FString Name = Item->GetDefinitionRowName().ToString();
+            if (Item->GetFootprint().X == 1 && Name.Len() > 5) { Name = Name.Left(4) + TEXT("…"); }
+            Label = FText::Format(NSLOCTEXT("Inventory", "ItemLabel", "x{1}\n{0}"), FText::FromString(Name), FText::AsNumber(Item->GetQuantity()));
+        }
+        ItemText->SetText(Label);
     }
     if (Item && Item->IsAvailable())
     {
@@ -72,9 +78,11 @@ void UInventoryItemWidget::Refresh()
         const FText Tooltip = FText::Format(NSLOCTEXT("Inventory", "ItemTooltip", "{0}\n크기 {1} × {2}\n수량 {3}"),
             FText::FromName(Item->GetDefinitionRowName()), FText::AsNumber(Size.X),
             FText::AsNumber(Size.Y), FText::AsNumber(Item->GetQuantity()));
+        // 원작 툴팁의 조작 키 안내처럼 이 칸에서 할 수 있는 입력을 덧붙인다.
+        const FText WithMove = FText::Format(NSLOCTEXT("Inventory", "MoveTooltip", "{0}\n드래그: 이동 · 드래그 중 R: 회전"), Tooltip);
         SetToolTipText(Item->GetQuantity() > 1
-            ? FText::Format(NSLOCTEXT("Inventory", "SplitTooltip", "{0}\nShift+클릭: 스택 분할"), Tooltip)
-            : Tooltip);
+            ? FText::Format(NSLOCTEXT("Inventory", "SplitTooltip", "{0}\nShift+클릭: 스택 분할"), WithMove)
+            : WithMove);
     }
     else { SetToolTipText(FText::GetEmpty()); }
 }

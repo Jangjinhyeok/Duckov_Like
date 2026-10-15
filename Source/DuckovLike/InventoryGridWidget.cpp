@@ -67,7 +67,23 @@ void UInventoryGridWidget::Refresh()
         Probe->ItemRemoved += ItemWidgets.Num();
     }
 #endif
-    if (HeaderText) { HeaderText->SetText(Title); }
+    if (HeaderText)
+    {
+        // 원작의 "가방 (22/85)"처럼 용량을 함께 보인다. 그리드라서 개수 대신 차지한 칸 수다.
+        FText Header = Title;
+        if (Container && Container->IsAvailable() && !Title.IsEmpty())
+        {
+            int32 UsedCells = 0;
+            for (const UItemViewModel* Item : Container->GetItems())
+            {
+                if (Item && Item->IsAvailable()) { UsedCells += Item->GetFootprint().X * Item->GetFootprint().Y; }
+            }
+            const FIntPoint Size = Container->GetGridSize();
+            Header = FText::Format(NSLOCTEXT("Inventory", "GridHeader", "{0} ({1}/{2})"),
+                Title, FText::AsNumber(UsedCells), FText::AsNumber(Size.X * Size.Y));
+        }
+        HeaderText->SetText(Header);
+    }
     if (!GridCanvas) { return; }
     for (UInventoryItemWidget* Widget : ItemWidgets) { Widget->Bind(nullptr); Widget->RemoveFromParent(); }
     ItemWidgets.Reset();

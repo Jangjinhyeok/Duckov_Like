@@ -169,6 +169,11 @@ EInventoryOperationFailure UInteractionViewModel::EquipBag(int32 InstanceId)
     return Command([&]() { return bDragging ? EInventoryOperationFailure::OperationInProgress : Model->TryEquipBag(InstanceId); });
 }
 
+EInventoryOperationFailure UInteractionViewModel::TransferAll(FName Source, FName Target)
+{
+    return Command([&]() { return bDragging ? EInventoryOperationFailure::OperationInProgress : Model->TryTransferAll(Source, Target); });
+}
+
 void UInteractionViewModel::OnModelChanged(const FInventoryChangeSet& Change)
 {
     if (bUpdating || !bDragging) { return; }

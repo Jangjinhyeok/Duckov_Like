@@ -14,6 +14,7 @@ class UInteractionViewModel;
 class UInventoryGridWidget;
 class UInventoryModel;
 class UItemViewModel;
+class UPanelWidget;
 class UTextBlock;
 
 UCLASS(meta=(DisableNativeTick))
@@ -47,6 +48,7 @@ protected:
     virtual TOptional<FUIInputConfig> GetDesiredInputConfig() const override;
 private:
     friend struct FInventoryScreenWidgetTestAccess;
+    // 이름은 기존 BindWidget 계약을 유지한다. 원작 배치에 따라 LeftGrid(창고)는 오른쪽 패널, RightGrid(가방)는 왼쪽 패널에 있다.
     UPROPERTY(meta=(BindWidget))
     TObjectPtr<UInventoryGridWidget> LeftGrid;
     UPROPERTY(meta=(BindWidget))
@@ -57,6 +59,14 @@ private:
     TObjectPtr<UButton> SortLeftButton;
     UPROPERTY(meta=(BindWidget))
     TObjectPtr<UButton> SortRightButton;
+    UPROPERTY(meta=(BindWidget))
+    TObjectPtr<UButton> StoreAllButton;
+    // 창고를 쓸 수 없으면(레이드) 창고 패널 전체를 감춘다.
+    UPROPERTY(meta=(BindWidgetOptional))
+    TObjectPtr<UWidget> StashPanel;
+    // 장비(가방 슬롯) 패널이 들어갈 자리. 없으면 화면 위쪽에 띄운다.
+    UPROPERTY(meta=(BindWidgetOptional))
+    TObjectPtr<UPanelWidget> EquipmentSlot;
     UPROPERTY(Transient)
     TObjectPtr<UInventoryModel> Model;
     UPROPERTY(Transient)
@@ -130,4 +140,6 @@ private:
     void SortLeft();
     UFUNCTION()
     void SortRight();
+    UFUNCTION()
+    void StoreAllInStash();
 };

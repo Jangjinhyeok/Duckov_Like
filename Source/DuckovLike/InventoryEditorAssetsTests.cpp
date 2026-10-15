@@ -6,16 +6,21 @@
 #include "InventoryItemWidget.h"
 #include "InventoryScreenWidget.h"
 #include "ItemDefinitionRow.h"
+#include "Blueprint/WidgetNavigation.h"
 #include "Blueprint/WidgetTree.h"
+#include "Brushes/SlateRoundedBoxBrush.h"
 #include "Components/Border.h"
 #include "Components/Button.h"
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
 #include "Components/HorizontalBox.h"
 #include "Components/HorizontalBoxSlot.h"
+#include "Components/Overlay.h"
+#include "Components/OverlaySlot.h"
 #include "Components/SizeBox.h"
 #include "Components/TextBlock.h"
 #include "Components/VerticalBox.h"
+#include "Components/VerticalBoxSlot.h"
 #include "Engine/DataTable.h"
 #include "Engine/World.h"
 #include "FileHelpers.h"
@@ -73,13 +78,6 @@ UTextBlock* Label(UWidgetTree* Tree, FName Name, const FText& Text)
     return Result;
 }
 
-UButton* Button(UWidgetTree* Tree, FName Name, const FText& Text)
-{
-    UButton* Result = Add<UButton>(Tree, Name);
-    Result->AddChild(Label(Tree, *FString::Printf(TEXT("%sLabel"), *Name.ToString()), Text));
-    return Result;
-}
-
 bool CompileAndSave(UWidgetBlueprint* Blueprint)
 {
     FKismetEditorUtilities::CompileBlueprint(Blueprint);
@@ -96,6 +94,185 @@ FItemDefinitionRow BagDefinition(FIntPoint Size)
 bool MatchesDefinition(const FItemDefinitionRow* Row, const FItemDefinitionRow& Expected)
 {
     return Row && FItemDefinitionRow::StaticStruct()->CompareScriptStruct(Row, &Expected, 0);
+}
+
+// 원작 인벤토리의 밝은 하늘색 둥근 버튼. 글자는 어둡게 쓴다.
+UButton* PanelButton(UWidgetTree* Tree, FName Name, const FText& Text)
+{
+    UButton* Result = Add<UButton>(Tree, Name);
+    const FLinearColor Color(0.62f, 0.85f, 0.97f);
+    FButtonStyle Style = Result->GetStyle();
+    Style.SetNormal(FSlateRoundedBoxBrush(Color, 6.f));
+    Style.SetHovered(FSlateRoundedBoxBrush(Color * 1.12f, 6.f, FLinearColor::White, 2.f));
+    Style.SetPressed(FSlateRoundedBoxBrush(Color * 0.8f, 6.f));
+    Style.SetDisabled(FSlateRoundedBoxBrush(FLinearColor(0.3f, 0.36f, 0.42f, 0.8f), 6.f));
+    Style.SetNormalPadding(FMargin(12.f, 4.f));
+    Style.SetPressedPadding(FMargin(12.f, 5.f, 12.f, 3.f));
+    Result->SetStyle(Style);
+    UTextBlock* Caption = Label(Tree, *FString::Printf(TEXT("%sLabel"), *Name.ToString()), Text);
+    Caption->SetColorAndOpacity(FSlateColor(FLinearColor(0.06f, 0.1f, 0.16f)));
+    FSlateFontInfo Font = Caption->GetFont();
+    Font.Size = 14;
+    Caption->SetFont(Font);
+    Result->AddChild(Caption);
+    return Result;
+}
+
+// keyboard·gamepad 이동을 배치와 무관하게 정해 둔다. 대상은 이름으로 저장되어 화면 인스턴스에서 찾아진다.
+void Navigate(UWidget* From, std::initializer_list<TPair<EUINavigation, FName>> Rules)
+{
+    if (!From->Navigation) { From->Navigation = NewObject<UWidgetNavigation>(From); }
+    for (const TPair<EUINavigation, FName>& Rule : Rules)
+    {
+        FWidgetNavigationData& Data = Rule.Key == EUINavigation::Up ? From->Navigation->Up
+            : Rule.Key == EUINavigation::Down ? From->Navigation->Down
+            : Rule.Key == EUINavigation::Left ? From->Navigation->Left : From->Navigation->Right;
+        Data.Rule = EUINavigationRule::Explicit;
+        Data.WidgetToFocus = Rule.Value;
+    }
+}
+
+// 원작의 반투명 남색 둥근 패널.
+UBorder* Panel(UWidgetTree* Tree, FName Name)
+{
+    UBorder* Result = Add<UBorder>(Tree, Name);
+    Result->SetBrush(FSlateRoundedBoxBrush(FLinearColor(0.05f, 0.09f, 0.15f, 0.9f), 10.f, FLinearColor(0.25f, 0.35f, 0.45f, 0.6f), 1.f));
+    Result->SetPadding(FMargin(16.f));
+    return Result;
+}
+
+// 그리드 헤더("가방 (8/16)") 줄의 오른쪽 끝에 버튼을 겹쳐 둔다. 원작처럼 제목과 버튼이 한 줄에 놓인다.
+USizeBox* GridSection(UWidgetTree* Tree, FName Name, UWidget* Grid, std::initializer_list<UButton*> Buttons, float MinWidth)
+{
+    USizeBox* Size = Add<USizeBox>(Tree, *FString::Printf(TEXT("%sSize"), *Name.ToString()));
+    Size->SetMinDesiredWidth(MinWidth);
+    UOverlay* Section = Add<UOverlay>(Tree, Name);
+    Size->AddChild(Section);
+    UOverlaySlot* GridSlot = Section->AddChildToOverlay(Grid);
+    GridSlot->SetHorizontalAlignment(HAlign_Left);
+    GridSlot->SetVerticalAlignment(VAlign_Top);
+    UHorizontalBox* Actions = Add<UHorizontalBox>(Tree, *FString::Printf(TEXT("%sActions"), *Name.ToString()));
+    for (UButton* Button : Buttons) { Actions->AddChildToHorizontalBox(Button)->SetPadding(FMargin(6.f, 0.f, 0.f, 0.f)); }
+    UOverlaySlot* ActionSlot = Section->AddChildToOverlay(Actions);
+    ActionSlot->SetHorizontalAlignment(HAlign_Right);
+    ActionSlot->SetVerticalAlignment(VAlign_Top);
+    return Size;
+}
+
+// Item·Grid·Screen WBP를 원작 배치로 만든다. 새로 만들 때와 레이아웃을 다시 만들 때 같은 함수를 쓴다.
+bool CreateInventoryWidgets()
+{
+    // 아이템 칸: 어두운 둥근 칸, 얇은 밝은 테두리, 수량·이름은 오른쪽 아래.
+    UWidgetBlueprint* ItemBP = CreateWidgetAsset(Paths[1], UInventoryItemWidget::StaticClass());
+    if (!ItemBP) { return false; }
+    UBorder* ItemBorder = Add<UBorder>(ItemBP->WidgetTree, TEXT("ItemBorder"));
+    ItemBorder->SetBrush(FSlateRoundedBoxBrush(FLinearColor(0.12f, 0.18f, 0.26f, 0.96f), 6.f, FLinearColor(0.6f, 0.72f, 0.84f, 0.7f), 1.f));
+    ItemBorder->SetPadding(FMargin(5.f));
+    ItemBorder->SetHorizontalAlignment(HAlign_Right);
+    ItemBorder->SetVerticalAlignment(VAlign_Bottom);
+    ItemBP->WidgetTree->RootWidget = ItemBorder;
+    UTextBlock* ItemLabel = Label(ItemBP->WidgetTree, TEXT("ItemText"), FText::GetEmpty());
+    FSlateFontInfo ItemFont = ItemLabel->GetFont();
+    ItemFont.Size = 11;
+    ItemLabel->SetFont(ItemFont);
+    ItemLabel->SetJustification(ETextJustify::Right);
+    ItemLabel->SetShadowOffset(FVector2D(1.f, 1.f));
+    ItemLabel->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.8f));
+    ItemBorder->AddChild(ItemLabel);
+    if (!CompileAndSave(ItemBP)) { return false; }
+
+    UWidgetBlueprint* GridBP = CreateWidgetAsset(Paths[2], UInventoryGridWidget::StaticClass());
+    if (!GridBP) { return false; }
+    UVerticalBox* GridRoot = Add<UVerticalBox>(GridBP->WidgetTree, TEXT("GridRoot"));
+    GridBP->WidgetTree->RootWidget = GridRoot;
+    UTextBlock* Header = Label(GridBP->WidgetTree, TEXT("HeaderText"), FText::GetEmpty());
+    FSlateFontInfo HeaderFont = Header->GetFont();
+    HeaderFont.Size = 18;
+    Header->SetFont(HeaderFont);
+    // 헤더 줄에 겹쳐 놓을 버튼 높이만큼 아래 여백을 둔다.
+    GridRoot->AddChildToVerticalBox(Header)->SetPadding(FMargin(0.f, 2.f, 0.f, 10.f));
+    USizeBox* GridSize = Add<USizeBox>(GridBP->WidgetTree, TEXT("GridSize"));
+    GridSize->SetWidthOverride(312.f); GridSize->SetHeightOverride(208.f);
+    GridSize->SetClipping(EWidgetClipping::ClipToBounds);
+    GridRoot->AddChildToVerticalBox(GridSize);
+    UBorder* GridBorder = Add<UBorder>(GridBP->WidgetTree, TEXT("GridBorder"));
+    GridBorder->SetBrushColor(FLinearColor(0.f, 0.f, 0.f, 0.f));
+    GridBorder->SetPadding(FMargin(0.f));
+    GridSize->AddChild(GridBorder);
+    UCanvasPanel* Cells = Add<UCanvasPanel>(GridBP->WidgetTree, TEXT("GridCanvas"));
+    GridBorder->AddChild(Cells);
+    for (int32 Y = 0; Y < 4; ++Y)
+    {
+        for (int32 X = 0; X < 6; ++X)
+        {
+            // 빈 칸도 원작처럼 둥근 테두리 칸으로 보인다.
+            UBorder* Cell = Add<UBorder>(GridBP->WidgetTree, *FString::Printf(TEXT("Cell_%d_%d"), X, Y));
+            Cell->SetBrush(FSlateRoundedBoxBrush(FLinearColor(0.07f, 0.11f, 0.17f, 0.85f), 6.f, FLinearColor(0.3f, 0.4f, 0.5f, 0.45f), 1.f));
+            UCanvasPanelSlot* CellSlot = Cells->AddChildToCanvas(Cell);
+            CellSlot->SetPosition(FVector2D(X * 52.f, Y * 52.f));
+            CellSlot->SetSize(FVector2D(50.f, 50.f));
+        }
+    }
+    if (!CompileAndSave(GridBP)) { return false; }
+
+    UWidgetBlueprint* ScreenBP = CreateWidgetAsset(Paths[3], UInventoryScreenWidget::StaticClass());
+    if (!ScreenBP) { return false; }
+    UWidgetTree* Tree = ScreenBP->WidgetTree;
+    UCanvasPanel* Root = Add<UCanvasPanel>(Tree, TEXT("Root"));
+    Tree->RootWidget = Root;
+    // 원작은 인벤토리를 열어도 장면이 보인다. 패널 대비만 남길 만큼 옅게 어둡게 한다.
+    UBorder* Background = Add<UBorder>(Tree, TEXT("Background"));
+    Background->SetBrushColor(FLinearColor(0.01f, 0.02f, 0.04f, 0.45f));
+    UCanvasPanelSlot* BackgroundSlot = Root->AddChildToCanvas(Background);
+    BackgroundSlot->SetAnchors(FAnchors(0.f, 0.f, 1.f, 1.f));
+    BackgroundSlot->SetOffsets(FMargin(0.f));
+    auto Place = [Root](UWidget* Widget, FAnchors Anchors, FVector2D Alignment, FVector2D Position)
+    {
+        UCanvasPanelSlot* CanvasSlot = Root->AddChildToCanvas(Widget);
+        CanvasSlot->SetAnchors(Anchors);
+        CanvasSlot->SetAlignment(Alignment);
+        CanvasSlot->SetPosition(Position);
+        CanvasSlot->SetAutoSize(true);
+    };
+    // 위 가운데: 원작의 화면 탭 자리. 이 게임은 화면이 하나라 제목만 둔다.
+    UTextBlock* Title = Label(Tree, TEXT("Title"), NSLOCTEXT("Inventory", "Title", "인벤토리"));
+    FSlateFontInfo TitleFont = Title->GetFont();
+    TitleFont.Size = 22;
+    Title->SetFont(TitleFont);
+    Place(Title, FAnchors(0.5f, 0.f), FVector2D(0.5f, 0.f), FVector2D(0.f, 24.f));
+    // 아래 가운데: 원작의 퀵슬롯 자리. 이 게임은 퀵슬롯이 없어 닫기를 둔다. 열 때 처음 focus를 받는다.
+    UButton* CloseButton = PanelButton(Tree, TEXT("CloseButton"), NSLOCTEXT("Inventory", "Close", "닫기  I / Esc"));
+    Place(CloseButton, FAnchors(0.5f, 1.f), FVector2D(0.5f, 1.f), FVector2D(0.f, -32.f));
+    auto MakeGrid = [Tree, GridBP](FName Name)
+    {
+        UInventoryGridWidget* Widget = Tree->ConstructWidget<UInventoryGridWidget>(TSubclassOf<UInventoryGridWidget>(GridBP->GeneratedClass.Get()), Name);
+        Widget->bIsVariable = true;
+        return Widget;
+    };
+    // 왼쪽: 캐릭터 패널 — 장비(가방 슬롯) 아래에 가방 격자. 헤더 줄 오른쪽에 전부 창고에 보관·정리.
+    UBorder* CharacterPanel = Panel(Tree, TEXT("CharacterPanel"));
+    UVerticalBox* CharacterColumn = Add<UVerticalBox>(Tree, TEXT("CharacterColumn"));
+    CharacterPanel->SetContent(CharacterColumn);
+    CharacterColumn->AddChildToVerticalBox(Label(Tree, TEXT("EquipmentTitle"), NSLOCTEXT("Inventory", "Equipment", "장비")));
+    UVerticalBox* EquipmentSlot = Add<UVerticalBox>(Tree, TEXT("EquipmentSlot"));
+    CharacterColumn->AddChildToVerticalBox(EquipmentSlot)->SetPadding(FMargin(0.f, 6.f, 0.f, 14.f));
+    UButton* StoreAllButton = PanelButton(Tree, TEXT("StoreAllButton"), NSLOCTEXT("Inventory", "StoreAll", "전부 창고에 보관"));
+    UButton* SortBagButton = PanelButton(Tree, TEXT("SortRightButton"), NSLOCTEXT("Inventory", "SortBag", "정리"));
+    CharacterColumn->AddChildToVerticalBox(GridSection(Tree, TEXT("BagSection"), MakeGrid(TEXT("RightGrid")),
+        {StoreAllButton, SortBagButton}, 460.f));
+    Place(CharacterPanel, FAnchors(0.f, 0.5f), FVector2D(0.f, 0.5f), FVector2D(48.f, 0.f));
+    // 오른쪽: 창고 패널. 레이드에서는 화면이 통째로 감춘다.
+    UBorder* StashPanel = Panel(Tree, TEXT("StashPanel"));
+    UButton* SortStashButton = PanelButton(Tree, TEXT("SortLeftButton"), NSLOCTEXT("Inventory", "SortStash", "정리"));
+    StashPanel->SetContent(GridSection(Tree, TEXT("StashSection"), MakeGrid(TEXT("LeftGrid")), {SortStashButton}, 400.f));
+    Place(StashPanel, FAnchors(1.f, 0.5f), FVector2D(1.f, 0.5f), FVector2D(-48.f, 0.f));
+    // 버튼들은 패널 머리줄에 한 줄로 있고 닫기는 아래 가운데다. 그 배치대로 방향 키 이동을 고정한다.
+    Navigate(CloseButton, {{EUINavigation::Up, TEXT("SortRightButton")}});
+    Navigate(StoreAllButton, {{EUINavigation::Right, TEXT("SortRightButton")}, {EUINavigation::Down, TEXT("CloseButton")}});
+    Navigate(SortBagButton, {{EUINavigation::Left, TEXT("StoreAllButton")}, {EUINavigation::Right, TEXT("SortLeftButton")},
+        {EUINavigation::Down, TEXT("CloseButton")}});
+    Navigate(SortStashButton, {{EUINavigation::Left, TEXT("SortRightButton")}, {EUINavigation::Down, TEXT("CloseButton")}});
+    return CompileAndSave(ScreenBP);
 }
 
 bool CheckOriginalDefinitions(UDataTable* Table)
@@ -139,86 +316,29 @@ bool FGenerateInventoryAssets::RunTest(const FString& Parameters)
     Table->AddRow(TEXT("LargeBag"), BagDefinition(FIntPoint(6, 4)));
     if (!SaveAsset(Table)) { AddError(TEXT("DataTable 저장 실패")); return false; }
 
-    UWidgetBlueprint* ItemBP = CreateWidgetAsset(Paths[1], UInventoryItemWidget::StaticClass());
-    if (!ItemBP) { AddError(TEXT("Item Widget Blueprint 생성 실패")); return false; }
-    UBorder* ItemBorder = Add<UBorder>(ItemBP->WidgetTree, TEXT("ItemBorder"));
-    ItemBorder->SetBrushColor(FLinearColor(0.18f, 0.35f, 0.50f, 0.95f));
-    ItemBorder->SetPadding(FMargin(4.f));
-    ItemBP->WidgetTree->RootWidget = ItemBorder;
-    UTextBlock* ItemLabel = Label(ItemBP->WidgetTree, TEXT("ItemText"), FText::GetEmpty());
-    FSlateFontInfo ItemFont = ItemLabel->GetFont();
-    ItemFont.Size = 12;
-    ItemLabel->SetFont(ItemFont);
-    ItemBorder->AddChild(ItemLabel);
-    if (!CompileAndSave(ItemBP)) { AddError(TEXT("Item Widget Blueprint 컴파일/저장 실패")); return false; }
-
-    UWidgetBlueprint* GridBP = CreateWidgetAsset(Paths[2], UInventoryGridWidget::StaticClass());
-    if (!GridBP) { AddError(TEXT("Grid Widget Blueprint 생성 실패")); return false; }
-    UVerticalBox* GridRoot = Add<UVerticalBox>(GridBP->WidgetTree, TEXT("GridRoot"));
-    GridBP->WidgetTree->RootWidget = GridRoot;
-    GridRoot->AddChildToVerticalBox(Label(GridBP->WidgetTree, TEXT("HeaderText"), FText::GetEmpty()));
-    USizeBox* GridSize = Add<USizeBox>(GridBP->WidgetTree, TEXT("GridSize"));
-    GridSize->SetWidthOverride(312.f); GridSize->SetHeightOverride(208.f);
-    GridSize->SetClipping(EWidgetClipping::ClipToBounds);
-    GridRoot->AddChildToVerticalBox(GridSize);
-    UBorder* GridBorder = Add<UBorder>(GridBP->WidgetTree, TEXT("GridBorder"));
-    GridBorder->SetBrushColor(FLinearColor(0.08f, 0.13f, 0.19f, 0.98f));
-    GridBorder->SetPadding(FMargin(0.f));
-    GridSize->AddChild(GridBorder);
-    UCanvasPanel* Cells = Add<UCanvasPanel>(GridBP->WidgetTree, TEXT("GridCanvas"));
-    GridBorder->AddChild(Cells);
-    for (int32 Y = 0; Y < 4; ++Y)
-    {
-        for (int32 X = 0; X < 6; ++X)
-        {
-            UBorder* Cell = Add<UBorder>(GridBP->WidgetTree, *FString::Printf(TEXT("Cell_%d_%d"), X, Y));
-            Cell->SetBrushColor((X + Y) % 2 ? FLinearColor(0.11f, 0.17f, 0.23f) : FLinearColor(0.13f, 0.19f, 0.26f));
-            UCanvasPanelSlot* CellSlot = Cells->AddChildToCanvas(Cell);
-            CellSlot->SetPosition(FVector2D(X * 52.f, Y * 52.f));
-            CellSlot->SetSize(FVector2D(50.f, 50.f));
-        }
-    }
-    if (!CompileAndSave(GridBP)) { AddError(TEXT("Grid Widget Blueprint 컴파일/저장 실패")); return false; }
-
-    UWidgetBlueprint* ScreenBP = CreateWidgetAsset(Paths[3], UInventoryScreenWidget::StaticClass());
-    if (!ScreenBP) { AddError(TEXT("Screen Widget Blueprint 생성 실패")); return false; }
-    UCanvasPanel* Root = Add<UCanvasPanel>(ScreenBP->WidgetTree, TEXT("Root"));
-    ScreenBP->WidgetTree->RootWidget = Root;
-    UBorder* Background = Add<UBorder>(ScreenBP->WidgetTree, TEXT("Background"));
-    Background->SetBrushColor(FLinearColor(0.02f, 0.04f, 0.06f, 0.88f));
-    UCanvasPanelSlot* BackgroundSlot = Root->AddChildToCanvas(Background);
-    BackgroundSlot->SetAnchors(FAnchors(0.f, 0.f, 1.f, 1.f));
-    BackgroundSlot->SetOffsets(FMargin(0.f));
-    UVerticalBox* Panel = Add<UVerticalBox>(ScreenBP->WidgetTree, TEXT("Panel"));
-    UCanvasPanelSlot* PanelSlot = Root->AddChildToCanvas(Panel);
-    PanelSlot->SetAnchors(FAnchors(0.5f));
-    PanelSlot->SetAlignment(FVector2D(0.5f, 0.5f));
-    PanelSlot->SetSize(FVector2D(700.f, 360.f));
-    Panel->AddChildToVerticalBox(Label(ScreenBP->WidgetTree, TEXT("Title"), NSLOCTEXT("Inventory", "Title", "인벤토리  |  I / Esc 닫기")));
-    UHorizontalBox* Columns = Add<UHorizontalBox>(ScreenBP->WidgetTree, TEXT("Columns"));
-    Panel->AddChildToVerticalBox(Columns);
-    UVerticalBox* Left = Add<UVerticalBox>(ScreenBP->WidgetTree, TEXT("LeftColumn"));
-    UVerticalBox* Right = Add<UVerticalBox>(ScreenBP->WidgetTree, TEXT("RightColumn"));
-    Columns->AddChildToHorizontalBox(Left)->SetPadding(FMargin(0.f, 0.f, 24.f, 0.f));
-    Columns->AddChildToHorizontalBox(Right);
-    auto AddGrid = [&](UVerticalBox* Column, FName Name)
-    {
-        UInventoryGridWidget* Widget = ScreenBP->WidgetTree->ConstructWidget<UInventoryGridWidget>(
-            TSubclassOf<UInventoryGridWidget>(GridBP->GeneratedClass.Get()), Name);
-        Widget->bIsVariable = true;
-        Column->AddChildToVerticalBox(Widget);
-    };
-    AddGrid(Left, TEXT("LeftGrid"));
-    AddGrid(Right, TEXT("RightGrid"));
-    Left->AddChildToVerticalBox(Button(ScreenBP->WidgetTree, TEXT("SortLeftButton"), NSLOCTEXT("Inventory", "SortStash", "보관함 정렬")));
-    Right->AddChildToVerticalBox(Button(ScreenBP->WidgetTree, TEXT("SortRightButton"), NSLOCTEXT("Inventory", "SortBag", "가방 정렬")));
-    Panel->AddChildToVerticalBox(Button(ScreenBP->WidgetTree, TEXT("CloseButton"), NSLOCTEXT("Inventory", "Close", "닫기")));
-    if (!CompileAndSave(ScreenBP)) { AddError(TEXT("Screen Widget Blueprint 컴파일/저장 실패")); return false; }
+    if (!CreateInventoryWidgets()) { AddError(TEXT("인벤토리 Widget Blueprint 생성/컴파일/저장 실패")); return false; }
 
     UWorld* World = UEditorLoadingAndSavingUtils::NewBlankMap(false);
     if (!World) { AddError(TEXT("데모 map 생성 실패")); return false; }
     World->GetWorldSettings()->DefaultGameMode = AInventoryDemoGameMode::StaticClass();
     if (!UEditorLoadingAndSavingUtils::SaveMap(World, Paths[4])) { AddError(TEXT("데모 map 저장 실패")); return false; }
+    return true;
+}
+
+// 명시적으로 실행하는 레이아웃 재생성 경로다. Item·Grid·Screen WBP 세 개를 지운 뒤에만 실행되며 덮어쓰지 않는다.
+// DataTable과 데모 map은 건드리지 않는다.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRebuildInventoryWidgets, "InventoryAssets.RebuildWidgets", Flags)
+bool FRebuildInventoryWidgets::RunTest(const FString& Parameters)
+{
+    for (int32 Index = 1; Index <= 3; ++Index)
+    {
+        if (FPackageName::DoesPackageExist(Paths[Index]))
+        {
+            AddError(FString::Printf(TEXT("기존 에셋을 덮어쓰지 않습니다. 먼저 지우세요: %s"), Paths[Index]));
+            return false;
+        }
+    }
+    if (!CreateInventoryWidgets()) { AddError(TEXT("인벤토리 Widget Blueprint 생성/컴파일/저장 실패")); return false; }
     return true;
 }
 
@@ -287,7 +407,8 @@ bool FVerifyInventoryAssets::RunTest(const FString& Parameters)
     VerifyWidget(TEXT("/Game/UI/WBP_InventoryScreen.WBP_InventoryScreen"),
         {{TEXT("LeftGrid"), UInventoryGridWidget::StaticClass()}, {TEXT("RightGrid"), UInventoryGridWidget::StaticClass()},
         {TEXT("CloseButton"), UButton::StaticClass()}, {TEXT("SortLeftButton"), UButton::StaticClass()},
-        {TEXT("SortRightButton"), UButton::StaticClass()}});
+        {TEXT("SortRightButton"), UButton::StaticClass()}, {TEXT("StoreAllButton"), UButton::StaticClass()},
+        {TEXT("StashPanel"), UBorder::StaticClass()}, {TEXT("EquipmentSlot"), UVerticalBox::StaticClass()}});
     UWorld* World = LoadObject<UWorld>(nullptr, TEXT("/Game/Maps/L_InventoryDemo.L_InventoryDemo"));
     if (TestNotNull(TEXT("데모 map"), World))
     {

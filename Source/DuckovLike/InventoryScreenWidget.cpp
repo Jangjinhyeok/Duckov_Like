@@ -8,6 +8,7 @@
 #include "Components/TextBlock.h"
 #include "Components/VerticalBox.h"
 #include "Components/HorizontalBox.h"
+#include "Components/PanelWidget.h"
 #include "Blueprint/WidgetTree.h"
 #include "ContainerViewModel.h"
 #include "BagEquipmentViewModel.h"
@@ -69,18 +70,21 @@ void UInventoryScreenWidget::SetStashAccessible(bool bAccessible)
 void UInventoryScreenWidget::RefreshStashAccess()
 {
     LeftVM->Bind(bStashAccessible ? Model.Get() : nullptr, TEXT("Stash"));
-    LeftGrid->SetTitle(bStashAccessible ? NSLOCTEXT("Inventory", "Stash", "보관함")
+    LeftGrid->SetTitle(bStashAccessible ? NSLOCTEXT("Inventory", "Stash", "창고")
         : NSLOCTEXT("Inventory", "StashOnlyAtStorage", "보관함: 창고에서만"));
     LeftGrid->Bind(bStashAccessible ? LeftVM.Get() : nullptr, this, TEXT("Stash"));
     LeftGrid->SetIsEnabled(bStashAccessible);
     SortLeftButton->SetIsEnabled(bStashAccessible);
+    StoreAllButton->SetIsEnabled(bStashAccessible);
+    // 원작의 레이드처럼 창고를 쓸 수 없으면 창고 패널을 보이지 않는다.
+    if (StashPanel) { StashPanel->SetVisibility(bStashAccessible ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed); }
     RefreshBagEquipment();
 }
 
 void UInventoryScreenWidget::NativeOnActivated()
 {
     Super::NativeOnActivated();
-    if (!ensure(Model && LeftGrid && RightGrid && CloseButton && SortLeftButton && SortRightButton)) { DeactivateWidget(); return; }
+    if (!ensure(Model && LeftGrid && RightGrid && CloseButton && SortLeftButton && SortRightButton && StoreAllButton)) { DeactivateWidget(); return; }
     if (!LeftVM) { LeftVM = NewObject<UContainerViewModel>(this); }
     if (!RightVM) { RightVM = NewObject<UContainerViewModel>(this); }
     if (!Interaction) { Interaction = NewObject<UInteractionViewModel>(this); }
@@ -118,6 +122,7 @@ void UInventoryScreenWidget::NativeOnActivated()
     CloseButton->OnClicked.AddUniqueDynamic(this, &ThisClass::Close);
     SortLeftButton->OnClicked.AddUniqueDynamic(this, &ThisClass::SortLeft);
     SortRightButton->OnClicked.AddUniqueDynamic(this, &ThisClass::SortRight);
+    StoreAllButton->OnClicked.AddUniqueDynamic(this, &ThisClass::StoreAllInStash);
     if (APlayerController* Owner = GetOwningPlayer()) { CloseButton->SetUserFocus(Owner); }
 }
 
@@ -151,6 +156,7 @@ void UInventoryScreenWidget::NativeOnDeactivated()
     if (CloseButton) { CloseButton->OnClicked.RemoveDynamic(this, &ThisClass::Close); }
     if (SortLeftButton) { SortLeftButton->OnClicked.RemoveDynamic(this, &ThisClass::SortLeft); }
     if (SortRightButton) { SortRightButton->OnClicked.RemoveDynamic(this, &ThisClass::SortRight); }
+    if (StoreAllButton) { StoreAllButton->OnClicked.RemoveDynamic(this, &ThisClass::StoreAllInStash); }
     Super::NativeOnDeactivated();
 }
 
@@ -337,6 +343,8 @@ void UInventoryScreenWidget::OnDragStateChanged(UObject*, UE::FieldNotification:
 void UInventoryScreenWidget::RefreshDragView()
 {
     RefreshBagEquipment();
+    // 가방 장착처럼 끄는 중이나 분할창이 열린 동안에는 전부 보관을 막는다.
+    if (StoreAllButton) { StoreAllButton->SetIsEnabled(bStashAccessible && !IsInventoryInteractionBlocked()); }
     if (LeftGrid) { LeftGrid->HidePreview(); }
     if (RightGrid) { RightGrid->HidePreview(); }
     if (!Interaction) { return; }
@@ -444,6 +452,7 @@ bool UInventoryScreenWidget::OpenSplitDialog(FName Source, UItemViewModel* Item)
     CloseButton->SetIsEnabled(false);
     SortLeftButton->SetIsEnabled(false);
     SortRightButton->SetIsEnabled(false);
+    StoreAllButton->SetIsEnabled(false);
     RefreshBagEquipment();
     if (APlayerController* Owner = GetOwningPlayer()) { SplitQuantityInput->SetUserFocus(Owner); }
     return true;
@@ -463,6 +472,7 @@ void UInventoryScreenWidget::CloseSplitDialog()
     if (CloseButton) { CloseButton->SetIsEnabled(true); }
     if (SortLeftButton) { SortLeftButton->SetIsEnabled(bStashAccessible); }
     if (SortRightButton) { SortRightButton->SetIsEnabled(true); }
+    if (StoreAllButton) { StoreAllButton->SetIsEnabled(bStashAccessible); }
     RefreshBagEquipment();
     if (IsActivated() && CloseButton)
     {
@@ -547,6 +557,14 @@ void UInventoryScreenWidget::Close() { DeactivateWidget(); }
 void UInventoryScreenWidget::SortLeft() { if (bStashAccessible && Interaction && !SplitSourceItem.IsValid()) { Interaction->Sort(TEXT("Stash")); } }
 void UInventoryScreenWidget::SortRight() { if (Interaction && !SplitSourceItem.IsValid()) { Interaction->Sort(TEXT("Bag")); } }
 
+void UInventoryScreenWidget::StoreAllInStash()
+{
+    // 비활성 button delegate를 직접 실행해도 레이드·modal 차단을 우회하지 않는다.
+    if (!bStashAccessible || !Interaction || SplitSourceItem.IsValid()) { return; }
+    Interaction->TransferAll(TEXT("Bag"), TEXT("Stash"));
+    if (FailureText) { FailureText->SetText(Interaction->GetFailureText()); }
+}
+
 void UInventoryScreenWidget::CreateBagEquipmentPanel()
 {
     if (BagEquipmentPanel) { return; }
@@ -556,18 +574,26 @@ void UInventoryScreenWidget::CreateBagEquipmentPanel()
     BagEquipmentPanel = Panel;
     Panel->SetBrushColor(FLinearColor(0.08f, 0.13f, 0.19f, 0.98f));
     Panel->SetPadding(FMargin(12.f, 8.f));
-    UCanvasPanelSlot* GearSlot = Root->AddChildToCanvas(Panel);
-    GearSlot->SetAnchors(FAnchors(0.5f));
-    GearSlot->SetAlignment(FVector2D(0.5f, 0.f));
-    GearSlot->SetPosition(FVector2D(0.f, -255.f));
-    GearSlot->SetSize(FVector2D(660.f, 70.f));
-    GearSlot->SetZOrder(50);
+    if (EquipmentSlot)
+    {
+        // 원작처럼 캐릭터 패널의 "장비" 아래에 둔다.
+        EquipmentSlot->AddChild(Panel);
+    }
+    else
+    {
+        UCanvasPanelSlot* GearSlot = Root->AddChildToCanvas(Panel);
+        GearSlot->SetAnchors(FAnchors(0.5f));
+        GearSlot->SetAlignment(FVector2D(0.5f, 0.f));
+        GearSlot->SetPosition(FVector2D(0.f, -255.f));
+        GearSlot->SetSize(FVector2D(660.f, 70.f));
+        GearSlot->SetZOrder(50);
+    }
     UVerticalBox* Content = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("BagEquipmentContent"));
     Panel->AddChild(Content);
     BagEquipmentText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("BagEquipmentText"));
     BagEquipmentText->SetColorAndOpacity(FSlateColor(FLinearColor::White));
     FSlateFontInfo GearFont = BagEquipmentText->GetFont();
-    GearFont.Size = 18;
+    GearFont.Size = 15;
     BagEquipmentText->SetFont(GearFont);
     Content->AddChild(BagEquipmentText);
     UHorizontalBox* Actions = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("BagEquipmentActions"));
@@ -578,7 +604,7 @@ void UInventoryScreenWidget::CreateBagEquipmentPanel()
         UTextBlock* Label = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
         Label->SetText(Text);
         FSlateFontInfo LabelFont = Label->GetFont();
-        LabelFont.Size = 18;
+        LabelFont.Size = 15;
         Label->SetFont(LabelFont);
         Button->AddChild(Label);
         Actions->AddChild(Button);

@@ -65,7 +65,7 @@ void ADuckovPlayerController::BeginPlay()
     Hud = CreateWidget<UGameHudWidget>(this, UGameHudWidget::StaticClass());
     RootLayout->AddHudElement(Hud);
     // 두 맵이 같은 GameMode를 쓰므로 장소 이름은 맵으로 정한다.
-    const bool bInRaid = UWorld::RemovePIEPrefix(GetWorld()->GetMapName()) == FPackageName::GetShortName(DuckovFlow::RaidMap);
+    bInRaid = UWorld::RemovePIEPrefix(GetWorld()->GetMapName()) == FPackageName::GetShortName(DuckovFlow::RaidMap);
     Hud->SetLocation(bInRaid ? NSLOCTEXT("DuckovFlow", "RaidZone", "레이드 구역") : NSLOCTEXT("DuckovFlow", "Base", "기지"));
     // 레이드에서 돌아온 직후라면 탈출 결과를 한 번 알린다.
     if (const TOptional<EInventoryOperationFailure> Result = Session->ConsumeExtractionResult())
@@ -207,7 +207,7 @@ void ADuckovPlayerController::StartTravel(FName Map)
 void ADuckovPlayerController::ToggleInventory()
 {
     if (Screen && Screen->IsActivated()) { Screen->DeactivateWidget(); return; }
-    OpenInventory(false);
+    OpenInventory(!bInRaid);
 }
 
 void ADuckovPlayerController::OpenInventory(bool bStashAccessible)
