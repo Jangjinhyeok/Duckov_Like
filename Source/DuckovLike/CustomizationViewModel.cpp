@@ -18,7 +18,7 @@ void UCustomizationViewModel::Bind(UCustomizationModel* InModel, UCustomizationA
     ChangedHandle.Reset();
     Model = InModel;
     Appearance = InAppearance;
-    LastFailure = ECustomizationFailure::None;
+    LastFailure = FCustomizationFailureDetail();
     if (Model) { ChangedHandle = Model->OnChanged().AddUObject(this, &ThisClass::OnModelChanged); }
 }
 
@@ -29,9 +29,16 @@ ECustomizationFailure UCustomizationViewModel::Present(const FCustomizationProfi
 
 ECustomizationFailure UCustomizationViewModel::Report(ECustomizationFailure Result)
 {
-    if (LastFailure != Result)
+    // 실패한 슬롯은 데이터 검사(Model)나 표시 준비(Appearance)가 알고 있다. 같은 사유일 때만 가져온다.
+    FCustomizationFailureDetail Detail = FCustomizationFailureDetail::Of(Result);
+    if (Result != ECustomizationFailure::None)
     {
-        LastFailure = Result;
+        if (Model && Model->GetLastFailure().Reason == Result) { Detail = Model->GetLastFailure(); }
+        if (!Detail.bHasSlot && IsValid(Appearance) && Appearance->GetLastFailure().Reason == Result) { Detail = Appearance->GetLastFailure(); }
+    }
+    if (LastFailure != Detail)
+    {
+        LastFailure = Detail;
         UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetFailureText);
     }
     return Result;
@@ -52,9 +59,14 @@ ECustomizationFailure UCustomizationViewModel::Open()
 
 ECustomizationFailure UCustomizationViewModel::SelectPart(FName PartId)
 {
+    return SelectSlotPart(ECustomizationSlot::Crest, PartId);
+}
+
+ECustomizationFailure UCustomizationViewModel::SelectSlotPart(ECustomizationSlot Slot, FName PartId)
+{
     if (!Model) { return Report(ECustomizationFailure::NotEditing); }
     FCustomizationProfile Candidate = Model->GetDraft();
-    Candidate.PartId = PartId;
+    Candidate.SetSlotPartId(Slot, PartId);
     return Report(Model->TryEdit(Candidate, [this](const auto& Value) { return Present(Value); }));
 }
 
@@ -114,6 +126,9 @@ ECustomizationFailure UCustomizationViewModel::Cancel()
 }
 
 FName UCustomizationViewModel::GetPartId() const { return Model ? Model->GetDraft().PartId : NAME_None; }
+FName UCustomizationViewModel::GetEyewearId() const { return Model ? Model->GetDraft().EyewearId : NAME_None; }
+FName UCustomizationViewModel::GetBeakWearId() const { return Model ? Model->GetDraft().BeakWearId : NAME_None; }
+FName UCustomizationViewModel::GetSlotPartId(ECustomizationSlot Slot) const { return Model ? Model->GetDraft().GetSlotPartId(Slot) : NAME_None; }
 float UCustomizationViewModel::GetHue() const { return Model ? Model->GetDraft().Hue : 0.12f; }
 float UCustomizationViewModel::GetShape() const { return Model ? Model->GetDraft().Shape : 0.f; }
 float UCustomizationViewModel::GetEyeSize() const { return Model ? Model->GetDraft().EyeSize : 0.f; }
@@ -137,6 +152,8 @@ void UCustomizationViewModel::OnModelChanged()
     };
     TGuardValue<bool> Guard(bNotifying, true);
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetPartId);
+    UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetEyewearId);
+    UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetBeakWearId);
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetHue);
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetShape);
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetEyeSize);

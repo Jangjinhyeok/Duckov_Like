@@ -16,6 +16,9 @@ public:
     const FCustomizationProfile& GetDraft() const { return Draft; }
     bool IsEditing() const { return bEditing; }
     FOnCustomizationChanged& OnChanged() { return Changed; }
+    // 마지막 변경 시도의 데이터 검사 결과다. 어느 슬롯의 어떤 파츠가 거부됐는지 알려 준다.
+    // 표시 callback의 실패는 슬롯을 알 수 없으므로 슬롯 없는 사유만 담는다.
+    const FCustomizationFailureDetail& GetLastFailure() const { return LastFailure; }
 
     // callback은 표시 준비와 교체를 완료한 경우에만 None을 반환한다.
     ECustomizationFailure BeginEdit(TFunctionRef<ECustomizationFailure(const FCustomizationProfile&)> Present);
@@ -34,6 +37,7 @@ private:
 
     bool bEditing = false;
     bool bChanging = false;
+    FCustomizationFailureDetail LastFailure;
     FOnCustomizationChanged Changed;
 
     ECustomizationFailure Change(const FCustomizationProfile& Candidate, bool bNextEditing, bool bCommit,

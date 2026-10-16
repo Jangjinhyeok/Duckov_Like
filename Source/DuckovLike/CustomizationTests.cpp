@@ -97,7 +97,10 @@ bool FCustomizationModelAtomicity::RunTest(const FString& Parameters)
     };
     Add(ECustomizationFailure::UnknownPart).PartId = TEXT("Unknown");
     Add(ECustomizationFailure::RequiredPartMissing).PartId = NAME_None;
-    Add(ECustomizationFailure::InvalidKind).Kind = static_cast<ECustomizationPartKind>(99);
+    // 슬롯이 하나였을 때의 Kind 검사를 대체한다. 다른 슬롯의 파츠를 가리키면 슬롯 불일치다.
+    Add(ECustomizationFailure::SlotMismatch).EyewearId = TEXT("A");
+    Add(ECustomizationFailure::SlotMismatch).PartId = TEXT("RoundGlasses");
+    Add(ECustomizationFailure::UnknownPart).BeakWearId = TEXT("Unknown");
     Add(ECustomizationFailure::InvalidNumber).Hue = std::numeric_limits<float>::quiet_NaN();
     Add(ECustomizationFailure::InvalidNumber).Shape = std::numeric_limits<float>::infinity();
     Add(ECustomizationFailure::InvalidNumber).EyeSize = std::numeric_limits<float>::quiet_NaN();

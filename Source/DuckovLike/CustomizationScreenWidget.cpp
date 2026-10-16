@@ -1,5 +1,6 @@
 #include "CustomizationScreenWidget.h"
 
+#include "CustomizationCatalog.h"
 #include "CustomizationModel.h"
 #include "CustomizationViewModel.h"
 #include "CustomizationPreviewActor.h"
@@ -14,6 +15,8 @@
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
 #include "Components/SizeBox.h"
+#include "Components/ScrollBox.h"
+#include "Components/ScrollBoxSlot.h"
 #include "Components/Slider.h"
 #include "Components/TextBlock.h"
 #include "Components/Image.h"
@@ -42,9 +45,10 @@ UTextBlock* MakeText(UWidgetTree& Tree, FName Name, const FText& Text, int32 Siz
 }
 
 // 흰 둥근 brush에 SetBackgroundColor로 색을 입힌다. 선택 표시를 색만 바꿔 보이기 위해서다.
-UButton* MakeButton(UWidgetTree& Tree, FName Name, const FText& Text, const FLinearColor& Color, int32 FontSize, const FMargin& Padding)
+UButton* MakeButton(UWidgetTree& Tree, FName Name, const FText& Text, const FLinearColor& Color, int32 FontSize, const FMargin& Padding,
+    TSubclassOf<UButton> ButtonClass = UButton::StaticClass())
 {
-    auto* Button = Tree.ConstructWidget<UButton>(UButton::StaticClass(), Name);
+    auto* Button = Tree.ConstructWidget<UButton>(ButtonClass, Name);
     const float Radius = FontSize * 1.2f;
     FButtonStyle Style = Button->GetStyle();
     Style.SetNormal(FSlateRoundedBoxBrush(FLinearColor::White, Radius));
@@ -68,6 +72,15 @@ UBorder* MakePanel(UWidgetTree& Tree, FName Name, float Alpha)
     return Panel;
 }
 }
+
+void UCustomizationPartButton::Setup(ECustomizationSlot InSlot, FName InPartId)
+{
+    PartSlot = InSlot;
+    PartId = InPartId;
+    OnClicked.AddUniqueDynamic(this, &UCustomizationPartButton::Forward);
+}
+
+void UCustomizationPartButton::Forward() { Picked.Broadcast(*this); }
 
 UCustomizationScreenWidget::UCustomizationScreenWidget(const FObjectInitializer& Initializer)
     : Super(Initializer)
@@ -168,19 +181,45 @@ void UCustomizationScreenWidget::NativeOnInitialized()
         return Slider;
     };
 
+    // 슬롯의 선택지를 카탈로그 row 순서대로 한 줄에 만든다. 코드에는 파츠 ID나 이름이 없다.
+    // 선택 슬롯은 맨 앞에 "없음"을 둔다. 첫 버튼은 왼쪽 키로 탭에 돌아간다.
+    const FCustomizationCatalog Catalog = FCustomizationCatalog::LoadDefault();
+    auto AddPartRow = [&](ECustomizationSlot SlotKind, const FText& Title, const TCHAR* Prefix, bool bFirstControl)
+    {
+        Page->AddChildToVerticalBox(MakeText(Tree, NAME_None, Title, 16))->SetPadding(FMargin(0.f, 10.f, 0.f, 0.f));
+        // 선택지가 늘어도 같은 높이 안에서 스크롤되는 세로 목록이다.
+        auto* ListSize = Tree.ConstructWidget<USizeBox>();
+        ListSize->SetMaxDesiredHeight(176.f);
+        Page->AddChildToVerticalBox(ListSize)->SetPadding(FMargin(0.f, 6.f, 0.f, 0.f));
+        auto* Row = Tree.ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), FName(*(FString(Prefix) + TEXT("List"))));
+        ListSize->AddChild(Row);
+        bool bFirst = true;
+        auto AddChoice = [&](FName PartId, const FText& Label)
+        {
+            const FName Name(*(FString(Prefix) + (PartId.IsNone() ? TEXT("None") : *PartId.ToString())));
+            auto* Button = CastChecked<UCustomizationPartButton>(MakeButton(Tree, Name, Label, TabColor, 16, FMargin(12.f, 8.f),
+                UCustomizationPartButton::StaticClass()));
+            Button->Setup(SlotKind, PartId);
+            Button->OnPicked().AddUObject(this, &ThisClass::HandlePartPicked);
+            Cast<UScrollBoxSlot>(Row->AddChild(Button))->SetPadding(FMargin(0.f, 0.f, 0.f, 6.f));
+            // 세로 목록이므로 모든 항목에서 왼쪽 키로 탭에 돌아간다.
+            Button->SetNavigationRuleCustom(EUINavigation::Left, Navigate(GET_FUNCTION_NAME_CHECKED(ThisClass, NavigateToTab)));
+            if (bFirst)
+            {
+                bFirst = false;
+                if (bFirstControl) { AddFirstControl(Button); FirstCrestButton = Button; }
+            }
+            PartButtons.Add(Button);
+        };
+        if (!IsCustomizationSlotRequired(SlotKind)) { AddChoice(NAME_None, NSLOCTEXT("Customization", "NoPart", "없음")); }
+        for (const FName PartId : Catalog.GetPartIds(SlotKind))
+        {
+            AddChoice(PartId, Catalog.Find(PartId)->DisplayName);
+        }
+    };
+
     AddTab(TEXT("HeadTab"), NSLOCTEXT("Customization", "HeadTab", "머리"))->OnClicked.AddUniqueDynamic(this, &ThisClass::ShowHeadTab);
-    Page->AddChildToVerticalBox(MakeText(Tree, NAME_None, NSLOCTEXT("Customization", "CrestType", "깃 유형"), 16));
-    auto* PartRow = Tree.ConstructWidget<UHorizontalBox>();
-    Page->AddChildToVerticalBox(PartRow)->SetPadding(FMargin(0.f, 6.f, 0.f, 0.f));
-    PartA = MakeButton(Tree, TEXT("PartA"), NSLOCTEXT("Customization", "A", "A · 세 갈래 깃"), TabColor, 16, FMargin(12.f, 8.f));
-    PartB = MakeButton(Tree, TEXT("PartB"), NSLOCTEXT("Customization", "B", "B · 두 갈래 깃"), TabColor, 16, FMargin(12.f, 8.f));
-    PartRow->AddChildToHorizontalBox(PartA)->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-    PartRow->AddChildToHorizontalBox(PartB)->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-    Cast<UHorizontalBoxSlot>(PartA->Slot)->SetPadding(FMargin(0.f, 0.f, 6.f, 0.f));
-    AddFirstControl(PartA);
-    PartA->SetNavigationRuleCustom(EUINavigation::Left, Navigate(GET_FUNCTION_NAME_CHECKED(ThisClass, NavigateToTab)));
-    PartA->OnClicked.AddUniqueDynamic(this, &ThisClass::SelectA);
-    PartB->OnClicked.AddUniqueDynamic(this, &ThisClass::SelectB);
+    AddPartRow(ECustomizationSlot::Crest, NSLOCTEXT("Customization", "CrestType", "깃 유형"), TEXT("Part"), true);
     ShapeSlider = AddSlider(TEXT("ShapeSlider"), NSLOCTEXT("Customization", "CrestShape", "깃 모양"), -1.f, 1.f);
     ShapeSlider->OnValueChanged.AddUniqueDynamic(this, &ThisClass::ChangeShape);
     HueSlider = AddSlider(TEXT("HueSlider"), NSLOCTEXT("Customization", "Hue", "깃털 색"), 0.f, 1.f);
@@ -189,9 +228,11 @@ void UCustomizationScreenWidget::NativeOnInitialized()
     AddTab(TEXT("EyeTab"), NSLOCTEXT("Customization", "EyeTab", "눈"))->OnClicked.AddUniqueDynamic(this, &ThisClass::ShowEyeTab);
     EyeSizeSlider = AddSlider(TEXT("EyeSizeSlider"), NSLOCTEXT("Customization", "EyeSize", "크기 · 작게 ↔ 크게"), -1.f, 1.f);
     EyeSizeSlider->OnValueChanged.AddUniqueDynamic(this, &ThisClass::ChangeEyeSize);
+    AddPartRow(ECustomizationSlot::Eyewear, NSLOCTEXT("Customization", "EyewearType", "눈 장식"), TEXT("Eyewear"), false);
     AddTab(TEXT("BeakTab"), NSLOCTEXT("Customization", "BeakTab", "부리"))->OnClicked.AddUniqueDynamic(this, &ThisClass::ShowBeakTab);
     BeakLengthSlider = AddSlider(TEXT("BeakLengthSlider"), NSLOCTEXT("Customization", "BeakLength", "길이 · 짧게 ↔ 길게"), -1.f, 1.f);
     BeakLengthSlider->OnValueChanged.AddUniqueDynamic(this, &ThisClass::ChangeBeakLength);
+    AddPartRow(ECustomizationSlot::Beak, NSLOCTEXT("Customization", "BeakWearType", "부리 장식"), TEXT("BeakWear"), false);
     AddTab(TEXT("BodyTab"), NSLOCTEXT("Customization", "BodyTab", "몸통"))->OnClicked.AddUniqueDynamic(this, &ThisClass::ShowBodyTab);
     BodyLengthSlider = AddSlider(TEXT("BodyLengthSlider"), NSLOCTEXT("Customization", "BodyLength", "앞뒤 길이 · 짧게 ↔ 길게"), -1.f, 1.f);
     BodyLengthSlider->OnValueChanged.AddUniqueDynamic(this, &ThisClass::ChangeBodyLength);
@@ -270,7 +311,7 @@ void UCustomizationScreenWidget::NativeOnActivated()
         INotifyFieldValueChanged::FFieldValueChangedDelegate::CreateUObject(this, &ThisClass::OnFailureChanged));
     ViewModel->Open();
     Refresh();
-    if (GetOwningPlayer()) { PartA->SetUserFocus(GetOwningPlayer()); }
+    if (GetOwningPlayer() && FirstCrestButton) { FirstCrestButton->SetUserFocus(GetOwningPlayer()); }
 }
 
 void UCustomizationScreenWidget::SelectTab(int32 Index)
@@ -296,15 +337,16 @@ void UCustomizationScreenWidget::Refresh()
     if (!ViewModel) { return; }
     TGuardValue<bool> Guard(bSynchronizing, true);
     const bool bEditing = Model && Model->IsEditing();
-    PartA->SetIsEnabled(bEditing);
-    PartB->SetIsEnabled(bEditing);
+    for (UCustomizationPartButton* Button : PartButtons)
+    {
+        Button->SetIsEnabled(bEditing);
+        Button->SetBackgroundColor(ViewModel->GetSlotPartId(Button->GetPartSlot()) == Button->GetPartId() ? SelectedPartColor : TabColor);
+    }
     HueSlider->SetIsEnabled(bEditing);
     ShapeSlider->SetIsEnabled(bEditing);
     EyeSizeSlider->SetIsEnabled(bEditing);
     BeakLengthSlider->SetIsEnabled(bEditing);
     BodyLengthSlider->SetIsEnabled(bEditing);
-    PartA->SetBackgroundColor(ViewModel->GetPartId() == TEXT("A") ? SelectedPartColor : TabColor);
-    PartB->SetBackgroundColor(ViewModel->GetPartId() == TEXT("B") ? SelectedPartColor : TabColor);
     HueSlider->SetValue(ViewModel->GetHue());
     ShapeSlider->SetValue(ViewModel->GetShape());
     EyeSizeSlider->SetValue(ViewModel->GetEyeSize());
@@ -327,8 +369,10 @@ void UCustomizationScreenWidget::OnFailureChanged(UObject*, UE::FieldNotificatio
 {
     FailureText->SetText(ViewModel->GetFailureText());
 }
-void UCustomizationScreenWidget::SelectA() { if (ViewModel) { ViewModel->SelectPart(TEXT("A")); } }
-void UCustomizationScreenWidget::SelectB() { if (ViewModel) { ViewModel->SelectPart(TEXT("B")); } }
+void UCustomizationScreenWidget::HandlePartPicked(UCustomizationPartButton& Button)
+{
+    if (ViewModel) { ViewModel->SelectSlotPart(Button.GetPartSlot(), Button.GetPartId()); }
+}
 // Slider는 delegate 전에 자체 값을 바꾼다. 같은 실패가 반복돼도 Model의 정상 값으로 되돌린다.
 void UCustomizationScreenWidget::ChangeHue(float Value)
 {
@@ -375,7 +419,7 @@ void UCustomizationScreenWidget::Cancel()
     }
 }
 bool UCustomizationScreenWidget::NativeOnHandleBackAction() { Cancel(); return true; }
-UWidget* UCustomizationScreenWidget::NativeGetDesiredFocusTarget() const { return PartA; }
+UWidget* UCustomizationScreenWidget::NativeGetDesiredFocusTarget() const { return FirstCrestButton; }
 TOptional<FUIInputConfig> UCustomizationScreenWidget::GetDesiredInputConfig() const
 {
     return FUIInputConfig(ECommonInputMode::Menu, EMouseCaptureMode::NoCapture);

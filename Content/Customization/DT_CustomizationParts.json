@@ -1,0 +1,32 @@
+[
+	{
+		"Name": "A",
+		"Slot": "Crest",
+		"DisplayName": "A · 세 갈래 깃",
+		"Resources": "(MeshKind=Skeletal,Mesh=\"/Game/Customization/Prototype/SK_CustomizationPartA.SK_CustomizationPartA\",ExpectedSkeleton=\"/Game/Customization/Prototype/SK_CustomizationBody_Skeleton.SK_CustomizationBody_Skeleton\",Material=\"/Game/Customization/Prototype/M_CustomizationColor.M_CustomizationColor\",MaterialSlot=0,ColorParameter=\"Color\",Morph=\"Shape\",MaskParameter=\"\",Mask=None,bMaskRequired=False)"
+	},
+	{
+		"Name": "B",
+		"Slot": "Crest",
+		"DisplayName": "B · 두 갈래 깃",
+		"Resources": "(MeshKind=Skeletal,Mesh=\"/Game/Customization/Prototype/SK_CustomizationPartB.SK_CustomizationPartB\",ExpectedSkeleton=\"/Game/Customization/Prototype/SK_CustomizationBody_Skeleton.SK_CustomizationBody_Skeleton\",Material=\"/Game/Customization/Prototype/M_CustomizationColor.M_CustomizationColor\",MaterialSlot=0,ColorParameter=\"Color\",Morph=\"Shape\",MaskParameter=\"\",Mask=None,bMaskRequired=False)"
+	},
+	{
+		"Name": "C",
+		"Slot": "Crest",
+		"DisplayName": "C · 한 갈래 깃",
+		"Resources": "(MeshKind=Skeletal,Mesh=\"/Game/Customization/Prototype/SK_CustomizationPartC.SK_CustomizationPartC\",ExpectedSkeleton=\"/Game/Customization/Prototype/SK_CustomizationBody_Skeleton.SK_CustomizationBody_Skeleton\",Material=\"/Game/Customization/Prototype/M_CustomizationColor.M_CustomizationColor\",MaterialSlot=0,ColorParameter=\"Color\",Morph=\"Shape\",MaskParameter=\"\",Mask=None,bMaskRequired=False)"
+	},
+	{
+		"Name": "RoundGlasses",
+		"Slot": "Eyewear",
+		"DisplayName": "둥근 안경",
+		"Resources": "(MeshKind=Skeletal,Mesh=\"/Game/Customization/Prototype/SK_CustomizationRoundGlasses.SK_CustomizationRoundGlasses\",ExpectedSkeleton=\"/Game/Customization/Prototype/SK_CustomizationBody_Skeleton.SK_CustomizationBody_Skeleton\",Material=\"/Game/Customization/Prototype/M_PrototypeEye.M_PrototypeEye\",MaterialSlot=0,ColorParameter=\"\",Morph=\"\",MaskParameter=\"\",Mask=None,bMaskRequired=False)"
+	},
+	{
+		"Name": "BeakRing",
+		"Slot": "Beak",
+		"DisplayName": "부리 고리",
+		"Resources": "(MeshKind=Skeletal,Mesh=\"/Game/Customization/Prototype/SK_CustomizationBeakRing.SK_CustomizationBeakRing\",ExpectedSkeleton=\"/Game/Customization/Prototype/SK_CustomizationBody_Skeleton.SK_CustomizationBody_Skeleton\",Material=\"/Game/Customization/Prototype/M_CustomizationColor.M_CustomizationColor\",MaterialSlot=0,ColorParameter=\"Color\",Morph=\"\",MaskParameter=\"\",Mask=None,bMaskRequired=False)"
+	}
+]

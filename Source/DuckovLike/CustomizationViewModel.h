@@ -15,7 +15,9 @@ class DUCKOVLIKE_API UCustomizationViewModel : public UMVVMViewModelBase
 public:
     void Bind(UCustomizationModel* InModel, UCustomizationAppearanceComponent* InAppearance);
     ECustomizationFailure Open();
+    // Crest 슬롯 선택이다. 슬롯별 선택은 SelectSlotPart를 쓴다.
     ECustomizationFailure SelectPart(FName PartId);
+    ECustomizationFailure SelectSlotPart(ECustomizationSlot Slot, FName PartId);
     ECustomizationFailure SetHue(float Value);
     ECustomizationFailure SetShape(float Value);
     ECustomizationFailure SetEyeSize(float Value);
@@ -26,6 +28,11 @@ public:
     ECustomizationFailure Cancel();
     UFUNCTION(BlueprintPure, FieldNotify, Category="Customization")
     FName GetPartId() const;
+    UFUNCTION(BlueprintPure, FieldNotify, Category="Customization")
+    FName GetEyewearId() const;
+    UFUNCTION(BlueprintPure, FieldNotify, Category="Customization")
+    FName GetBeakWearId() const;
+    FName GetSlotPartId(ECustomizationSlot Slot) const;
     UFUNCTION(BlueprintPure, FieldNotify, Category="Customization")
     float GetHue() const;
     UFUNCTION(BlueprintPure, FieldNotify, Category="Customization")
@@ -50,7 +57,7 @@ private:
     TObjectPtr<UCustomizationAppearanceComponent> PendingAppearance;
     bool bNotifying = false;
     bool bPendingBind = false;
-    ECustomizationFailure LastFailure = ECustomizationFailure::None;
+    FCustomizationFailureDetail LastFailure;
     FDelegateHandle ChangedHandle;
     ECustomizationFailure Present(const FCustomizationProfile& Candidate);
     ECustomizationFailure Report(ECustomizationFailure Result);

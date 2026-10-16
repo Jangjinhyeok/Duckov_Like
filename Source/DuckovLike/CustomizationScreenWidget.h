@@ -2,17 +2,38 @@
 
 #include "CoreMinimal.h"
 #include "CommonActivatableWidget.h"
+#include "Components/Button.h"
+#include "CustomizationTypes.h"
 #include "CustomizationScreenWidget.generated.h"
 
 class UCustomizationModel;
 class UCustomizationViewModel;
 class ACustomizationPreviewActor;
-class UButton;
 class USlider;
 class UImage;
 class UTextBlock;
 class UWidget;
 class UWidgetSwitcher;
+
+// 카탈로그 row 하나를 고르는 버튼이다. 어느 슬롯의 어느 파츠인지 스스로 알고 클릭을 알린다.
+UCLASS()
+class DUCKOVLIKE_API UCustomizationPartButton : public UButton
+{
+    GENERATED_BODY()
+public:
+    DECLARE_EVENT_OneParam(UCustomizationPartButton, FOnPicked, UCustomizationPartButton&);
+    FOnPicked& OnPicked() { return Picked; }
+    // 슬롯과 파츠 ID를 정하고 클릭 delegate를 연결한다. PartId가 None이면 "없음" 선택이다.
+    void Setup(ECustomizationSlot InSlot, FName InPartId);
+    ECustomizationSlot GetPartSlot() const { return PartSlot; }
+    FName GetPartId() const { return PartId; }
+private:
+    ECustomizationSlot PartSlot = ECustomizationSlot::Crest;
+    FName PartId;
+    FOnPicked Picked;
+    UFUNCTION()
+    void Forward();
+};
 
 UCLASS(meta=(DisableNativeTick))
 class DUCKOVLIKE_API UCustomizationScreenWidget : public UCommonActivatableWidget
@@ -41,10 +62,11 @@ private:
     TObjectPtr<UCustomizationViewModel> ViewModel;
     UPROPERTY(Transient)
     TObjectPtr<ACustomizationPreviewActor> Preview;
+    // 카탈로그 row마다 만든 파츠 선택 버튼이다. 선택 슬롯에는 "없음" 버튼이 하나 더 있다.
     UPROPERTY(Transient)
-    TObjectPtr<UButton> PartA;
+    TArray<TObjectPtr<UCustomizationPartButton>> PartButtons;
     UPROPERTY(Transient)
-    TObjectPtr<UButton> PartB;
+    TObjectPtr<UButton> FirstCrestButton;
     UPROPERTY(Transient)
     TObjectPtr<USlider> HueSlider;
     UPROPERTY(Transient)
@@ -96,10 +118,7 @@ private:
     UWidget* NavigateToTab(EUINavigation Direction);
     UFUNCTION()
     UWidget* NavigateToControls(EUINavigation Direction);
-    UFUNCTION()
-    void SelectA();
-    UFUNCTION()
-    void SelectB();
+    void HandlePartPicked(UCustomizationPartButton& Button);
     UFUNCTION()
     void ChangeHue(float Value);
     UFUNCTION()
