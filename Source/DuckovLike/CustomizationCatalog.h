@@ -14,6 +14,20 @@ enum class ECustomizationMeshKind : uint8
     Skeletal
 };
 
+// body Morph가 weight 1일 때 파츠를 옮길 거리(cm, component 공간)다. Morph는 정점만 움직이고 bone은 그대로라
+// 같은 Skeleton에 붙은 장식은 따라가지 않는다. 적용 위치는 현재 weight × Offset의 합이다(Morph와 같은 선형 보간).
+USTRUCT()
+struct DUCKOVLIKE_API FCustomizationMorphFollow
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere)
+    FName BodyMorph;
+
+    UPROPERTY(EditAnywhere)
+    FVector Offset = FVector::ZeroVector;
+};
+
 // Profile과 별개인 적용 리소스 계약이다. 카탈로그 row와 자동 검사 대역이 같은 구조를 쓴다.
 USTRUCT()
 struct DUCKOVLIKE_API FCustomizationPartResources
@@ -52,6 +66,10 @@ struct DUCKOVLIKE_API FCustomizationPartResources
 
     UPROPERTY(EditAnywhere)
     bool bMaskRequired = false;
+
+    // 이 파츠가 따라갈 body Morph다. 비어 있으면 body Morph와 무관하게 원점에 둔다.
+    UPROPERTY(EditAnywhere)
+    TArray<FCustomizationMorphFollow> FollowBodyMorphs;
 };
 
 // 파츠 카탈로그의 한 행이다. RowName이 파츠 ID(Profile이 참조하는 값)다.

@@ -27,6 +27,6 @@
 		"Name": "BeakRing",
 		"Slot": "Beak",
 		"DisplayName": "부리 고리",
-		"Resources": "(MeshKind=Skeletal,Mesh=\"/Game/Customization/Prototype/SK_CustomizationBeakRing.SK_CustomizationBeakRing\",ExpectedSkeleton=\"/Game/Customization/Prototype/SK_CustomizationBody_Skeleton.SK_CustomizationBody_Skeleton\",Material=\"/Game/Customization/Prototype/M_CustomizationColor.M_CustomizationColor\",MaterialSlot=0,ColorParameter=\"Color\",Morph=\"\",MaskParameter=\"\",Mask=None,bMaskRequired=False)"
+		"Resources": "(MeshKind=Skeletal,Mesh=\"/Game/Customization/Prototype/SK_CustomizationBeakRing.SK_CustomizationBeakRing\",ExpectedSkeleton=\"/Game/Customization/Prototype/SK_CustomizationBody_Skeleton.SK_CustomizationBody_Skeleton\",Material=\"/Game/Customization/Prototype/M_CustomizationColor.M_CustomizationColor\",MaterialSlot=0,ColorParameter=\"Color\",Morph=\"\",MaskParameter=\"\",Mask=None,bMaskRequired=False,FollowBodyMorphs=((BodyMorph=\"BeakShort\",Offset=(X=-5.090000,Y=0.000000,Z=0.000000)),(BodyMorph=\"BeakLong\",Offset=(X=7.270000,Y=0.000000,Z=0.000000))))"
 	}
 ]

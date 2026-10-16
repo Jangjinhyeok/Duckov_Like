@@ -313,7 +313,14 @@ FCustomizationFailureDetail UCustomizationAppearanceComponent::Prepare(const FCu
         const FCustomizationPartResources& Resources = Plan.Resources;
         Plan.MorphWeight = ShapeWeight;
         const FVector Scale = Plan.Loaded.StaticMesh ? FVector(1.0f, 1.0f, 1.0f + 0.35f * Candidate.Shape) : FVector::OneVector;
-        Plan.Transform = FTransform(FQuat::Identity, FVector::ZeroVector, Scale);
+        // body Morph를 따라가는 장식은 같은 weight로 위치를 옮긴다. 이 위치도 준비 후 한 번에 공개된다.
+        FVector Location = FVector::ZeroVector;
+        for (const FCustomizationMorphFollow& Follow : Resources.FollowBodyMorphs)
+        {
+            const int32 MorphIndex = BodyMorphs.Find(Follow.BodyMorph);
+            if (MorphIndex != INDEX_NONE) { Location += Follow.Offset * BodyWeights[MorphIndex]; }
+        }
+        Plan.Transform = FTransform(FQuat::Identity, Location, Scale);
         UMeshComponent* Current = DisplayedMeshes[Plan.Index];
         UMaterialInstanceDynamic* CurrentMID = DisplayedMIDs[Plan.Index];
         const UStaticMeshComponent* CurrentStatic = Cast<UStaticMeshComponent>(Current);
@@ -324,7 +331,7 @@ FCustomizationFailureDetail UCustomizationAppearanceComponent::Prepare(const FCu
                 || (Plan.Loaded.SkeletalMesh && CurrentSkeletal && CurrentSkeletal->GetSkeletalMeshAsset() == Plan.Loaded.SkeletalMesh));
         Plan.bReuse = bSameMesh
             && MatchesMaterial(CurrentMID, Plan.Loaded.Material.Get(), Resources.ColorParameter, Color, Resources.MaskParameter, Plan.Loaded.Mask.Get())
-            && Current->GetRelativeLocation() == FVector::ZeroVector
+            && Current->GetRelativeLocation() == Plan.Transform.GetLocation()
             && Current->GetRelativeScale3D() == Scale
             && Current->GetRelativeTransform().GetRotation() == FQuat::Identity
             && (!CurrentSkeletal || HasPreparedPose(CurrentSkeletal, Plan.GetMorphs(), Plan.GetWeights()));

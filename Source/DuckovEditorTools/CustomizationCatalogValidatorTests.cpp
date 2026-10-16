@@ -89,6 +89,14 @@ bool FCatalogValidator::RunTest(const FString& Parameters)
         {TEXT("필요한 Morph 누락"), TEXT("A"), [](auto& R) { R.Resources.Morph = TEXT("NoSuchMorph"); }, {}, ECustomizationFailure::MissingMorph, ECustomizationSlot::Crest},
         {TEXT("필요한 mask 누락"), TEXT("B"), [](auto& R) { R.Resources.bMaskRequired = true; }, {}, ECustomizationFailure::MissingMask, ECustomizationSlot::Crest},
         {TEXT("mask parameter 누락"), TEXT("B"), [](auto& R) { R.Resources.MaskParameter = TEXT("AbsentMask"); }, {}, ECustomizationFailure::MissingMaskParameter, ECustomizationSlot::Crest},
+        {TEXT("추종 body Morph 이름 오류"), TEXT("BeakRing"), [](auto& R)
+            {
+                FCustomizationMorphFollow Follow;
+                Follow.BodyMorph = TEXT("NoSuchBodyMorph");
+                R.Resources.FollowBodyMorphs.Add(Follow);
+            }, {}, ECustomizationFailure::MissingMorph, ECustomizationSlot::Beak},
+        {TEXT("추종 이동량 무한대"), TEXT("BeakRing"), [](auto& R) { R.Resources.FollowBodyMorphs[0].Offset.X = std::numeric_limits<double>::infinity(); },
+            {}, ECustomizationFailure::InvalidNumber, ECustomizationSlot::Beak},
         {TEXT("색상 parameter 누락"), TEXT("BeakRing"), [](auto& R) { R.Resources.ColorParameter = TEXT("AbsentColor"); }, {}, ECustomizationFailure::MissingColorParameter, ECustomizationSlot::Beak},
         {TEXT("슬롯 불일치(기본 머리 장식이 다른 슬롯)"), TEXT("A"), [](auto& R) { R.Slot = ECustomizationSlot::Eyewear; }, {}, ECustomizationFailure::SlotMismatch, ECustomizationSlot::Crest},
         {TEXT("슬롯 값 오류"), TEXT("RoundGlasses"), [](auto& R) { R.Slot = static_cast<ECustomizationSlot>(99); }, {}, ECustomizationFailure::InvalidKind, ECustomizationSlot::Eyewear, false},

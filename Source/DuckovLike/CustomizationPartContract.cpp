@@ -54,6 +54,11 @@ ECustomizationFailure ValidateCustomizationPartContract(
     {
         return ECustomizationFailure::MissingMesh;
     }
+    for (const FCustomizationMorphFollow& Follow : Resources.FollowBodyMorphs)
+    {
+        if (!TConstArrayView<FName>(BodyMorphs).Contains(Follow.BodyMorph)) { return ECustomizationFailure::MissingMorph; }
+        if (Follow.Offset.ContainsNaN()) { return ECustomizationFailure::InvalidNumber; }
+    }
     // 형상 Morph가 없는 파츠는 Morph를 요구하지 않는다.
     const FName PartMorphs[] = {Resources.Morph};
     const TConstArrayView<FName> RequiredMorphs = Resources.Morph.IsNone() ? TConstArrayView<FName>() : TConstArrayView<FName>(PartMorphs);
