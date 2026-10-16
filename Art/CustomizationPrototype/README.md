@@ -1,7 +1,7 @@
 # C3 최소 시험 에셋
 
 2026-10-04, 사용자 요청의 2번 **제작 단계** 결과다. 정식 캐릭터 제작이나 UE preview 교체를 포함하지 않는다.
-구와 타원체를 조합한 자체 제작 오리 시험 모델이며 외부·회사 mesh/material/texture를 복사하지 않았다.
+구와 타원체를 조합한 자체 제작 오리 시험 모델이며 외부 mesh/material/texture를 복사하지 않았다.
 사용자가 다리 없는 형태를 허용했으므로 발은 몸체에서 떨어져 있다. 연결 다리가 있는 시험본은
 `Saved/Automation/CustomizationAssets/Source_with_legs.blend`에 보존하고 최종 결과에서는 제외했다.
 
