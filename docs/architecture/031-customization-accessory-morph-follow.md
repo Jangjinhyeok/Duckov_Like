@@ -1,5 +1,8 @@
 # 설계결정기록 031 — 장식이 body Morph를 따라가는 데이터 기반 위치 보정
 
+> 2026-10-17 후속: [033](033-customization-fixed-body-part-types.md)에서 안경·부리 고리와 body Morph 여섯 개를 없앴다.
+> 이 문서의 장치(`FollowBodyMorphs`, 접촉 이동 측정)는 그대로 남아 헤어·눈이 머리 모양 Morph를 따르는 데 쓴다. 아래 내용은 당시 기록이다.
+
 | 항목 | 내용 |
 | --- | --- |
 | 상태 | Accepted |

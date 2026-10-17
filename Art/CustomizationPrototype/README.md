@@ -162,3 +162,23 @@ body 재import에는 `Not all the deformers are stored in this BindPose` warning
 수정한 뒤 같은 초기화·재import 경로를 재실행해 PASS를 확보했다. 최초 실패 로그도 보존한다.
 UE render/ref bone transforms·최종 Build/Automation·독립 검토·사용자 PIE 결과는 main의 후속 검증과
 `docs/CUSTOMIZATION_PLAN.md`를 기준으로 하며 Blender 비교표만으로 runtime 수용을 선언하지 않는다.
+
+## 2026-10-17 부위 파츠 — 고정 몸통과 부위별 유형
+
+원작 구성(고정 몸통, 부위별 유형·색)에 맞춰 `author_parts.py`가 새 파생 원본 `CustomizationParts.blend`를 만든다.
+`CustomizationSlots.blend`(공통 rig·material·깃 A/B/C)를 열어 통짜 body·안경·부리 고리를 뺀 뒤 저장하므로 기존 두 원본은 바뀌지 않는다.
+결정은 `docs/architecture/033-customization-fixed-body-part-types.md`.
+
+- `SK_CustomizationBaseBody`: 몸통+머리, material 슬롯 0 하나(`M_CustomizationColor`). Shape key `HeadFlat`은 머리 윗부분(z > 70)을 0.4배로 누른다(꼭대기 −8.4 cm).
+- 부위 14개(헤어는 기존 깃 A/B/C 재사용): 눈 Round/Large/Sleepy, 부리 Duck/Small/Long, 날개 Round/Small/Mitten, 꼬리 Short/Fan,
+  발 Webbed(`M_PrototypeBeak`)/Boot(`M_PrototypeEye`). 모두 공통 rig 5 bones, 정점 weight 1, material 슬롯 하나, Shape key 없음.
+- 명령(repo root, PowerShell): `create`(원본이 있으면 거부) / `export` / `verify` / `render`(`Saved/Automation/CustomizationParts/*.png`).
+
+```powershell
+& $blenderExe --background --factory-startup --offline-mode --python-exit-code 1 --python Art/CustomizationPrototype/author_parts.py -- create
+```
+
+- UE import는 `import_parts.py`를 Python 플러그인만 켠 disposable pilot(Content/Customization/Prototype 사본)에서
+  `-ExecutePythonScript`로 실행하고, 새로 생긴 uasset만 저장소 Content로 옮긴다. 옵션은 `import_slots.py`와 같다.
+  body import에 기존과 같은 `Not all the deformers are stored in this BindPose` 경고 1건이 있다.
+- 통짜 body·안경·부리 고리의 FBX와 uasset은 지웠다. 그 원본 형상은 기존 `.blend` 두 개에 남아 있다.
