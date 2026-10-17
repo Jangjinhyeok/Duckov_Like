@@ -332,14 +332,14 @@ bool FBasementCharacterMovement::RunTest(const FString& Parameters)
         UCustomizationModel* Model = Character->GetGameInstance()->GetSubsystem<UGameSessionSubsystem>()->GetCustomizationModel();
         auto Present = [](const FCustomizationProfile&) { return ECustomizationFailure::None; };
         FCustomizationProfile Candidate = Model->GetProfile();
-        Candidate.Hue = 0.6f;
+        Candidate.SkinColor = 10;
         TestEqual(TEXT("편집 시작"), Model->BeginEdit(Present), ECustomizationFailure::None);
         TestEqual(TEXT("편집"), Model->TryEdit(Candidate, Present), ECustomizationFailure::None);
         TestEqual(TEXT("확정"), Model->Apply(Present), ECustomizationFailure::None);
         FLinearColor Shown = FLinearColor::Black;
         UMaterialInstanceDynamic* BodyMID = Appearance->GetDisplayedBodyMID();
         TestTrue(TEXT("확정 색상이 캐릭터에 반영"), BodyMID && BodyMID->GetVectorParameterValue(FMaterialParameterInfo(TEXT("Color")), Shown)
-            && Shown.Equals(GetCustomizationColor(0.6f), 0.001f));
+            && Shown.Equals(GetCustomizationColor(10), 0.001f));
         FSlateApplication::Get().SetAllUserFocusToGameViewport();
     }, 0.f));
     ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("viewport focus"), [] { return IsViewportFocused(); }));

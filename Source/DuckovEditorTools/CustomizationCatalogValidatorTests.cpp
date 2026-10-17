@@ -83,25 +83,26 @@ bool FCatalogValidator::RunTest(const FString& Parameters)
         bool bSlotKnown = true;
     };
     const FCase Cases[] = {
-        {TEXT("다른 Skeleton"), TEXT("A"), [OtherSkeleton](auto& R) { R.Resources.ExpectedSkeleton = OtherSkeleton; }, {}, ECustomizationFailure::SkeletonMismatch, ECustomizationSlot::Crest},
-        {TEXT("mesh 누락"), TEXT("B"), [](auto& R) { R.Resources.Mesh.Reset(); }, {}, ECustomizationFailure::MissingMesh, ECustomizationSlot::Crest},
-        {TEXT("material 누락"), TEXT("RoundGlasses"), [](auto& R) { R.Resources.Material.Reset(); }, {}, ECustomizationFailure::MissingMaterial, ECustomizationSlot::Eyewear},
-        {TEXT("필요한 Morph 누락"), TEXT("A"), [](auto& R) { R.Resources.Morph = TEXT("NoSuchMorph"); }, {}, ECustomizationFailure::MissingMorph, ECustomizationSlot::Crest},
-        {TEXT("필요한 mask 누락"), TEXT("B"), [](auto& R) { R.Resources.bMaskRequired = true; }, {}, ECustomizationFailure::MissingMask, ECustomizationSlot::Crest},
-        {TEXT("mask parameter 누락"), TEXT("B"), [](auto& R) { R.Resources.MaskParameter = TEXT("AbsentMask"); }, {}, ECustomizationFailure::MissingMaskParameter, ECustomizationSlot::Crest},
-        {TEXT("추종 body Morph 이름 오류"), TEXT("BeakRing"), [](auto& R)
+        {TEXT("다른 Skeleton"), TEXT("HairA"), [OtherSkeleton](auto& R) { R.Resources.ExpectedSkeleton = OtherSkeleton; }, {}, ECustomizationFailure::SkeletonMismatch, ECustomizationSlot::Hair},
+        {TEXT("mesh 누락"), TEXT("HairB"), [](auto& R) { R.Resources.Mesh.Reset(); }, {}, ECustomizationFailure::MissingMesh, ECustomizationSlot::Hair},
+        {TEXT("material 누락"), TEXT("EyeLarge"), [](auto& R) { R.Resources.Material.Reset(); }, {}, ECustomizationFailure::MissingMaterial, ECustomizationSlot::Eye},
+        {TEXT("필요한 mask 누락"), TEXT("HairB"), [](auto& R) { R.Resources.bMaskRequired = true; }, {}, ECustomizationFailure::MissingMask, ECustomizationSlot::Hair},
+        {TEXT("mask parameter 누락"), TEXT("HairB"), [](auto& R) { R.Resources.MaskParameter = TEXT("AbsentMask"); }, {}, ECustomizationFailure::MissingMaskParameter, ECustomizationSlot::Hair},
+        {TEXT("추종 body Morph 이름 오류"), TEXT("BeakLong"), [](auto& R)
             {
                 FCustomizationMorphFollow Follow;
                 Follow.BodyMorph = TEXT("NoSuchBodyMorph");
                 R.Resources.FollowBodyMorphs.Add(Follow);
             }, {}, ECustomizationFailure::MissingMorph, ECustomizationSlot::Beak},
-        {TEXT("추종 이동량 무한대"), TEXT("BeakRing"), [](auto& R) { R.Resources.FollowBodyMorphs[0].Offset.X = std::numeric_limits<double>::infinity(); },
-            {}, ECustomizationFailure::InvalidNumber, ECustomizationSlot::Beak},
-        {TEXT("색상 parameter 누락"), TEXT("BeakRing"), [](auto& R) { R.Resources.ColorParameter = TEXT("AbsentColor"); }, {}, ECustomizationFailure::MissingColorParameter, ECustomizationSlot::Beak},
-        {TEXT("슬롯 불일치(기본 머리 장식이 다른 슬롯)"), TEXT("A"), [](auto& R) { R.Slot = ECustomizationSlot::Eyewear; }, {}, ECustomizationFailure::SlotMismatch, ECustomizationSlot::Crest},
-        {TEXT("슬롯 값 오류"), TEXT("RoundGlasses"), [](auto& R) { R.Slot = static_cast<ECustomizationSlot>(99); }, {}, ECustomizationFailure::InvalidKind, ECustomizationSlot::Eyewear, false},
-        {TEXT("static 대역 등록"), TEXT("RoundGlasses"), [](auto& R) { R.Resources.MeshKind = ECustomizationMeshKind::StaticPlaceholder; }, {}, ECustomizationFailure::InvalidKind, ECustomizationSlot::Eyewear},
-        {TEXT("기본 파츠 삭제"), NAME_None, nullptr, {TEXT("A")}, ECustomizationFailure::UnknownPart, ECustomizationSlot::Crest},
+        {TEXT("추종 이동량 무한대"), TEXT("HairA"), [](auto& R) { R.Resources.FollowBodyMorphs[0].Offset.Z = std::numeric_limits<double>::infinity(); },
+            {}, ECustomizationFailure::InvalidNumber, ECustomizationSlot::Hair},
+        {TEXT("색상 parameter 누락"), TEXT("BeakLong"), [](auto& R) { R.Resources.ColorParameter = TEXT("AbsentColor"); }, {}, ECustomizationFailure::MissingColorParameter, ECustomizationSlot::Beak},
+        {TEXT("색 슬롯인데 색상 parameter 없음"), TEXT("TailShort"), [](auto& R) { R.Resources.ColorParameter = NAME_None; }, {}, ECustomizationFailure::MissingColorParameter, ECustomizationSlot::Tail},
+        {TEXT("발에 색상 parameter 등록"), TEXT("FootBoot"), [](auto& R) { R.Resources.ColorParameter = TEXT("Color"); }, {}, ECustomizationFailure::InvalidKind, ECustomizationSlot::Foot},
+        {TEXT("슬롯 불일치(기본 눈이 다른 슬롯)"), TEXT("EyeRound"), [](auto& R) { R.Slot = ECustomizationSlot::Beak; }, {}, ECustomizationFailure::SlotMismatch, ECustomizationSlot::Eye},
+        {TEXT("슬롯 값 오류"), TEXT("EyeLarge"), [](auto& R) { R.Slot = static_cast<ECustomizationSlot>(99); }, {}, ECustomizationFailure::InvalidKind, ECustomizationSlot::Eye, false},
+        {TEXT("static 대역 등록"), TEXT("EyeLarge"), [](auto& R) { R.Resources.MeshKind = ECustomizationMeshKind::StaticPlaceholder; }, {}, ECustomizationFailure::InvalidKind, ECustomizationSlot::Eye},
+        {TEXT("기본 파츠 삭제"), NAME_None, nullptr, {TEXT("EyeRound")}, ECustomizationFailure::UnknownPart, ECustomizationSlot::Eye},
     };
     for (const FCase& Case : Cases)
     {
@@ -119,13 +120,13 @@ bool FCatalogValidator::RunTest(const FString& Parameters)
 
     // 전부 아니면 전무: 나쁜 row가 둘이면 둘 다 보고하고 하나라도 있으면 통과하지 못한다. 고치면 통과한다.
     TMap<FName, FRowEdit> Two;
-    Two.Add(TEXT("B"), [](auto& R) { R.Resources.Mesh.Reset(); });
-    Two.Add(TEXT("BeakRing"), [](auto& R) { R.Resources.Material.Reset(); });
+    Two.Add(TEXT("HairB"), [](auto& R) { R.Resources.Mesh.Reset(); });
+    Two.Add(TEXT("BeakLong"), [](auto& R) { R.Resources.Material.Reset(); });
     const FRun Both = Validate(MakeTable(Two));
     TestTrue(TEXT("나쁜 row 둘: 통과하지 못한다"), Both.Result == EDataValidationResult::Invalid);
-    TestTrue(TEXT("나쁜 row 둘: 둘 다 보고"), Both.Errors.Num() == 2 && Both.Errors.ContainsByPredicate([](const FString& E) { return E.Contains(TEXT("'B'")); })
-        && Both.Errors.ContainsByPredicate([](const FString& E) { return E.Contains(TEXT("'BeakRing'")); }));
-    Two.Remove(TEXT("B"));
+    TestTrue(TEXT("나쁜 row 둘: 둘 다 보고"), Both.Errors.Num() == 2 && Both.Errors.ContainsByPredicate([](const FString& E) { return E.Contains(TEXT("'HairB'")); })
+        && Both.Errors.ContainsByPredicate([](const FString& E) { return E.Contains(TEXT("'BeakLong'")); }));
+    Two.Remove(TEXT("HairB"));
     TestTrue(TEXT("하나만 고쳐도 통과하지 못한다"), Validate(MakeTable(Two)).Result == EDataValidationResult::Invalid);
     Two.Reset();
     TestTrue(TEXT("모두 고치면 통과"), Validate(MakeTable(Two)).Result == EDataValidationResult::Valid);
@@ -143,7 +144,7 @@ bool FCatalogValidator::RunTest(const FString& Parameters)
         });
         TestTrue(TEXT("카탈로그 validator가 subsystem에 등록됨"), bRegistered);
         TMap<FName, FRowEdit> Broken;
-        Broken.Add(TEXT("A"), [](auto& R) { R.Resources.Mesh.Reset(); });
+        Broken.Add(TEXT("HairA"), [](auto& R) { R.Resources.Mesh.Reset(); });
         FDataValidationContext BadContext(false, EDataValidationUsecase::Save, {});
         TestEqual(TEXT("subsystem 경로: 잘못된 카탈로그"), Subsystem->IsObjectValidWithContext(MakeTable(Broken), BadContext), EDataValidationResult::Invalid);
         TestTrue(TEXT("subsystem 경로: 오류가 Context에 담긴다"), BadContext.GetNumErrors() >= 1);

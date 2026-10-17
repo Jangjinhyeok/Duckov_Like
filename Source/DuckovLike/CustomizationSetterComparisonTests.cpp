@@ -38,8 +38,10 @@ struct FNaiveSetter
             // 실패한 슬롯은 표시에 반영되지 않았으므로 다음 슬롯은 마지막으로 성공한 표시에서 이어 간다.
             Shown = Appearance.GetAppliedProfile();
         }
-        Shown.Hue = Candidate.Hue;
-        Appearance.TryApply(Shown);
+        // 마지막으로 색과 머리 모양을 반영한다. 파츠는 위에서 성공한 것만 남는다.
+        FCustomizationProfile Final = Candidate;
+        for (const ECustomizationSlot Slot : GetCustomizationSlots()) { Final.SetSlotPartId(Slot, Shown.GetSlotPartId(Slot)); }
+        Appearance.TryApply(Final);
     }
 };
 
@@ -68,10 +70,11 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSetterComparison, "Duckov.Customization.Compar
 bool FSetterComparison::RunTest(const FString& Parameters)
 {
     FCustomizationProfile Valid;
-    Valid.PartId = TEXT("B"); Valid.EyewearId = TEXT("RoundGlasses"); Valid.BeakWearId = TEXT("BeakRing"); Valid.Hue = 0.6f;
-    FCustomizationProfile Unregistered; Unregistered.PartId = TEXT("Unregistered");
-    FCustomizationProfile PickB; PickB.PartId = TEXT("B");
-    FCustomizationProfile OneOfThree = Valid;  // 머리 장식·부리는 정상이고 눈 슬롯만 깨진다.
+    Valid.EyeId = TEXT("EyeLarge"); Valid.HairId = TEXT("HairB"); Valid.BeakId = TEXT("BeakLong");
+    Valid.WingId = TEXT("WingMitten"); Valid.TailId = TEXT("TailShort"); Valid.FootId = TEXT("FootBoot"); Valid.SkinColor = 6;
+    FCustomizationProfile Unregistered; Unregistered.HairId = TEXT("Unregistered");
+    FCustomizationProfile PickB; PickB.HairId = TEXT("HairB");
+    FCustomizationProfile OneOfSix = Valid;  // 다른 부위는 정상이고 꼬리 슬롯만 깨진다.
     const auto Break = [](FName PartId, TFunction<void(FCustomizationPartResources&)> Edit)
     {
         return [PartId, Edit](UCustomizationAppearanceComponent& Target)
@@ -89,11 +92,11 @@ bool FSetterComparison::RunTest(const FString& Parameters)
         {TEXT("대조: 정상 입력"), false, Valid, nullptr, nullptr},
         {TEXT("미등록 파츠 ID"), true, Unregistered, nullptr, nullptr},
         {TEXT("다른 Skeleton"), true, PickB,
-            Break(TEXT("B"), [](FCustomizationPartResources& R) { R.ExpectedSkeleton = FSoftObjectPath(TEXT("/Game/Customization/Tests/SKEL_Unexpected.SKEL_Unexpected")); }), Fix(TEXT("B"))},
+            Break(TEXT("HairB"), [](FCustomizationPartResources& R) { R.ExpectedSkeleton = FSoftObjectPath(TEXT("/Game/Customization/Tests/SKEL_Unexpected.SKEL_Unexpected")); }), Fix(TEXT("HairB"))},
         {TEXT("리소스 로드 실패"), true, PickB,
-            Break(TEXT("B"), [](FCustomizationPartResources& R) { R.Mesh = R.Material; /* mesh가 아닌 asset을 가리켜 경고 없이 로드 실패를 만든다 */ }), Fix(TEXT("B"))},
-        {TEXT("세 슬롯 중 하나만 실패"), true, OneOfThree,
-            Break(TEXT("RoundGlasses"), [](FCustomizationPartResources& R) { R.Mesh.Reset(); }), Fix(TEXT("RoundGlasses"))},
+            Break(TEXT("HairB"), [](FCustomizationPartResources& R) { R.Mesh = R.Material; /* mesh가 아닌 asset을 가리켜 경고 없이 로드 실패를 만든다 */ }), Fix(TEXT("HairB"))},
+        {TEXT("여섯 슬롯 중 하나만 실패"), true, OneOfSix,
+            Break(TEXT("TailShort"), [](FCustomizationPartResources& R) { R.Mesh.Reset(); }), Fix(TEXT("TailShort"))},
     };
 
     FRealWorld Scene;

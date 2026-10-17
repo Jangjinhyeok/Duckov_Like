@@ -28,20 +28,21 @@ struct DUCKOVLIKE_API FCustomizationLoadedPart
 struct DUCKOVLIKE_API FCustomizationLoadedBody
 {
     TStrongObjectPtr<USkeletalMesh> Mesh;
+    // body 슬롯 0의 material이다. 피부색 MID의 부모다.
+    TStrongObjectPtr<UMaterialInterface> Material;
 };
 
-// body의 부위별 Morph 여섯 개다. 앞 두 개가 눈, 다음 두 개가 부리, 마지막 두 개가 몸통이다.
+// 고정 몸통(몸통+머리) body의 Morph다. 지금은 머리 모양 하나(HeadFlat, weight 1이 가장 납작)다.
 DUCKOVLIKE_API TConstArrayView<FName> GetCustomizationBodyMorphs();
 DUCKOVLIKE_API const FSoftObjectPath& GetDefaultCustomizationBodyMesh();
-// body와 Crest 파츠가 공유하는 색상 parameter 이름이다.
+// body 피부색 parameter 이름이다.
 DUCKOVLIKE_API FName GetCustomizationBodyColorParameter();
 
-// mesh·Skeleton·Morph·material·색상 parameter·mask가 계약을 지키는지 검사한다.
-// Crest 파츠의 material은 body도 부모로 쓰므로 body 색상 parameter와 Morph usage를 추가로 요구한다.
+// mesh·Skeleton·material·색상 parameter·mask가 계약을 지키는지 검사한다.
 DUCKOVLIKE_API ECustomizationFailure ValidateCustomizationPartContract(
     const FCustomizationPartResources& Resources, ECustomizationSlot Slot, FCustomizationLoadedPart& Out);
 
-// 공통 body mesh가 파츠와 같은 Skeleton이고 필수 Morph·보조 material을 갖췄는지 검사한다.
+// 공통 body mesh가 파츠와 같은 Skeleton이고 머리 모양 Morph·피부색 material을 갖췄는지 검사한다.
 DUCKOVLIKE_API ECustomizationFailure ValidateCustomizationBodyContract(
     const FSoftObjectPath& BodyMesh, const USkeleton* ExpectedSkeleton, FCustomizationLoadedBody& Out);
 

@@ -15,7 +15,7 @@ enum class ECustomizationMeshKind : uint8
 };
 
 // body Morph가 weight 1일 때 파츠를 옮길 거리(cm, component 공간)다. Morph는 정점만 움직이고 bone은 그대로라
-// 같은 Skeleton에 붙은 장식은 따라가지 않는다. 적용 위치는 현재 weight × Offset의 합이다(Morph와 같은 선형 보간).
+// 같은 Skeleton에 붙은 파츠(머리 위 헤어 등)는 따라가지 않는다. 적용 위치는 현재 weight × Offset의 합이다(Morph와 같은 선형 보간).
 USTRUCT()
 struct DUCKOVLIKE_API FCustomizationMorphFollow
 {
@@ -50,13 +50,9 @@ struct DUCKOVLIKE_API FCustomizationPartResources
     UPROPERTY(EditAnywhere)
     int32 MaterialSlot = 0;
 
-    // None이면 Hue로 색을 바꾸지 않는 고정색 파츠다.
+    // None이면 팔레트 색을 받지 않는 고정색 파츠다(발).
     UPROPERTY(EditAnywhere)
     FName ColorParameter = TEXT("Color");
-
-    // 형상 값(Shape)으로 움직이는 Morph다. None이면 형상 조절이 없는 파츠다.
-    UPROPERTY(EditAnywhere)
-    FName Morph = TEXT("Shape");
 
     UPROPERTY(EditAnywhere)
     FName MaskParameter = NAME_None;
@@ -81,7 +77,7 @@ struct DUCKOVLIKE_API FCustomizationPartRow : public FTableRowBase
     FCustomizationPartRow() { Resources.MeshKind = ECustomizationMeshKind::Skeletal; }
 
     UPROPERTY(EditAnywhere)
-    ECustomizationSlot Slot = ECustomizationSlot::Crest;
+    ECustomizationSlot Slot = ECustomizationSlot::Eye;
 
     UPROPERTY(EditAnywhere)
     FText DisplayName;

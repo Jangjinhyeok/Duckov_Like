@@ -4,24 +4,52 @@
 
 TConstArrayView<ECustomizationSlot> GetCustomizationSlots()
 {
-    static const ECustomizationSlot Slots[] = {ECustomizationSlot::Crest, ECustomizationSlot::Eyewear, ECustomizationSlot::Beak};
+    static const ECustomizationSlot Slots[] = {ECustomizationSlot::Eye, ECustomizationSlot::Hair, ECustomizationSlot::Beak,
+        ECustomizationSlot::Wing, ECustomizationSlot::Tail, ECustomizationSlot::Foot};
     return Slots;
 }
 
 bool IsCustomizationSlotRequired(ECustomizationSlot Slot)
 {
-    return Slot == ECustomizationSlot::Crest;
+    return Slot != ECustomizationSlot::Hair;
+}
+
+bool IsCustomizationSlotColorable(ECustomizationSlot Slot)
+{
+    return Slot != ECustomizationSlot::Foot;
 }
 
 FText GetCustomizationSlotText(ECustomizationSlot Slot)
 {
     switch (Slot)
     {
-    case ECustomizationSlot::Crest: return FText::FromString(TEXT("머리 장식"));
-    case ECustomizationSlot::Eyewear: return FText::FromString(TEXT("눈"));
+    case ECustomizationSlot::Eye: return FText::FromString(TEXT("눈"));
+    case ECustomizationSlot::Hair: return FText::FromString(TEXT("헤어"));
     case ECustomizationSlot::Beak: return FText::FromString(TEXT("부리"));
+    case ECustomizationSlot::Wing: return FText::FromString(TEXT("날개"));
+    case ECustomizationSlot::Tail: return FText::FromString(TEXT("꼬리"));
+    case ECustomizationSlot::Foot: return FText::FromString(TEXT("발"));
     }
     return FText::GetEmpty();
+}
+
+TConstArrayView<FLinearColor> GetCustomizationPalette()
+{
+    // 원작의 swatch 격자를 줄인 16색이다. 0은 이전 기본 깃털과 비슷한 크림색이다. sRGB로 정의한다.
+    static const FLinearColor Palette[] = {
+        FLinearColor(FColor(243, 221, 140)), FLinearColor(FColor(250, 250, 250)), FLinearColor(FColor(160, 160, 166)),
+        FLinearColor(FColor(36, 36, 42)), FLinearColor(FColor(214, 52, 44)), FLinearColor(FColor(242, 128, 36)),
+        FLinearColor(FColor(250, 208, 48)), FLinearColor(FColor(140, 200, 70)), FLinearColor(FColor(52, 146, 78)),
+        FLinearColor(FColor(46, 168, 168)), FLinearColor(FColor(92, 172, 232)), FLinearColor(FColor(48, 78, 188)),
+        FLinearColor(FColor(132, 82, 192)), FLinearColor(FColor(240, 132, 172)), FLinearColor(FColor(128, 84, 48)),
+        FLinearColor(FColor(84, 84, 92))};
+    return Palette;
+}
+
+FLinearColor GetCustomizationColor(int32 PaletteIndex)
+{
+    const TConstArrayView<FLinearColor> Palette = GetCustomizationPalette();
+    return Palette.IsValidIndex(PaletteIndex) ? Palette[PaletteIndex] : FLinearColor::Black;
 }
 
 namespace
@@ -49,24 +77,27 @@ FCustomizationFailureDetail ValidateCustomizationProfileDetail(const FCustomizat
         const FCustomizationFailureDetail Detail = ValidateSlotPart(Catalog, Slot, Profile.GetSlotPartId(Slot));
         if (Detail.Reason != ECustomizationFailure::None) { return Detail; }
     }
-    if (!FMath::IsFinite(Profile.Hue) || !FMath::IsFinite(Profile.Shape) || !FMath::IsFinite(Profile.EyeSize)
-        || !FMath::IsFinite(Profile.BeakLength) || !FMath::IsFinite(Profile.BodyLength)) { return FCustomizationFailureDetail::Of(ECustomizationFailure::InvalidNumber); }
-    if (Profile.Hue < 0.0f || Profile.Hue > 1.0f) { return FCustomizationFailureDetail::Of(ECustomizationFailure::HueOutOfRange); }
-    if (Profile.Shape < -1.0f || Profile.Shape > 1.0f) { return FCustomizationFailureDetail::Of(ECustomizationFailure::ShapeOutOfRange); }
-    if (Profile.EyeSize < -1.0f || Profile.EyeSize > 1.0f) { return FCustomizationFailureDetail::Of(ECustomizationFailure::EyeSizeOutOfRange); }
-    if (Profile.BeakLength < -1.0f || Profile.BeakLength > 1.0f) { return FCustomizationFailureDetail::Of(ECustomizationFailure::BeakLengthOutOfRange); }
-    if (Profile.BodyLength < -1.0f || Profile.BodyLength > 1.0f) { return FCustomizationFailureDetail::Of(ECustomizationFailure::BodyLengthOutOfRange); }
+    const int32 PaletteCount = GetCustomizationPalette().Num();
+    if (Profile.SkinColor < 0 || Profile.SkinColor >= PaletteCount)
+    {
+        return FCustomizationFailureDetail::Of(ECustomizationFailure::ColorOutOfRange);
+    }
+    for (const ECustomizationSlot Slot : GetCustomizationSlots())
+    {
+        const int32 Color = Profile.GetSlotColor(Slot);
+        if (IsCustomizationSlotColorable(Slot) && (Color < 0 || Color >= PaletteCount))
+        {
+            return FCustomizationFailureDetail::Of(ECustomizationFailure::ColorOutOfRange, Slot);
+        }
+    }
+    if (!FMath::IsFinite(Profile.HeadShape)) { return FCustomizationFailureDetail::Of(ECustomizationFailure::InvalidNumber); }
+    if (Profile.HeadShape < 0.0f || Profile.HeadShape > 1.0f) { return FCustomizationFailureDetail::Of(ECustomizationFailure::HeadShapeOutOfRange); }
     return FCustomizationFailureDetail();
 }
 
 ECustomizationFailure ValidateCustomizationProfile(const FCustomizationProfile& Profile)
 {
     return ValidateCustomizationProfileDetail(Profile).Reason;
-}
-
-FLinearColor GetCustomizationColor(float Hue)
-{
-    return FLinearColor(Hue * 360.0f, 0.7f, 0.9f, 1.0f).HSVToLinearRGB();
 }
 
 FText GetCustomizationFailureText(ECustomizationFailure Failure)
@@ -79,13 +110,10 @@ FText GetCustomizationFailureText(ECustomizationFailure Failure)
     case ECustomizationFailure::InvalidKind: return FText::FromString(TEXT("지원하지 않는 슬롯 또는 파츠 종류입니다."));
     case ECustomizationFailure::UnknownPart: return FText::FromString(TEXT("등록되지 않은 파츠입니다."));
     case ECustomizationFailure::RequiredPartMissing: return FText::FromString(TEXT("이 슬롯은 파츠가 필요합니다."));
-    case ECustomizationFailure::InvalidNumber: return FText::FromString(TEXT("색상과 부위 조절 값은 유한한 수여야 합니다."));
-    case ECustomizationFailure::HueOutOfRange: return FText::FromString(TEXT("색상 범위는 0부터 1까지입니다."));
-    case ECustomizationFailure::ShapeOutOfRange: return FText::FromString(TEXT("형상 범위는 -1부터 1까지입니다."));
-    case ECustomizationFailure::EyeSizeOutOfRange: return FText::FromString(TEXT("눈 크기 범위는 -1부터 1까지입니다."));
-    case ECustomizationFailure::BeakLengthOutOfRange: return FText::FromString(TEXT("입/부리 길이 범위는 -1부터 1까지입니다."));
-    case ECustomizationFailure::BodyLengthOutOfRange: return FText::FromString(TEXT("몸통 길이 범위는 -1부터 1까지입니다."));
-    case ECustomizationFailure::UnsupportedBodyAdjustment: return FText::FromString(TEXT("이 시험 표시에서는 부위별 조절을 지원하지 않습니다."));
+    case ECustomizationFailure::InvalidNumber: return FText::FromString(TEXT("머리 모양 값은 유한한 수여야 합니다."));
+    case ECustomizationFailure::ColorOutOfRange: return FText::FromString(TEXT("팔레트에 없는 색입니다."));
+    case ECustomizationFailure::HeadShapeOutOfRange: return FText::FromString(TEXT("머리 모양 범위는 0부터 1까지입니다."));
+    case ECustomizationFailure::UnsupportedBodyAdjustment: return FText::FromString(TEXT("이 시험 표시에서는 머리 모양을 지원하지 않습니다."));
     case ECustomizationFailure::MissingMesh: return FText::FromString(TEXT("필수 mesh를 준비할 수 없습니다."));
     case ECustomizationFailure::MissingSkeleton: return FText::FromString(TEXT("공통 Skeleton을 준비할 수 없습니다."));
     case ECustomizationFailure::SkeletonMismatch: return FText::FromString(TEXT("파츠 Skeleton이 공통 Skeleton과 다릅니다."));

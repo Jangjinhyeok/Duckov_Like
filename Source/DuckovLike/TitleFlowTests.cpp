@@ -216,15 +216,15 @@ bool FTitleFlowToBasement::RunTest(const FString& Parameters)
         UCustomizationScreenWidget* Customization = Field<UCustomizationScreenWidget>(Scene->Controller.Get(), TEXT("CustomizationScreen"));
         if (!TestTrue(TEXT("다시 게임 시작"), Customization && Customization->IsActivated())) { return; }
         TestTrue(TEXT("재개방은 pool의 같은 인스턴스"), Customization == Scene->Customization.Get());
-        USlider* EyeSize = Cast<USlider>(Customization->GetWidgetFromName(TEXT("EyeSizeSlider")));
-        if (!TestNotNull(TEXT("눈 크기 slider"), EyeSize)) { return; }
-        EyeSize->SetValue(0.5f);
-        EyeSize->OnValueChanged.Broadcast(0.5f);
+        USlider* HeadShape = Cast<USlider>(Customization->GetWidgetFromName(TEXT("HeadShapeSlider")));
+        if (!TestNotNull(TEXT("머리 모양 slider"), HeadShape)) { return; }
+        HeadShape->SetValue(0.5f);
+        HeadShape->OnValueChanged.Broadcast(0.5f);
         Scene->SessionModel = Scene->GameInstance->GetSubsystem<UGameSessionSubsystem>()->GetCustomizationModel();
         ClickButton(Customization, TEXT("ApplyButton"));
         TestFalse(TEXT("확인으로 커스터마이징 닫힘"), Customization->IsActivated());
         TestTrue(TEXT("확인 값이 세션 Model에 확정"), Scene->SessionModel.IsValid()
-            && FMath::IsNearlyEqual(Scene->SessionModel->GetProfile().EyeSize, 0.5f));
+            && FMath::IsNearlyEqual(Scene->SessionModel->GetProfile().HeadShape, 0.5f));
         ULoadingScreenWidget* Loading = Field<ULoadingScreenWidget>(Scene->Controller.Get(), TEXT("LoadingScreen"));
         TestTrue(TEXT("확인 뒤 로딩 화면이 Notice layer에 표시"),
             Loading && Loading->GetParent() == Scene->Layout->GetWidgetFromName(TEXT("NoticeLayer")));
@@ -244,7 +244,7 @@ bool FTitleFlowToBasement::RunTest(const FString& Parameters)
         TestTrue(TEXT("베이스먼트에서는 지상 캐릭터를 조작"), Cast<ADuckovCharacter>(Controller->GetPawn()) != nullptr);
         UCustomizationModel* Model = World->GetGameInstance()->GetSubsystem<UGameSessionSubsystem>()->GetCustomizationModel();
         TestTrue(TEXT("레벨 이동 뒤에도 같은 세션 Model"), Model == Scene->SessionModel.Get());
-        TestTrue(TEXT("타이틀에서 확정한 외형 유지"), Model && FMath::IsNearlyEqual(Model->GetProfile().EyeSize, 0.5f));
+        TestTrue(TEXT("타이틀에서 확정한 외형 유지"), Model && FMath::IsNearlyEqual(Model->GetProfile().HeadShape, 0.5f));
         Controller->OpenCustomization();
         TestTrue(TEXT("베이스먼트 커스터마이징도 세션 Model 사용"),
             Field<UCustomizationModel>(Controller, TEXT("CustomizationModel")) == Model);

@@ -53,8 +53,11 @@ namespace
         TConstArrayView<float> Weights)
     {
         const USkeletalMesh* Mesh = Component ? Component->GetSkeletalMeshAsset() : nullptr;
-        if (!Mesh || Component->GetComponentSpaceTransforms().Num() != Mesh->GetRefSkeleton().GetNum()
-            || Component->MorphTargetWeights.Num() != Mesh->GetMorphTargets().Num()
+        if (!Mesh) { return false; }
+        // Morph를 쓰지 않는 파츠는 weight 배열이 비어 있을 수 있다(헤어 mesh에 남은 Shape Morph 등). 값은 아래에서 모두 0인지 본다.
+        const int32 WeightCount = Component->MorphTargetWeights.Num();
+        if (Component->GetComponentSpaceTransforms().Num() != Mesh->GetRefSkeleton().GetNum()
+            || (WeightCount != Mesh->GetMorphTargets().Num() && !(Morphs.IsEmpty() && WeightCount == 0))
             || Component->GetMorphTargetCurves().Num() != Morphs.Num()) { return false; }
         for (const FTransform& Bone : Component->GetComponentSpaceTransforms())
         {
@@ -76,7 +79,7 @@ namespace
             }
         }
         if (Component->ActiveMorphTargets.Num() != ActiveCount) { return false; }
-        for (int32 Index = 0; Index < Component->MorphTargetWeights.Num(); ++Index)
+        for (int32 Index = 0; Index < WeightCount; ++Index)
         {
             float Expected = 0.0f;
             for (int32 MorphIndex = 0; MorphIndex < Morphs.Num(); ++MorphIndex)
@@ -140,21 +143,20 @@ namespace
     // 한 슬롯의 후보다. 검증과 준비를 마친 뒤에만 표시에 반영한다.
     struct FSlotPlan
     {
-        ECustomizationSlot Slot = ECustomizationSlot::Crest;
+        ECustomizationSlot Slot = ECustomizationSlot::Eye;
         int32 Index = 0;
         FCustomizationPartResources Resources;
         FCustomizationLoadedPart Loaded;
         FTransform Transform;
-        float MorphWeight = 0.0f;
+        // 팔레트 색을 받을 parameter다. 색이 없는 슬롯(발)은 고정색이라 None이다.
+        FName ColorParameter;
+        FLinearColor Color = FLinearColor::White;
         TStrongObjectPtr<UMaterialInstanceDynamic> MID;
         TStrongObjectPtr<UMeshComponent> Staged;
         // 이미 같은 외형이 표시 중이라 그대로 둔다.
         bool bReuse = false;
         // 같은 static mesh라 component를 그대로 두고 material/transform만 바꾼다.
         bool bInPlace = false;
-
-        TConstArrayView<FName> GetMorphs() const { return TConstArrayView<FName>(&Resources.Morph, Resources.Morph.IsNone() ? 0 : 1); }
-        TConstArrayView<float> GetWeights() const { return TConstArrayView<float>(&MorphWeight, Resources.Morph.IsNone() ? 0 : 1); }
     };
 }
 
@@ -207,7 +209,7 @@ FCustomizationFailureDetail UCustomizationAppearanceComponent::Prepare(const FCu
 
     // 1) 슬롯별 후보와 리소스 계약. 표시 component에는 아직 손대지 않는다.
     const FCustomizationCatalog Catalog = FCustomizationCatalog::LoadDefault();
-    TArray<FSlotPlan, TInlineAllocator<3>> Plans;
+    TArray<FSlotPlan, TInlineAllocator<CustomizationSlotCount>> Plans;
     for (const ECustomizationSlot Slot : GetCustomizationSlots())
     {
         const FName PartId = Candidate.GetSlotPartId(Slot);
@@ -223,34 +225,32 @@ FCustomizationFailureDetail UCustomizationAppearanceComponent::Prepare(const FCu
         {
             return FDetail::Of(ECustomizationFailure::PreparationFailed, Slot);
         }
-        // 선택 슬롯은 공통 Skeleton에 붙는 skeletal 파츠만 지원한다.
-        if (Slot != ECustomizationSlot::Crest && Kind != ECustomizationMeshKind::Skeletal)
-        {
-            return FDetail::Of(ECustomizationFailure::InvalidKind, Slot);
-        }
-        if (Kind == ECustomizationMeshKind::StaticPlaceholder
-            && (Candidate.EyeSize != 0.f || Candidate.BeakLength != 0.f || Candidate.BodyLength != 0.f))
-        {
-            return FDetail::Of(ECustomizationFailure::UnsupportedBodyAdjustment, Slot);
-        }
+        const bool bColorable = IsCustomizationSlotColorable(Slot);
+        Plan.ColorParameter = bColorable ? Plan.Resources.ColorParameter : NAME_None;
+        Plan.Color = GetCustomizationColor(bColorable ? Candidate.GetSlotColor(Slot) : INDEX_NONE);
     }
-    // Crest는 필수 슬롯이라 Plans[0]이다.
-    FSlotPlan& Crest = Plans[0];
+    // 고정 몸통은 첫 skeletal 파츠의 Skeleton으로 검사하고, 나머지 skeletal 파츠도 같은 Skeleton이어야 한다.
+    // static 대역만 있는 자동 검사 표시에는 body가 없다.
     FCustomizationLoadedBody Body;
     for (FSlotPlan& Plan : Plans)
     {
         ECustomizationFailure Failure = ValidateCustomizationPartContract(Plan.Resources, Plan.Slot, Plan.Loaded);
         if (Failure != ECustomizationFailure::None) { return FDetail::Of(Failure, Plan.Slot); }
-        if (&Plan == &Crest && Plan.Loaded.SkeletalMesh)
+        if (!Plan.Loaded.SkeletalMesh) { continue; }
+        if (!Body.Mesh.IsValid())
         {
             // body 문제는 슬롯의 문제가 아니므로 슬롯 없이 돌려준다.
             Failure = ValidateCustomizationBodyContract(BodyMeshPath, Plan.Loaded.Skeleton.Get(), Body);
             if (Failure != ECustomizationFailure::None) { return FDetail::Of(Failure); }
         }
-        else if (Body.Mesh.IsValid() && Plan.Loaded.SkeletalMesh && Plan.Loaded.Skeleton.Get() != Body.Mesh->GetSkeleton())
+        else if (Plan.Loaded.Skeleton.Get() != Body.Mesh->GetSkeleton())
         {
             return FDetail::Of(ECustomizationFailure::SkeletonMismatch, Plan.Slot);
         }
+    }
+    if (!Body.Mesh.IsValid() && Candidate.HeadShape != 1.0f)
+    {
+        return FDetail::Of(ECustomizationFailure::UnsupportedBodyAdjustment);
     }
 
     // 2) 로드한 뒤의 런타임 준비 상태. render 자원과 Morph batch가 실제로 만들어졌는지 본다.
@@ -268,7 +268,7 @@ FCustomizationFailureDetail UCustomizationAppearanceComponent::Prepare(const FCu
     for (FSlotPlan& Plan : Plans)
     {
         if (!Plan.Loaded.SkeletalMesh) { continue; }
-        const ECustomizationFailure Failure = CheckRender(Plan.Loaded.SkeletalMesh, Plan.GetMorphs());
+        const ECustomizationFailure Failure = CheckRender(Plan.Loaded.SkeletalMesh, {});
         if (Failure != ECustomizationFailure::None) { return FDetail::Of(Failure, Plan.Slot); }
     }
     if (Body.Mesh.IsValid())
@@ -289,38 +289,25 @@ FCustomizationFailureDetail UCustomizationAppearanceComponent::Prepare(const FCu
             return FDetail::Of(ECustomizationFailure::PreparationFailed, Plan.Slot);
         }
     }
-    if (Body.Mesh.IsValid())
-    {
-        for (int32 Slot = 1; Slot < Body.Mesh->GetMaterials().Num(); ++Slot)
-        {
-            if (!IsComplete(Body.Mesh->GetMaterials()[Slot].MaterialInterface))
-            {
-                return FDetail::Of(ECustomizationFailure::PreparationFailed);
-            }
-        }
-    }
+    if (Body.Mesh.IsValid() && !IsComplete(Body.Material.Get())) { return FDetail::Of(ECustomizationFailure::PreparationFailed); }
 
     // 3) 이미 같은 외형이면 아무것도 바꾸지 않는다.
-    const FLinearColor Color = GetCustomizationColor(Candidate.Hue);
-    const float ShapeWeight = (Candidate.Shape + 1.0f) * 0.5f;
-    const float BodyWeights[] = {FMath::Max(-Candidate.EyeSize, 0.f), FMath::Max(Candidate.EyeSize, 0.f),
-        FMath::Max(-Candidate.BeakLength, 0.f), FMath::Max(Candidate.BeakLength, 0.f),
-        FMath::Max(-Candidate.BodyLength, 0.f), FMath::Max(Candidate.BodyLength, 0.f)};
+    // 머리 모양 1(기본)이 HeadFlat weight 0이다.
+    const float BodyWeights[] = {1.0f - Candidate.HeadShape};
+    const FLinearColor SkinColor = GetCustomizationColor(Candidate.SkinColor);
     const FName BodyColorParameter = GetCustomizationBodyColorParameter();
     bool bAllReused = true;
     for (FSlotPlan& Plan : Plans)
     {
         const FCustomizationPartResources& Resources = Plan.Resources;
-        Plan.MorphWeight = ShapeWeight;
-        const FVector Scale = Plan.Loaded.StaticMesh ? FVector(1.0f, 1.0f, 1.0f + 0.35f * Candidate.Shape) : FVector::OneVector;
-        // body Morph를 따라가는 장식은 같은 weight로 위치를 옮긴다. 이 위치도 준비 후 한 번에 공개된다.
+        // body Morph를 따라가는 파츠는 같은 weight로 위치를 옮긴다. 이 위치도 준비 후 한 번에 공개된다.
         FVector Location = FVector::ZeroVector;
         for (const FCustomizationMorphFollow& Follow : Resources.FollowBodyMorphs)
         {
             const int32 MorphIndex = BodyMorphs.Find(Follow.BodyMorph);
             if (MorphIndex != INDEX_NONE) { Location += Follow.Offset * BodyWeights[MorphIndex]; }
         }
-        Plan.Transform = FTransform(FQuat::Identity, Location, Scale);
+        Plan.Transform = FTransform(FQuat::Identity, Location);
         UMeshComponent* Current = DisplayedMeshes[Plan.Index];
         UMaterialInstanceDynamic* CurrentMID = DisplayedMIDs[Plan.Index];
         const UStaticMeshComponent* CurrentStatic = Cast<UStaticMeshComponent>(Current);
@@ -330,43 +317,40 @@ FCustomizationFailureDetail UCustomizationAppearanceComponent::Prepare(const FCu
             && ((Plan.Loaded.StaticMesh && CurrentStatic && CurrentStatic->GetStaticMesh() == Plan.Loaded.StaticMesh)
                 || (Plan.Loaded.SkeletalMesh && CurrentSkeletal && CurrentSkeletal->GetSkeletalMeshAsset() == Plan.Loaded.SkeletalMesh));
         Plan.bReuse = bSameMesh
-            && MatchesMaterial(CurrentMID, Plan.Loaded.Material.Get(), Resources.ColorParameter, Color, Resources.MaskParameter, Plan.Loaded.Mask.Get())
+            && MatchesMaterial(CurrentMID, Plan.Loaded.Material.Get(), Plan.ColorParameter, Plan.Color,
+                Resources.MaskParameter, Plan.Loaded.Mask.Get())
             && Current->GetRelativeLocation() == Plan.Transform.GetLocation()
-            && Current->GetRelativeScale3D() == Scale
+            && Current->GetRelativeScale3D() == FVector::OneVector
             && Current->GetRelativeTransform().GetRotation() == FQuat::Identity
-            && (!CurrentSkeletal || HasPreparedPose(CurrentSkeletal, Plan.GetMorphs(), Plan.GetWeights()));
+            && (!CurrentSkeletal || HasPreparedPose(CurrentSkeletal, {}, {}));
         Plan.bInPlace = !Plan.bReuse && bSameMesh && Plan.Loaded.StaticMesh;
         bAllReused &= Plan.bReuse;
     }
     const bool bSameBody = Body.Mesh.IsValid()
         ? DisplayedBody && DisplayedBody->IsRegistered() && DisplayedBody->GetSkeletalMeshAsset() == Body.Mesh.Get()
             && DisplayedBody->GetMaterial(0) == DisplayedBodyMID
-            && MatchesMaterial(DisplayedBodyMID, Crest.Loaded.Material.Get(), BodyColorParameter, Color)
+            && MatchesMaterial(DisplayedBodyMID, Body.Material.Get(), BodyColorParameter, SkinColor)
             && DisplayedBody->GetRelativeTransform().Equals(FTransform::Identity)
             && HasPreparedPose(DisplayedBody, BodyMorphs, BodyWeights)
         : !DisplayedBody && !DisplayedBodyMID;
     bool bRemovesSlot = false;
-    for (int32 Index = 0; Index < 3; ++Index)
+    for (int32 Index = 0; Index < CustomizationSlotCount; ++Index)
     {
         bRemovesSlot |= DisplayedMeshes[Index] && !Plans.ContainsByPredicate([Index](const FSlotPlan& Plan) { return Plan.Index == Index; });
     }
     if (bAllReused && bSameBody && !bRemovesSlot) { return FDetail(); }
 
-    // 4) 바뀌는 파츠의 새 MID. 새 override는 이전 파츠의 Morph와 mask를 상속하지 않는다.
+    // 4) 바뀌는 파츠의 새 MID. 새 override는 이전 파츠의 색과 mask를 상속하지 않는다.
     for (FSlotPlan& Plan : Plans)
     {
         if (Plan.bReuse) { continue; }
         const FCustomizationPartResources& Resources = Plan.Resources;
         Plan.MID.Reset(UMaterialInstanceDynamic::Create(Plan.Loaded.Material.Get(), Owner));
         if (!Plan.MID.IsValid()) { return FDetail::Of(ECustomizationFailure::PreparationFailed, Plan.Slot); }
-        if (!Resources.ColorParameter.IsNone()) { Plan.MID->SetVectorParameterValue(Resources.ColorParameter, Color); }
+        if (!Plan.ColorParameter.IsNone()) { Plan.MID->SetVectorParameterValue(Plan.ColorParameter, Plan.Color); }
         if (Plan.Loaded.Mask.IsValid()) { Plan.MID->SetTextureParameterValue(Resources.MaskParameter, Plan.Loaded.Mask.Get()); }
-        FLinearColor AppliedColor;
-        UTexture* AppliedMask = nullptr;
-        if ((!Resources.ColorParameter.IsNone()
-                && (!Plan.MID->GetVectorParameterValue(FMaterialParameterInfo(Resources.ColorParameter), AppliedColor) || !AppliedColor.Equals(Color)))
-            || (Plan.Loaded.Mask.IsValid() && (!Plan.MID->GetTextureParameterValue(FMaterialParameterInfo(Resources.MaskParameter), AppliedMask)
-                || AppliedMask != Plan.Loaded.Mask.Get())))
+        if (!MatchesMaterial(Plan.MID.Get(), Plan.Loaded.Material.Get(), Plan.ColorParameter, Plan.Color,
+            Resources.MaskParameter, Plan.Loaded.Mask.Get()))
         {
             return FDetail::Of(ECustomizationFailure::PreparationFailed, Plan.Slot);
         }
@@ -374,10 +358,10 @@ FCustomizationFailureDetail UCustomizationAppearanceComponent::Prepare(const FCu
     TStrongObjectPtr<UMaterialInstanceDynamic> BodyMID;
     if (Body.Mesh.IsValid() && !bSameBody)
     {
-        BodyMID.Reset(UMaterialInstanceDynamic::Create(Crest.Loaded.Material.Get(), Owner));
+        BodyMID.Reset(UMaterialInstanceDynamic::Create(Body.Material.Get(), Owner));
         if (!BodyMID.IsValid()) { return FDetail::Of(ECustomizationFailure::PreparationFailed); }
-        BodyMID->SetVectorParameterValue(BodyColorParameter, Color);
-        if (!MatchesMaterial(BodyMID.Get(), Crest.Loaded.Material.Get(), BodyColorParameter, Color))
+        BodyMID->SetVectorParameterValue(BodyColorParameter, SkinColor);
+        if (!MatchesMaterial(BodyMID.Get(), Body.Material.Get(), BodyColorParameter, SkinColor))
         {
             return FDetail::Of(ECustomizationFailure::PreparationFailed);
         }
@@ -394,7 +378,6 @@ FCustomizationFailureDetail UCustomizationAppearanceComponent::Prepare(const FCu
             USkeletalMeshComponent* Skeletal = NewObject<USkeletalMeshComponent>(Owner, NAME_None, RF_Transient);
             ConfigureSkeletal(Skeletal, Plan.Loaded.SkeletalMesh);
             Skeletal->ClearMorphTargets();
-            if (!Plan.Resources.Morph.IsNone()) { Skeletal->SetMorphTarget(Plan.Resources.Morph, Plan.MorphWeight, false); }
             Staged = Skeletal;
         }
         else
@@ -435,8 +418,7 @@ FCustomizationFailureDetail UCustomizationAppearanceComponent::Prepare(const FCu
     {
         if (!Plan.Staged.IsValid()) { continue; }
         const bool bReady = Plan.Staged->IsRegistered() && Plan.Staged->GetMaterial(Plan.Resources.MaterialSlot) == Plan.MID.Get()
-            && (!Plan.Loaded.SkeletalMesh
-                || HasPreparedPose(CastChecked<USkeletalMeshComponent>(Plan.Staged.Get()), Plan.GetMorphs(), Plan.GetWeights()));
+            && (!Plan.Loaded.SkeletalMesh || HasPreparedPose(CastChecked<USkeletalMeshComponent>(Plan.Staged.Get()), {}, {}));
         if (!bReady)
         {
             DiscardStaged();
@@ -453,8 +435,8 @@ FCustomizationFailureDetail UCustomizationAppearanceComponent::Prepare(const FCu
 
     // 6) 모든 슬롯의 후보 pose와 render weight 검증을 마친 뒤에만 한 번에 공개한다.
     //    Model은 이 성공 결과 뒤에 Profile/Draft를 공개한다.
-    TArray<UMeshComponent*, TInlineAllocator<4>> Retired;
-    for (int32 Index = 0; Index < 3; ++Index)
+    TArray<UMeshComponent*, TInlineAllocator<CustomizationSlotCount + 1>> Retired;
+    for (int32 Index = 0; Index < CustomizationSlotCount; ++Index)
     {
         FSlotPlan* Plan = Plans.FindByPredicate([Index](const FSlotPlan& Item) { return Item.Index == Index; });
         if (Plan && Plan->bReuse) { continue; }
@@ -483,7 +465,7 @@ FCustomizationFailureDetail UCustomizationAppearanceComponent::Prepare(const FCu
 
 void UCustomizationAppearanceComponent::ClearPreview()
 {
-    for (int32 Index = 0; Index < 3; ++Index)
+    for (int32 Index = 0; Index < CustomizationSlotCount; ++Index)
     {
         DestroyPreview(DisplayedMeshes[Index]);
         DisplayedMeshes[Index] = nullptr;

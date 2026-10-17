@@ -7,8 +7,7 @@
 namespace
 {
     const FName BodyColorParameter(TEXT("Color"));
-    const FName BodyMorphs[] = {TEXT("EyeSmall"), TEXT("EyeLarge"), TEXT("BeakShort"),
-        TEXT("BeakLong"), TEXT("BodyShort"), TEXT("BodyLong")};
+    const FName BodyMorphs[] = {TEXT("HeadFlat")};
 
     bool HasMorphData(const USkeletalMesh* Mesh, TConstArrayView<FName> Morphs)
     {
@@ -35,7 +34,7 @@ TConstArrayView<FName> GetCustomizationBodyMorphs() { return BodyMorphs; }
 
 const FSoftObjectPath& GetDefaultCustomizationBodyMesh()
 {
-    static const FSoftObjectPath Path(TEXT("/Game/Customization/Prototype/SK_CustomizationBody.SK_CustomizationBody"));
+    static const FSoftObjectPath Path(TEXT("/Game/Customization/Prototype/SK_CustomizationBaseBody.SK_CustomizationBaseBody"));
     return Path;
 }
 
@@ -59,33 +58,29 @@ ECustomizationFailure ValidateCustomizationPartContract(
         if (!TConstArrayView<FName>(BodyMorphs).Contains(Follow.BodyMorph)) { return ECustomizationFailure::MissingMorph; }
         if (Follow.Offset.ContainsNaN()) { return ECustomizationFailure::InvalidNumber; }
     }
-    // 형상 Morph가 없는 파츠는 Morph를 요구하지 않는다.
-    const FName PartMorphs[] = {Resources.Morph};
-    const TConstArrayView<FName> RequiredMorphs = Resources.Morph.IsNone() ? TConstArrayView<FName>() : TConstArrayView<FName>(PartMorphs);
     if (Out.SkeletalMesh)
     {
         Out.Skeleton.Reset(Cast<USkeleton>(Resources.ExpectedSkeleton.TryLoad()));
         if (!Out.Skeleton.IsValid()) { return ECustomizationFailure::MissingSkeleton; }
         if (Out.SkeletalMesh->GetSkeleton() != Out.Skeleton.Get()) { return ECustomizationFailure::SkeletonMismatch; }
         if (Out.SkeletalMesh->IsCompiling()) { return ECustomizationFailure::PreparationFailed; }
-        if (!HasMorphData(Out.SkeletalMesh, RequiredMorphs)) { return ECustomizationFailure::MissingMorph; }
     }
     const int32 SlotCount = Out.StaticMesh ? Out.StaticMesh->GetStaticMaterials().Num() : Out.SkeletalMesh->GetMaterials().Num();
     if (Resources.MaterialSlot < 0 || Resources.MaterialSlot >= SlotCount) { return ECustomizationFailure::MissingMaterial; }
     Out.Material.Reset(Cast<UMaterialInterface>(Resources.Material.TryLoad()));
     if (!Out.Material.IsValid()) { return ECustomizationFailure::MissingMaterial; }
-    const bool bBodyShares = Slot == ECustomizationSlot::Crest && Out.SkeletalMesh;
-    if (Out.SkeletalMesh && !HasSkeletalUsage(Out.Material.Get(), bBodyShares || !RequiredMorphs.IsEmpty()))
+    if (Out.SkeletalMesh && !HasSkeletalUsage(Out.Material.Get(), false))
     {
         return ECustomizationFailure::MissingMaterial;
     }
+    // 색을 고르는 슬롯의 파츠는 색 parameter가 있어야 하고, 색이 없는 슬롯(발)은 고정색이라 없어야 한다.
+    // 어긋나면 팔레트 선택이 성공으로 보이는데 표시가 바뀌지 않거나, 쓰이지 않는 색이 등록된다.
+    const bool bColorable = IsCustomizationSlotColorable(Slot);
+    if (bColorable && Resources.ColorParameter.IsNone()) { return ECustomizationFailure::MissingColorParameter; }
+    if (!bColorable && !Resources.ColorParameter.IsNone()) { return ECustomizationFailure::InvalidKind; }
     FLinearColor ExistingColor;
     if (!Resources.ColorParameter.IsNone()
         && !Out.Material->GetVectorParameterValue(FMaterialParameterInfo(Resources.ColorParameter), ExistingColor))
-    {
-        return ECustomizationFailure::MissingColorParameter;
-    }
-    if (bBodyShares && !Out.Material->GetVectorParameterValue(FMaterialParameterInfo(BodyColorParameter), ExistingColor))
     {
         return ECustomizationFailure::MissingColorParameter;
     }
@@ -115,10 +110,14 @@ ECustomizationFailure ValidateCustomizationBodyContract(
     if (Out.Mesh->GetSkeleton() != ExpectedSkeleton) { return ECustomizationFailure::SkeletonMismatch; }
     if (Out.Mesh->IsCompiling()) { return ECustomizationFailure::PreparationFailed; }
     if (!HasMorphData(Out.Mesh.Get(), BodyMorphs)) { return ECustomizationFailure::MissingMorph; }
-    if (Out.Mesh->GetMaterials().Num() == 0) { return ECustomizationFailure::MissingMaterial; }
-    for (int32 Slot = 1; Slot < Out.Mesh->GetMaterials().Num(); ++Slot)
+    // body는 슬롯 0 하나만 쓴다. 피부색 MID가 이 material을 부모로 삼는다.
+    if (Out.Mesh->GetMaterials().Num() != 1) { return ECustomizationFailure::MissingMaterial; }
+    Out.Material.Reset(Out.Mesh->GetMaterials()[0].MaterialInterface);
+    if (!HasSkeletalUsage(Out.Material.Get(), true)) { return ECustomizationFailure::MissingMaterial; }
+    FLinearColor ExistingColor;
+    if (!Out.Material->GetVectorParameterValue(FMaterialParameterInfo(BodyColorParameter), ExistingColor))
     {
-        if (!HasSkeletalUsage(Out.Mesh->GetMaterials()[Slot].MaterialInterface, true)) { return ECustomizationFailure::MissingMaterial; }
+        return ECustomizationFailure::MissingColorParameter;
     }
     return ECustomizationFailure::None;
 }

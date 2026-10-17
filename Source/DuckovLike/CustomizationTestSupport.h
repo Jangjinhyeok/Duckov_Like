@@ -53,8 +53,8 @@ struct FRealWorld
 // 표시 중인 모든 component와 MID의 pointer다. 실패가 표시를 건드리지 않았는지 비교한다.
 struct FDisplaySnapshot
 {
-    UMeshComponent* Meshes[3] = {};
-    UMaterialInstanceDynamic* MIDs[3] = {};
+    UMeshComponent* Meshes[CustomizationSlotCount] = {};
+    UMaterialInstanceDynamic* MIDs[CustomizationSlotCount] = {};
     UMeshComponent* Body = nullptr;
     UMaterialInstanceDynamic* BodyMID = nullptr;
     bool bRegisteredAndVisible = true;
@@ -62,7 +62,7 @@ struct FDisplaySnapshot
 
     explicit FDisplaySnapshot(const UCustomizationAppearanceComponent* Target)
     {
-        for (int32 Index = 0; Index < 3; ++Index)
+        for (int32 Index = 0; Index < CustomizationSlotCount; ++Index)
         {
             const ECustomizationSlot Slot = static_cast<ECustomizationSlot>(Index);
             Meshes[Index] = Target->GetDisplayedSlotMesh(Slot);
@@ -76,7 +76,7 @@ struct FDisplaySnapshot
     }
     bool operator==(const FDisplaySnapshot& Other) const
     {
-        for (int32 Index = 0; Index < 3; ++Index)
+        for (int32 Index = 0; Index < CustomizationSlotCount; ++Index)
         {
             if (Meshes[Index] != Other.Meshes[Index] || MIDs[Index] != Other.MIDs[Index]) { return false; }
         }

@@ -1,32 +1,98 @@
 [
 	{
-		"Name": "A",
-		"Slot": "Crest",
-		"DisplayName": "A · 세 갈래 깃",
-		"Resources": "(MeshKind=Skeletal,Mesh=\"/Game/Customization/Prototype/SK_CustomizationPartA.SK_CustomizationPartA\",ExpectedSkeleton=\"/Game/Customization/Prototype/SK_CustomizationBody_Skeleton.SK_CustomizationBody_Skeleton\",Material=\"/Game/Customization/Prototype/M_CustomizationColor.M_CustomizationColor\",MaterialSlot=0,ColorParameter=\"Color\",Morph=\"Shape\",MaskParameter=\"\",Mask=None,bMaskRequired=False)"
+		"Name": "EyeRound",
+		"Slot": "Eye",
+		"DisplayName": "둥근 눈",
+		"Resources": "(MeshKind=Skeletal,Mesh=\"/Game/Customization/Prototype/SK_CustomizationEyeRound.SK_CustomizationEyeRound\",ExpectedSkeleton=\"/Game/Customization/Prototype/SK_CustomizationBody_Skeleton.SK_CustomizationBody_Skeleton\",Material=\"/Game/Customization/Prototype/M_CustomizationColor.M_CustomizationColor\",MaterialSlot=0,ColorParameter=\"Color\",MaskParameter=\"\",Mask=None,bMaskRequired=False,FollowBodyMorphs=((BodyMorph=\"HeadFlat\",Offset=(X=0.000000,Y=0.000000,Z=-2.810000))))"
 	},
 	{
-		"Name": "B",
-		"Slot": "Crest",
-		"DisplayName": "B · 두 갈래 깃",
-		"Resources": "(MeshKind=Skeletal,Mesh=\"/Game/Customization/Prototype/SK_CustomizationPartB.SK_CustomizationPartB\",ExpectedSkeleton=\"/Game/Customization/Prototype/SK_CustomizationBody_Skeleton.SK_CustomizationBody_Skeleton\",Material=\"/Game/Customization/Prototype/M_CustomizationColor.M_CustomizationColor\",MaterialSlot=0,ColorParameter=\"Color\",Morph=\"Shape\",MaskParameter=\"\",Mask=None,bMaskRequired=False)"
+		"Name": "EyeLarge",
+		"Slot": "Eye",
+		"DisplayName": "큰 눈",
+		"Resources": "(MeshKind=Skeletal,Mesh=\"/Game/Customization/Prototype/SK_CustomizationEyeLarge.SK_CustomizationEyeLarge\",ExpectedSkeleton=\"/Game/Customization/Prototype/SK_CustomizationBody_Skeleton.SK_CustomizationBody_Skeleton\",Material=\"/Game/Customization/Prototype/M_CustomizationColor.M_CustomizationColor\",MaterialSlot=0,ColorParameter=\"Color\",MaskParameter=\"\",Mask=None,bMaskRequired=False,FollowBodyMorphs=((BodyMorph=\"HeadFlat\",Offset=(X=0.000000,Y=0.000000,Z=-3.460000))))"
 	},
 	{
-		"Name": "C",
-		"Slot": "Crest",
-		"DisplayName": "C · 한 갈래 깃",
-		"Resources": "(MeshKind=Skeletal,Mesh=\"/Game/Customization/Prototype/SK_CustomizationPartC.SK_CustomizationPartC\",ExpectedSkeleton=\"/Game/Customization/Prototype/SK_CustomizationBody_Skeleton.SK_CustomizationBody_Skeleton\",Material=\"/Game/Customization/Prototype/M_CustomizationColor.M_CustomizationColor\",MaterialSlot=0,ColorParameter=\"Color\",Morph=\"Shape\",MaskParameter=\"\",Mask=None,bMaskRequired=False)"
+		"Name": "EyeSleepy",
+		"Slot": "Eye",
+		"DisplayName": "졸린 눈",
+		"Resources": "(MeshKind=Skeletal,Mesh=\"/Game/Customization/Prototype/SK_CustomizationEyeSleepy.SK_CustomizationEyeSleepy\",ExpectedSkeleton=\"/Game/Customization/Prototype/SK_CustomizationBody_Skeleton.SK_CustomizationBody_Skeleton\",Material=\"/Game/Customization/Prototype/M_CustomizationColor.M_CustomizationColor\",MaterialSlot=0,ColorParameter=\"Color\",MaskParameter=\"\",Mask=None,bMaskRequired=False,FollowBodyMorphs=((BodyMorph=\"HeadFlat\",Offset=(X=0.000000,Y=0.000000,Z=-2.170000))))"
 	},
 	{
-		"Name": "RoundGlasses",
-		"Slot": "Eyewear",
-		"DisplayName": "둥근 안경",
-		"Resources": "(MeshKind=Skeletal,Mesh=\"/Game/Customization/Prototype/SK_CustomizationRoundGlasses.SK_CustomizationRoundGlasses\",ExpectedSkeleton=\"/Game/Customization/Prototype/SK_CustomizationBody_Skeleton.SK_CustomizationBody_Skeleton\",Material=\"/Game/Customization/Prototype/M_PrototypeEye.M_PrototypeEye\",MaterialSlot=0,ColorParameter=\"\",Morph=\"\",MaskParameter=\"\",Mask=None,bMaskRequired=False)"
+		"Name": "HairA",
+		"Slot": "Hair",
+		"DisplayName": "세 갈래 깃",
+		"Resources": "(MeshKind=Skeletal,Mesh=\"/Game/Customization/Prototype/SK_CustomizationPartA.SK_CustomizationPartA\",ExpectedSkeleton=\"/Game/Customization/Prototype/SK_CustomizationBody_Skeleton.SK_CustomizationBody_Skeleton\",Material=\"/Game/Customization/Prototype/M_CustomizationColor.M_CustomizationColor\",MaterialSlot=0,ColorParameter=\"Color\",MaskParameter=\"\",Mask=None,bMaskRequired=False,FollowBodyMorphs=((BodyMorph=\"HeadFlat\",Offset=(X=0.000000,Y=0.000000,Z=-7.780000))))"
 	},
 	{
-		"Name": "BeakRing",
+		"Name": "HairB",
+		"Slot": "Hair",
+		"DisplayName": "두 갈래 깃",
+		"Resources": "(MeshKind=Skeletal,Mesh=\"/Game/Customization/Prototype/SK_CustomizationPartB.SK_CustomizationPartB\",ExpectedSkeleton=\"/Game/Customization/Prototype/SK_CustomizationBody_Skeleton.SK_CustomizationBody_Skeleton\",Material=\"/Game/Customization/Prototype/M_CustomizationColor.M_CustomizationColor\",MaterialSlot=0,ColorParameter=\"Color\",MaskParameter=\"\",Mask=None,bMaskRequired=False,FollowBodyMorphs=((BodyMorph=\"HeadFlat\",Offset=(X=0.000000,Y=0.000000,Z=-7.550000))))"
+	},
+	{
+		"Name": "HairC",
+		"Slot": "Hair",
+		"DisplayName": "한 갈래 깃",
+		"Resources": "(MeshKind=Skeletal,Mesh=\"/Game/Customization/Prototype/SK_CustomizationPartC.SK_CustomizationPartC\",ExpectedSkeleton=\"/Game/Customization/Prototype/SK_CustomizationBody_Skeleton.SK_CustomizationBody_Skeleton\",Material=\"/Game/Customization/Prototype/M_CustomizationColor.M_CustomizationColor\",MaterialSlot=0,ColorParameter=\"Color\",MaskParameter=\"\",Mask=None,bMaskRequired=False,FollowBodyMorphs=((BodyMorph=\"HeadFlat\",Offset=(X=0.000000,Y=0.000000,Z=-7.590000))))"
+	},
+	{
+		"Name": "BeakDuck",
 		"Slot": "Beak",
-		"DisplayName": "부리 고리",
-		"Resources": "(MeshKind=Skeletal,Mesh=\"/Game/Customization/Prototype/SK_CustomizationBeakRing.SK_CustomizationBeakRing\",ExpectedSkeleton=\"/Game/Customization/Prototype/SK_CustomizationBody_Skeleton.SK_CustomizationBody_Skeleton\",Material=\"/Game/Customization/Prototype/M_CustomizationColor.M_CustomizationColor\",MaterialSlot=0,ColorParameter=\"Color\",Morph=\"\",MaskParameter=\"\",Mask=None,bMaskRequired=False,FollowBodyMorphs=((BodyMorph=\"BeakShort\",Offset=(X=-5.090000,Y=0.000000,Z=0.000000)),(BodyMorph=\"BeakLong\",Offset=(X=7.270000,Y=0.000000,Z=0.000000))))"
+		"DisplayName": "오리 부리",
+		"Resources": "(MeshKind=Skeletal,Mesh=\"/Game/Customization/Prototype/SK_CustomizationBeakDuck.SK_CustomizationBeakDuck\",ExpectedSkeleton=\"/Game/Customization/Prototype/SK_CustomizationBody_Skeleton.SK_CustomizationBody_Skeleton\",Material=\"/Game/Customization/Prototype/M_CustomizationColor.M_CustomizationColor\",MaterialSlot=0,ColorParameter=\"Color\",MaskParameter=\"\",Mask=None,bMaskRequired=False)"
+	},
+	{
+		"Name": "BeakSmall",
+		"Slot": "Beak",
+		"DisplayName": "작은 부리",
+		"Resources": "(MeshKind=Skeletal,Mesh=\"/Game/Customization/Prototype/SK_CustomizationBeakSmall.SK_CustomizationBeakSmall\",ExpectedSkeleton=\"/Game/Customization/Prototype/SK_CustomizationBody_Skeleton.SK_CustomizationBody_Skeleton\",Material=\"/Game/Customization/Prototype/M_CustomizationColor.M_CustomizationColor\",MaterialSlot=0,ColorParameter=\"Color\",MaskParameter=\"\",Mask=None,bMaskRequired=False)"
+	},
+	{
+		"Name": "BeakLong",
+		"Slot": "Beak",
+		"DisplayName": "긴 부리",
+		"Resources": "(MeshKind=Skeletal,Mesh=\"/Game/Customization/Prototype/SK_CustomizationBeakLong.SK_CustomizationBeakLong\",ExpectedSkeleton=\"/Game/Customization/Prototype/SK_CustomizationBody_Skeleton.SK_CustomizationBody_Skeleton\",Material=\"/Game/Customization/Prototype/M_CustomizationColor.M_CustomizationColor\",MaterialSlot=0,ColorParameter=\"Color\",MaskParameter=\"\",Mask=None,bMaskRequired=False)"
+	},
+	{
+		"Name": "WingRound",
+		"Slot": "Wing",
+		"DisplayName": "둥근 날개",
+		"Resources": "(MeshKind=Skeletal,Mesh=\"/Game/Customization/Prototype/SK_CustomizationWingRound.SK_CustomizationWingRound\",ExpectedSkeleton=\"/Game/Customization/Prototype/SK_CustomizationBody_Skeleton.SK_CustomizationBody_Skeleton\",Material=\"/Game/Customization/Prototype/M_CustomizationColor.M_CustomizationColor\",MaterialSlot=0,ColorParameter=\"Color\",MaskParameter=\"\",Mask=None,bMaskRequired=False)"
+	},
+	{
+		"Name": "WingSmall",
+		"Slot": "Wing",
+		"DisplayName": "작은 날개",
+		"Resources": "(MeshKind=Skeletal,Mesh=\"/Game/Customization/Prototype/SK_CustomizationWingSmall.SK_CustomizationWingSmall\",ExpectedSkeleton=\"/Game/Customization/Prototype/SK_CustomizationBody_Skeleton.SK_CustomizationBody_Skeleton\",Material=\"/Game/Customization/Prototype/M_CustomizationColor.M_CustomizationColor\",MaterialSlot=0,ColorParameter=\"Color\",MaskParameter=\"\",Mask=None,bMaskRequired=False)"
+	},
+	{
+		"Name": "WingMitten",
+		"Slot": "Wing",
+		"DisplayName": "장갑 손",
+		"Resources": "(MeshKind=Skeletal,Mesh=\"/Game/Customization/Prototype/SK_CustomizationWingMitten.SK_CustomizationWingMitten\",ExpectedSkeleton=\"/Game/Customization/Prototype/SK_CustomizationBody_Skeleton.SK_CustomizationBody_Skeleton\",Material=\"/Game/Customization/Prototype/M_CustomizationColor.M_CustomizationColor\",MaterialSlot=0,ColorParameter=\"Color\",MaskParameter=\"\",Mask=None,bMaskRequired=False)"
+	},
+	{
+		"Name": "TailShort",
+		"Slot": "Tail",
+		"DisplayName": "짧은 꼬리",
+		"Resources": "(MeshKind=Skeletal,Mesh=\"/Game/Customization/Prototype/SK_CustomizationTailShort.SK_CustomizationTailShort\",ExpectedSkeleton=\"/Game/Customization/Prototype/SK_CustomizationBody_Skeleton.SK_CustomizationBody_Skeleton\",Material=\"/Game/Customization/Prototype/M_CustomizationColor.M_CustomizationColor\",MaterialSlot=0,ColorParameter=\"Color\",MaskParameter=\"\",Mask=None,bMaskRequired=False)"
+	},
+	{
+		"Name": "TailFan",
+		"Slot": "Tail",
+		"DisplayName": "부채 꼬리",
+		"Resources": "(MeshKind=Skeletal,Mesh=\"/Game/Customization/Prototype/SK_CustomizationTailFan.SK_CustomizationTailFan\",ExpectedSkeleton=\"/Game/Customization/Prototype/SK_CustomizationBody_Skeleton.SK_CustomizationBody_Skeleton\",Material=\"/Game/Customization/Prototype/M_CustomizationColor.M_CustomizationColor\",MaterialSlot=0,ColorParameter=\"Color\",MaskParameter=\"\",Mask=None,bMaskRequired=False)"
+	},
+	{
+		"Name": "FootWebbed",
+		"Slot": "Foot",
+		"DisplayName": "오리발",
+		"Resources": "(MeshKind=Skeletal,Mesh=\"/Game/Customization/Prototype/SK_CustomizationFootWebbed.SK_CustomizationFootWebbed\",ExpectedSkeleton=\"/Game/Customization/Prototype/SK_CustomizationBody_Skeleton.SK_CustomizationBody_Skeleton\",Material=\"/Game/Customization/Prototype/M_PrototypeBeak.M_PrototypeBeak\",MaterialSlot=0,ColorParameter=\"\",MaskParameter=\"\",Mask=None,bMaskRequired=False)"
+	},
+	{
+		"Name": "FootBoot",
+		"Slot": "Foot",
+		"DisplayName": "장화",
+		"Resources": "(MeshKind=Skeletal,Mesh=\"/Game/Customization/Prototype/SK_CustomizationFootBoot.SK_CustomizationFootBoot\",ExpectedSkeleton=\"/Game/Customization/Prototype/SK_CustomizationBody_Skeleton.SK_CustomizationBody_Skeleton\",Material=\"/Game/Customization/Prototype/M_PrototypeEye.M_PrototypeEye\",MaterialSlot=0,ColorParameter=\"\",MaskParameter=\"\",Mask=None,bMaskRequired=False)"
 	}
 ]

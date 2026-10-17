@@ -3,14 +3,20 @@
 #include "CoreMinimal.h"
 #include "CustomizationTypes.generated.h"
 
-// 외형 슬롯이다. Crest(머리 장식)는 필수이고 Eyewear(눈)·Beak(부리)는 비어 있을 수 있다.
+// 원작처럼 몸통은 고정이고 부위마다 유형을 고른다. 헤어만 비어 있을 수 있다.
+// enum 순서가 슬롯 배열의 index이자 화면 탭 순서다.
 UENUM()
 enum class ECustomizationSlot : uint8
 {
-    Crest,
-    Eyewear,
-    Beak
+    Eye,
+    Hair,
+    Beak,
+    Wing,
+    Tail,
+    Foot
 };
+
+constexpr int32 CustomizationSlotCount = 6;
 
 UENUM()
 enum class ECustomizationFailure : uint8
@@ -23,11 +29,10 @@ enum class ECustomizationFailure : uint8
     UnknownPart,
     RequiredPartMissing,
     InvalidNumber,
-    HueOutOfRange,
-    ShapeOutOfRange,
-    EyeSizeOutOfRange,
-    BeakLengthOutOfRange,
-    BodyLengthOutOfRange,
+    // 팔레트에 없는 색 index다.
+    ColorOutOfRange,
+    HeadShapeOutOfRange,
+    // body가 없는 시험 표시에서 머리 모양을 바꾸려 했다.
     UnsupportedBodyAdjustment,
     MissingMesh,
     MissingSkeleton,
@@ -49,7 +54,7 @@ enum class ECustomizationFailure : uint8
 struct DUCKOVLIKE_API FCustomizationFailureDetail
 {
     ECustomizationFailure Reason = ECustomizationFailure::None;
-    ECustomizationSlot Slot = ECustomizationSlot::Crest;
+    ECustomizationSlot Slot = ECustomizationSlot::Eye;
     bool bHasSlot = false;
 
     static FCustomizationFailureDetail Of(ECustomizationFailure InReason)
@@ -73,69 +78,124 @@ struct DUCKOVLIKE_API FCustomizationFailureDetail
     bool operator!=(const FCustomizationFailureDetail& Other) const { return !(*this == Other); }
 };
 
-// 리소스 참조 없이 Model만 소유하는 메모리 외형 값이다.
+// 리소스 참조 없이 Model만 소유하는 메모리 외형 값이다. 색은 고정 팔레트의 index다.
 USTRUCT()
 struct DUCKOVLIKE_API FCustomizationProfile
 {
     GENERATED_BODY()
 
-    // Crest 슬롯의 파츠 ID다. None은 파츠 없음이며 필수 슬롯에서는 거부한다.
+    // 슬롯별 파츠 ID다. None은 파츠 없음이며 헤어 외의 슬롯에서는 거부한다.
     UPROPERTY()
-    FName PartId = TEXT("A");
-
-    // 선택 슬롯이다. None은 파츠 없음이다.
-    UPROPERTY()
-    FName EyewearId = NAME_None;
+    FName EyeId = TEXT("EyeRound");
 
     UPROPERTY()
-    FName BeakWearId = NAME_None;
+    FName HairId = TEXT("HairA");
 
     UPROPERTY()
-    float Hue = 0.12f;
+    FName BeakId = TEXT("BeakDuck");
 
     UPROPERTY()
-    float Shape = 0.0f;
+    FName WingId = TEXT("WingRound");
 
     UPROPERTY()
-    float EyeSize = 0.0f;
+    FName TailId = TEXT("TailFan");
 
     UPROPERTY()
-    float BeakLength = 0.0f;
+    FName FootId = TEXT("FootWebbed");
+
+    // 머리와 몸통의 색이다.
+    UPROPERTY()
+    int32 SkinColor = 0;
+
+    // 부위 색이다. 발은 유형마다 색이 정해져 있어 색 값이 없다.
+    UPROPERTY()
+    int32 EyeColor = 3;
 
     UPROPERTY()
-    float BodyLength = 0.0f;
+    int32 HairColor = 4;
+
+    UPROPERTY()
+    int32 BeakColor = 5;
+
+    UPROPERTY()
+    int32 WingColor = 0;
+
+    UPROPERTY()
+    int32 TailColor = 0;
+
+    // 머리 모양이다. 1이 기본(둥근 머리), 0이 가장 납작한 머리다.
+    UPROPERTY()
+    float HeadShape = 1.0f;
 
     FName GetSlotPartId(ECustomizationSlot Slot) const
     {
         switch (Slot)
         {
-        case ECustomizationSlot::Eyewear: return EyewearId;
-        case ECustomizationSlot::Beak: return BeakWearId;
-        default: return PartId;
+        case ECustomizationSlot::Hair: return HairId;
+        case ECustomizationSlot::Beak: return BeakId;
+        case ECustomizationSlot::Wing: return WingId;
+        case ECustomizationSlot::Tail: return TailId;
+        case ECustomizationSlot::Foot: return FootId;
+        default: return EyeId;
         }
     }
     void SetSlotPartId(ECustomizationSlot Slot, FName Id)
     {
         switch (Slot)
         {
-        case ECustomizationSlot::Eyewear: EyewearId = Id; break;
-        case ECustomizationSlot::Beak: BeakWearId = Id; break;
-        default: PartId = Id; break;
+        case ECustomizationSlot::Hair: HairId = Id; break;
+        case ECustomizationSlot::Beak: BeakId = Id; break;
+        case ECustomizationSlot::Wing: WingId = Id; break;
+        case ECustomizationSlot::Tail: TailId = Id; break;
+        case ECustomizationSlot::Foot: FootId = Id; break;
+        default: EyeId = Id; break;
+        }
+    }
+    // 색이 없는 발은 INDEX_NONE이다.
+    int32 GetSlotColor(ECustomizationSlot Slot) const
+    {
+        switch (Slot)
+        {
+        case ECustomizationSlot::Eye: return EyeColor;
+        case ECustomizationSlot::Hair: return HairColor;
+        case ECustomizationSlot::Beak: return BeakColor;
+        case ECustomizationSlot::Wing: return WingColor;
+        case ECustomizationSlot::Tail: return TailColor;
+        default: return INDEX_NONE;
+        }
+    }
+    void SetSlotColor(ECustomizationSlot Slot, int32 Index)
+    {
+        switch (Slot)
+        {
+        case ECustomizationSlot::Eye: EyeColor = Index; break;
+        case ECustomizationSlot::Hair: HairColor = Index; break;
+        case ECustomizationSlot::Beak: BeakColor = Index; break;
+        case ECustomizationSlot::Wing: WingColor = Index; break;
+        case ECustomizationSlot::Tail: TailColor = Index; break;
+        default: break;
         }
     }
 
     bool operator==(const FCustomizationProfile& Other) const
     {
-        return PartId == Other.PartId && EyewearId == Other.EyewearId && BeakWearId == Other.BeakWearId
-            && Hue == Other.Hue && Shape == Other.Shape && EyeSize == Other.EyeSize
-            && BeakLength == Other.BeakLength && BodyLength == Other.BodyLength;
+        return EyeId == Other.EyeId && HairId == Other.HairId && BeakId == Other.BeakId && WingId == Other.WingId
+            && TailId == Other.TailId && FootId == Other.FootId && SkinColor == Other.SkinColor
+            && EyeColor == Other.EyeColor && HairColor == Other.HairColor && BeakColor == Other.BeakColor
+            && WingColor == Other.WingColor && TailColor == Other.TailColor && HeadShape == Other.HeadShape;
     }
     bool operator!=(const FCustomizationProfile& Other) const { return !(*this == Other); }
 };
 
 DUCKOVLIKE_API TConstArrayView<ECustomizationSlot> GetCustomizationSlots();
 DUCKOVLIKE_API bool IsCustomizationSlotRequired(ECustomizationSlot Slot);
+// 발 외의 슬롯은 팔레트 색을 고른다.
+DUCKOVLIKE_API bool IsCustomizationSlotColorable(ECustomizationSlot Slot);
 DUCKOVLIKE_API FText GetCustomizationSlotText(ECustomizationSlot Slot);
+
+// 고정 색 팔레트다. Profile의 색 값은 이 배열의 index다.
+DUCKOVLIKE_API TConstArrayView<FLinearColor> GetCustomizationPalette();
+DUCKOVLIKE_API FLinearColor GetCustomizationColor(int32 PaletteIndex);
 
 // 데이터 검사다. 슬롯별 파츠 ID는 카탈로그에 등록된 같은 슬롯의 파츠여야 한다.
 // 어느 슬롯에서 실패했는지는 Detail로, 호환용 ECustomizationFailure 반환은 Reason만 돌려준다.
@@ -144,4 +204,3 @@ DUCKOVLIKE_API ECustomizationFailure ValidateCustomizationProfile(const FCustomi
 DUCKOVLIKE_API FText GetCustomizationFailureText(ECustomizationFailure Failure);
 // 슬롯 이름을 앞에 붙인 안내 문구다.
 DUCKOVLIKE_API FText GetCustomizationFailureText(const FCustomizationFailureDetail& Detail);
-DUCKOVLIKE_API FLinearColor GetCustomizationColor(float Hue);

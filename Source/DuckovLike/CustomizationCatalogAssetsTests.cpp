@@ -28,7 +28,7 @@ bool SaveAsset(UObject* Asset)
 }
 
 FCustomizationPartRow MakeRow(ECustomizationSlot Slot, const TCHAR* Display, const TCHAR* Mesh, const TCHAR* Material,
-    FName ColorParameter, FName Morph)
+    FName ColorParameter)
 {
     FCustomizationPartRow Row;
     Row.Slot = Slot;
@@ -37,7 +37,6 @@ FCustomizationPartRow MakeRow(ECustomizationSlot Slot, const TCHAR* Display, con
     Row.Resources.ExpectedSkeleton = FSoftObjectPath(TEXT("/Game/Customization/Prototype/SK_CustomizationBody_Skeleton.SK_CustomizationBody_Skeleton"));
     Row.Resources.Material = FSoftObjectPath(Material);
     Row.Resources.ColorParameter = ColorParameter;
-    Row.Resources.Morph = Morph;
     return Row;
 }
 
@@ -78,16 +77,16 @@ bool FCreateCustomizationCatalog::RunTest(const FString& Parameters)
     UPackage* Package = CreatePackage(TablePackage);
     UDataTable* Table = NewObject<UDataTable>(Package, TEXT("DT_CustomizationParts"), RF_Public | RF_Standalone);
     Table->RowStruct = FCustomizationPartRow::StaticStruct();
+    // 기본 Profile이 가리키는 부위 여섯 개만 만든다. 나머지 유형은 JSON에 row를 적고 ImportJson으로 등록한다.
     const TCHAR* Color = TEXT("/Game/Customization/Prototype/M_CustomizationColor.M_CustomizationColor");
-    Table->AddRow(TEXT("A"), MakeRow(ECustomizationSlot::Crest, TEXT("A · 세 갈래 깃"),
-        TEXT("/Game/Customization/Prototype/SK_CustomizationPartA.SK_CustomizationPartA"), Color, TEXT("Color"), TEXT("Shape")));
-    Table->AddRow(TEXT("B"), MakeRow(ECustomizationSlot::Crest, TEXT("B · 두 갈래 깃"),
-        TEXT("/Game/Customization/Prototype/SK_CustomizationPartB.SK_CustomizationPartB"), Color, TEXT("Color"), TEXT("Shape")));
-    Table->AddRow(TEXT("RoundGlasses"), MakeRow(ECustomizationSlot::Eyewear, TEXT("둥근 안경"),
-        TEXT("/Game/Customization/Prototype/SK_CustomizationRoundGlasses.SK_CustomizationRoundGlasses"),
-        TEXT("/Game/Customization/Prototype/M_PrototypeEye.M_PrototypeEye"), NAME_None, NAME_None));
-    Table->AddRow(TEXT("BeakRing"), MakeRow(ECustomizationSlot::Beak, TEXT("부리 고리"),
-        TEXT("/Game/Customization/Prototype/SK_CustomizationBeakRing.SK_CustomizationBeakRing"), Color, TEXT("Color"), NAME_None));
+    const auto Path = [](const TCHAR* Name) { return FString::Printf(TEXT("/Game/Customization/Prototype/%s.%s"), Name, Name); };
+    Table->AddRow(TEXT("EyeRound"), MakeRow(ECustomizationSlot::Eye, TEXT("둥근 눈"), *Path(TEXT("SK_CustomizationEyeRound")), Color, TEXT("Color")));
+    Table->AddRow(TEXT("HairA"), MakeRow(ECustomizationSlot::Hair, TEXT("세 갈래 깃"), *Path(TEXT("SK_CustomizationPartA")), Color, TEXT("Color")));
+    Table->AddRow(TEXT("BeakDuck"), MakeRow(ECustomizationSlot::Beak, TEXT("오리 부리"), *Path(TEXT("SK_CustomizationBeakDuck")), Color, TEXT("Color")));
+    Table->AddRow(TEXT("WingRound"), MakeRow(ECustomizationSlot::Wing, TEXT("둥근 날개"), *Path(TEXT("SK_CustomizationWingRound")), Color, TEXT("Color")));
+    Table->AddRow(TEXT("TailFan"), MakeRow(ECustomizationSlot::Tail, TEXT("부채 꼬리"), *Path(TEXT("SK_CustomizationTailFan")), Color, TEXT("Color")));
+    Table->AddRow(TEXT("FootWebbed"), MakeRow(ECustomizationSlot::Foot, TEXT("오리발"), *Path(TEXT("SK_CustomizationFootWebbed")),
+        *Path(TEXT("M_PrototypeBeak")), NAME_None));
     if (!FFileHelper::SaveStringToFile(Table->GetTableAsJSON(), *SourcePath(), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
     {
         AddError(TEXT("JSON 원본 저장 실패"));
@@ -125,20 +124,27 @@ bool FVerifyCustomizationCatalog::RunTest(const FString& Parameters)
     if (!TestNotNull(TEXT("카탈로그 DataTable"), Table)) { return false; }
     TestTrue(TEXT("row struct"), Table->GetRowStruct() == FCustomizationPartRow::StaticStruct());
     const FCustomizationCatalog Catalog(Table);
-    const TArray<FName> Crests = Catalog.GetPartIds(ECustomizationSlot::Crest);
-    TestTrue(TEXT("머리 장식 선택지의 앞 두 개는 A, B"), Crests.Num() >= 2 && Crests[0] == TEXT("A") && Crests[1] == TEXT("B"));
-    TestTrue(TEXT("눈 슬롯 선택지"), Catalog.GetPartIds(ECustomizationSlot::Eyewear) == TArray<FName>({TEXT("RoundGlasses")}));
-    TestTrue(TEXT("부리 슬롯 선택지"), Catalog.GetPartIds(ECustomizationSlot::Beak) == TArray<FName>({TEXT("BeakRing")}));
-    const FCustomizationPartRow* A = Catalog.Find(TEXT("A"));
-    if (TestNotNull(TEXT("A row"), A))
+    // 원작 구성: 부위 여섯 개에 각각 2~3개 유형. 헤어는 이전 머리 장식 깃 A/B/C를 쓴다.
+    TestTrue(TEXT("눈 유형"), Catalog.GetPartIds(ECustomizationSlot::Eye) == TArray<FName>({TEXT("EyeRound"), TEXT("EyeLarge"), TEXT("EyeSleepy")}));
+    TestTrue(TEXT("헤어 유형"), Catalog.GetPartIds(ECustomizationSlot::Hair) == TArray<FName>({TEXT("HairA"), TEXT("HairB"), TEXT("HairC")}));
+    TestTrue(TEXT("부리 유형"), Catalog.GetPartIds(ECustomizationSlot::Beak) == TArray<FName>({TEXT("BeakDuck"), TEXT("BeakSmall"), TEXT("BeakLong")}));
+    TestTrue(TEXT("날개 유형"), Catalog.GetPartIds(ECustomizationSlot::Wing) == TArray<FName>({TEXT("WingRound"), TEXT("WingSmall"), TEXT("WingMitten")}));
+    TestTrue(TEXT("꼬리 유형"), Catalog.GetPartIds(ECustomizationSlot::Tail) == TArray<FName>({TEXT("TailShort"), TEXT("TailFan")}));
+    TestTrue(TEXT("발 유형"), Catalog.GetPartIds(ECustomizationSlot::Foot) == TArray<FName>({TEXT("FootWebbed"), TEXT("FootBoot")}));
+    for (const ECustomizationSlot Slot : GetCustomizationSlots())
     {
-        TestTrue(TEXT("A는 skeletal Shape 파츠"), A->Resources.MeshKind == ECustomizationMeshKind::Skeletal
-            && A->Resources.Morph == TEXT("Shape") && A->Resources.ColorParameter == TEXT("Color"));
-    }
-    const FCustomizationPartRow* Glasses = Catalog.Find(TEXT("RoundGlasses"));
-    if (TestNotNull(TEXT("안경 row"), Glasses))
-    {
-        TestTrue(TEXT("안경은 고정색·Morph 없음"), Glasses->Resources.ColorParameter.IsNone() && Glasses->Resources.Morph.IsNone());
+        for (const FName PartId : Catalog.GetPartIds(Slot))
+        {
+            const FCustomizationPartRow* Row = Catalog.Find(PartId);
+            TestTrue(*FString::Printf(TEXT("%s: skeletal, 색 슬롯만 Color parameter"), *PartId.ToString()), Row
+                && Row->Resources.MeshKind == ECustomizationMeshKind::Skeletal
+                && Row->Resources.ColorParameter.IsNone() == !IsCustomizationSlotColorable(Slot));
+            // 머리에 붙은 헤어·눈만 머리 모양 Morph를 따른다.
+            const bool bOnHead = Slot == ECustomizationSlot::Hair || Slot == ECustomizationSlot::Eye;
+            TestTrue(*FString::Printf(TEXT("%s: 머리 모양 추종은 머리 파츠만"), *PartId.ToString()), Row
+                && (Row->Resources.FollowBodyMorphs.Num() == 1) == bOnHead
+                && (!bOnHead || Row->Resources.FollowBodyMorphs[0].BodyMorph == TEXT("HeadFlat")));
+        }
     }
     const TArray<FCustomizationCatalogIssue> Issues = ValidateCustomizationTable(*Table);
     for (const FCustomizationCatalogIssue& Issue : Issues)

@@ -15,36 +15,26 @@ class DUCKOVLIKE_API UCustomizationViewModel : public UMVVMViewModelBase
 public:
     void Bind(UCustomizationModel* InModel, UCustomizationAppearanceComponent* InAppearance);
     ECustomizationFailure Open();
-    // Crest 슬롯 선택이다. 슬롯별 선택은 SelectSlotPart를 쓴다.
-    ECustomizationFailure SelectPart(FName PartId);
     ECustomizationFailure SelectSlotPart(ECustomizationSlot Slot, FName PartId);
-    ECustomizationFailure SetHue(float Value);
-    ECustomizationFailure SetShape(float Value);
-    ECustomizationFailure SetEyeSize(float Value);
-    ECustomizationFailure SetBeakLength(float Value);
-    ECustomizationFailure SetBodyLength(float Value);
+    ECustomizationFailure SetSkinColor(int32 PaletteIndex);
+    ECustomizationFailure SetSlotColor(ECustomizationSlot Slot, int32 PaletteIndex);
+    ECustomizationFailure SetHeadShape(float Value);
     ECustomizationFailure Apply();
     ECustomizationFailure Reset();
     ECustomizationFailure Cancel();
+    // Draft의 슬롯별 파츠 ID(ECustomizationSlot 순서)다.
     UFUNCTION(BlueprintPure, FieldNotify, Category="Customization")
-    FName GetPartId() const;
+    TArray<FName> GetPartIds() const;
+    // Draft의 색 index다. 0은 피부색, 1부터 슬롯 순서이며 색이 없는 슬롯은 INDEX_NONE이다.
     UFUNCTION(BlueprintPure, FieldNotify, Category="Customization")
-    FName GetEyewearId() const;
+    TArray<int32> GetColorIndices() const;
     UFUNCTION(BlueprintPure, FieldNotify, Category="Customization")
-    FName GetBeakWearId() const;
-    FName GetSlotPartId(ECustomizationSlot Slot) const;
-    UFUNCTION(BlueprintPure, FieldNotify, Category="Customization")
-    float GetHue() const;
-    UFUNCTION(BlueprintPure, FieldNotify, Category="Customization")
-    float GetShape() const;
-    UFUNCTION(BlueprintPure, FieldNotify, Category="Customization")
-    float GetEyeSize() const;
-    UFUNCTION(BlueprintPure, FieldNotify, Category="Customization")
-    float GetBeakLength() const;
-    UFUNCTION(BlueprintPure, FieldNotify, Category="Customization")
-    float GetBodyLength() const;
+    float GetHeadShape() const;
     UFUNCTION(BlueprintPure, FieldNotify, Category="Customization")
     FText GetFailureText() const;
+    FName GetSlotPartId(ECustomizationSlot Slot) const;
+    int32 GetSlotColor(ECustomizationSlot Slot) const;
+    int32 GetSkinColor() const;
     virtual void BeginDestroy() override;
 private:
     UPROPERTY(Transient)
@@ -61,5 +51,6 @@ private:
     FDelegateHandle ChangedHandle;
     ECustomizationFailure Present(const FCustomizationProfile& Candidate);
     ECustomizationFailure Report(ECustomizationFailure Result);
+    ECustomizationFailure Edit(TFunctionRef<void(FCustomizationProfile&)> Change);
     void OnModelChanged();
 };

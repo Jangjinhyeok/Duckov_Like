@@ -28,8 +28,44 @@ public:
     ECustomizationSlot GetPartSlot() const { return PartSlot; }
     FName GetPartId() const { return PartId; }
 private:
-    ECustomizationSlot PartSlot = ECustomizationSlot::Crest;
+    ECustomizationSlot PartSlot = ECustomizationSlot::Eye;
     FName PartId;
+    FOnPicked Picked;
+    UFUNCTION()
+    void Forward();
+};
+
+// 팔레트 색 하나 또는 팔레트를 펼치는 색상 칸이다. Target 0은 피부색, 1부터는 슬롯(ECustomizationSlot + 1)이다.
+UCLASS()
+class DUCKOVLIKE_API UCustomizationColorButton : public UButton
+{
+    GENERATED_BODY()
+public:
+    DECLARE_EVENT_OneParam(UCustomizationColorButton, FOnPicked, UCustomizationColorButton&);
+    FOnPicked& OnPicked() { return Picked; }
+    // PaletteIndex가 INDEX_NONE이면 팔레트를 펼치고 접는 색상 칸이다.
+    void Setup(int32 InTarget, int32 InPaletteIndex);
+    int32 GetTarget() const { return Target; }
+    int32 GetPaletteIndex() const { return PaletteIndex; }
+private:
+    int32 Target = 0;
+    int32 PaletteIndex = INDEX_NONE;
+    FOnPicked Picked;
+    UFUNCTION()
+    void Forward();
+};
+
+// 왼쪽 부위 탭 버튼이다. 자기 탭 index를 알린다.
+UCLASS()
+class DUCKOVLIKE_API UCustomizationTabButton : public UButton
+{
+    GENERATED_BODY()
+public:
+    DECLARE_EVENT_OneParam(UCustomizationTabButton, FOnPicked, int32);
+    FOnPicked& OnPicked() { return Picked; }
+    void Setup(int32 InIndex);
+private:
+    int32 Index = 0;
     FOnPicked Picked;
     UFUNCTION()
     void Forward();
@@ -62,21 +98,22 @@ private:
     TObjectPtr<UCustomizationViewModel> ViewModel;
     UPROPERTY(Transient)
     TObjectPtr<ACustomizationPreviewActor> Preview;
-    // 카탈로그 row마다 만든 파츠 선택 버튼이다. 선택 슬롯에는 "없음" 버튼이 하나 더 있다.
+    // 카탈로그 row마다 만든 파츠 선택 버튼이다. 헤어에는 "없음" 버튼이 하나 더 있다.
     UPROPERTY(Transient)
     TArray<TObjectPtr<UCustomizationPartButton>> PartButtons;
+    // 색상 칸(펼치기)과 팔레트 swatch 전부다.
     UPROPERTY(Transient)
-    TObjectPtr<UButton> FirstCrestButton;
+    TArray<TObjectPtr<UCustomizationColorButton>> ColorButtons;
+    // 색 대상(0 피부, 1부터 슬롯)마다 펼치고 접는 팔레트 격자다. 색이 없는 슬롯은 비어 있다.
     UPROPERTY(Transient)
-    TObjectPtr<USlider> HueSlider;
+    TArray<TObjectPtr<UWidget>> PaletteGrids;
+    // 화면을 열 때 focus를 받는 첫 입력(머리 탭의 피부색 칸)이다.
     UPROPERTY(Transient)
-    TObjectPtr<USlider> ShapeSlider;
+    TObjectPtr<UWidget> DefaultFocus;
     UPROPERTY(Transient)
-    TObjectPtr<USlider> EyeSizeSlider;
+    TObjectPtr<USlider> HeadShapeSlider;
     UPROPERTY(Transient)
-    TObjectPtr<USlider> BeakLengthSlider;
-    UPROPERTY(Transient)
-    TObjectPtr<USlider> BodyLengthSlider;
+    TObjectPtr<UTextBlock> HeadShapeText;
     // 원작처럼 왼쪽 부위 탭이 옆 조절 열의 내용을 바꾼다. 탭 순서 = Switcher 순서.
     UPROPERTY(Transient)
     TObjectPtr<UWidgetSwitcher> TabSwitcher;
@@ -88,11 +125,6 @@ private:
     UPROPERTY(Transient)
     TObjectPtr<UTextBlock> TabTitle;
     TArray<FText> TabTitles;
-    // 슬라이더 옆 숫자. 같은 index의 슬라이더 값을 보인다.
-    UPROPERTY(Transient)
-    TArray<TObjectPtr<USlider>> ValueSliders;
-    UPROPERTY(Transient)
-    TArray<TObjectPtr<UTextBlock>> ValueTexts;
     UPROPERTY(Transient)
     TObjectPtr<UTextBlock> FailureText;
     UPROPERTY(Transient)
@@ -107,28 +139,13 @@ private:
     void ReleasePreview();
     void SelectTab(int32 Index);
     UFUNCTION()
-    void ShowHeadTab();
-    UFUNCTION()
-    void ShowEyeTab();
-    UFUNCTION()
-    void ShowBeakTab();
-    UFUNCTION()
-    void ShowBodyTab();
-    UFUNCTION()
     UWidget* NavigateToTab(EUINavigation Direction);
     UFUNCTION()
     UWidget* NavigateToControls(EUINavigation Direction);
     void HandlePartPicked(UCustomizationPartButton& Button);
+    void HandleColorPicked(UCustomizationColorButton& Button);
     UFUNCTION()
-    void ChangeHue(float Value);
-    UFUNCTION()
-    void ChangeShape(float Value);
-    UFUNCTION()
-    void ChangeEyeSize(float Value);
-    UFUNCTION()
-    void ChangeBeakLength(float Value);
-    UFUNCTION()
-    void ChangeBodyLength(float Value);
+    void ChangeHeadShape(float Value);
     UFUNCTION()
     void Apply();
     UFUNCTION()

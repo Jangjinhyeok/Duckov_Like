@@ -27,7 +27,7 @@ public:
     const FCustomizationProfile& GetAppliedProfile() const { return AppliedProfile; }
     // 마지막 TryApply의 결과다. 성공하면 None이며 슬롯과 무관한 실패는 bHasSlot이 false다.
     const FCustomizationFailureDetail& GetLastFailure() const { return LastFailure; }
-    // Crest 슬롯의 표시다. 슬롯별 표시는 GetDisplayedSlotMesh/MID로 읽는다.
+    // 첫 슬롯(눈)의 표시다. 슬롯별 표시는 GetDisplayedSlotMesh/MID로 읽는다.
     UMeshComponent* GetDisplayedMesh() const { return DisplayedMeshes[0]; }
     UMaterialInstanceDynamic* GetDisplayedMID() const { return DisplayedMIDs[0]; }
     UMeshComponent* GetDisplayedSlotMesh(ECustomizationSlot Slot) const { return DisplayedMeshes[static_cast<int32>(Slot)]; }
@@ -62,12 +62,12 @@ private:
     UPROPERTY(Transient)
     TObjectPtr<USceneComponent> AttachParent;
 
-    // 슬롯 순서(Crest, Eyewear, Beak)로 표시 중인 파츠 mesh와 MID다.
+    // 슬롯 순서(ECustomizationSlot)로 표시 중인 파츠 mesh와 MID다.
     UPROPERTY(Transient)
-    TObjectPtr<UMeshComponent> DisplayedMeshes[3];
+    TObjectPtr<UMeshComponent> DisplayedMeshes[CustomizationSlotCount];
 
     UPROPERTY(Transient)
-    TObjectPtr<UMaterialInstanceDynamic> DisplayedMIDs[3];
+    TObjectPtr<UMaterialInstanceDynamic> DisplayedMIDs[CustomizationSlotCount];
 
     UPROPERTY(Transient)
     TObjectPtr<USkeletalMeshComponent> DisplayedBody;

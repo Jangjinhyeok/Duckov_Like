@@ -57,57 +57,33 @@ ECustomizationFailure UCustomizationViewModel::Open()
     return Report(Model->BeginEdit([this](const auto& Value) { return Present(Value); }));
 }
 
-ECustomizationFailure UCustomizationViewModel::SelectPart(FName PartId)
+ECustomizationFailure UCustomizationViewModel::Edit(TFunctionRef<void(FCustomizationProfile&)> Change)
 {
-    return SelectSlotPart(ECustomizationSlot::Crest, PartId);
+    if (!Model) { return Report(ECustomizationFailure::NotEditing); }
+    FCustomizationProfile Candidate = Model->GetDraft();
+    Change(Candidate);
+    return Report(Model->TryEdit(Candidate, [this](const auto& Value) { return Present(Value); }));
 }
 
 ECustomizationFailure UCustomizationViewModel::SelectSlotPart(ECustomizationSlot Slot, FName PartId)
 {
-    if (!Model) { return Report(ECustomizationFailure::NotEditing); }
-    FCustomizationProfile Candidate = Model->GetDraft();
-    Candidate.SetSlotPartId(Slot, PartId);
-    return Report(Model->TryEdit(Candidate, [this](const auto& Value) { return Present(Value); }));
+    return Edit([Slot, PartId](FCustomizationProfile& Candidate) { Candidate.SetSlotPartId(Slot, PartId); });
 }
 
-ECustomizationFailure UCustomizationViewModel::SetHue(float Value)
+ECustomizationFailure UCustomizationViewModel::SetSkinColor(int32 PaletteIndex)
 {
-    if (!Model) { return Report(ECustomizationFailure::NotEditing); }
-    FCustomizationProfile Candidate = Model->GetDraft();
-    Candidate.Hue = Value;
-    return Report(Model->TryEdit(Candidate, [this](const auto& Profile) { return Present(Profile); }));
+    return Edit([PaletteIndex](FCustomizationProfile& Candidate) { Candidate.SkinColor = PaletteIndex; });
 }
 
-ECustomizationFailure UCustomizationViewModel::SetShape(float Value)
+ECustomizationFailure UCustomizationViewModel::SetSlotColor(ECustomizationSlot Slot, int32 PaletteIndex)
 {
-    if (!Model) { return Report(ECustomizationFailure::NotEditing); }
-    FCustomizationProfile Candidate = Model->GetDraft();
-    Candidate.Shape = Value;
-    return Report(Model->TryEdit(Candidate, [this](const auto& Profile) { return Present(Profile); }));
+    // 색이 없는 슬롯(발)의 색 변경은 값이 바뀌지 않으므로 성공·무변경이다.
+    return Edit([Slot, PaletteIndex](FCustomizationProfile& Candidate) { Candidate.SetSlotColor(Slot, PaletteIndex); });
 }
 
-ECustomizationFailure UCustomizationViewModel::SetEyeSize(float Value)
+ECustomizationFailure UCustomizationViewModel::SetHeadShape(float Value)
 {
-    if (!Model) { return Report(ECustomizationFailure::NotEditing); }
-    FCustomizationProfile Candidate = Model->GetDraft();
-    Candidate.EyeSize = Value;
-    return Report(Model->TryEdit(Candidate, [this](const auto& Profile) { return Present(Profile); }));
-}
-
-ECustomizationFailure UCustomizationViewModel::SetBeakLength(float Value)
-{
-    if (!Model) { return Report(ECustomizationFailure::NotEditing); }
-    FCustomizationProfile Candidate = Model->GetDraft();
-    Candidate.BeakLength = Value;
-    return Report(Model->TryEdit(Candidate, [this](const auto& Profile) { return Present(Profile); }));
-}
-
-ECustomizationFailure UCustomizationViewModel::SetBodyLength(float Value)
-{
-    if (!Model) { return Report(ECustomizationFailure::NotEditing); }
-    FCustomizationProfile Candidate = Model->GetDraft();
-    Candidate.BodyLength = Value;
-    return Report(Model->TryEdit(Candidate, [this](const auto& Profile) { return Present(Profile); }));
+    return Edit([Value](FCustomizationProfile& Candidate) { Candidate.HeadShape = Value; });
 }
 
 ECustomizationFailure UCustomizationViewModel::Apply()
@@ -125,15 +101,28 @@ ECustomizationFailure UCustomizationViewModel::Cancel()
     return Report(Model ? Model->Cancel([this](const auto& Value) { return Present(Value); }) : ECustomizationFailure::NotEditing);
 }
 
-FName UCustomizationViewModel::GetPartId() const { return Model ? Model->GetDraft().PartId : NAME_None; }
-FName UCustomizationViewModel::GetEyewearId() const { return Model ? Model->GetDraft().EyewearId : NAME_None; }
-FName UCustomizationViewModel::GetBeakWearId() const { return Model ? Model->GetDraft().BeakWearId : NAME_None; }
-FName UCustomizationViewModel::GetSlotPartId(ECustomizationSlot Slot) const { return Model ? Model->GetDraft().GetSlotPartId(Slot) : NAME_None; }
-float UCustomizationViewModel::GetHue() const { return Model ? Model->GetDraft().Hue : 0.12f; }
-float UCustomizationViewModel::GetShape() const { return Model ? Model->GetDraft().Shape : 0.f; }
-float UCustomizationViewModel::GetEyeSize() const { return Model ? Model->GetDraft().EyeSize : 0.f; }
-float UCustomizationViewModel::GetBeakLength() const { return Model ? Model->GetDraft().BeakLength : 0.f; }
-float UCustomizationViewModel::GetBodyLength() const { return Model ? Model->GetDraft().BodyLength : 0.f; }
+TArray<FName> UCustomizationViewModel::GetPartIds() const
+{
+    TArray<FName> Result;
+    for (const ECustomizationSlot Slot : GetCustomizationSlots()) { Result.Add(GetSlotPartId(Slot)); }
+    return Result;
+}
+TArray<int32> UCustomizationViewModel::GetColorIndices() const
+{
+    TArray<int32> Result{GetSkinColor()};
+    for (const ECustomizationSlot Slot : GetCustomizationSlots()) { Result.Add(GetSlotColor(Slot)); }
+    return Result;
+}
+FName UCustomizationViewModel::GetSlotPartId(ECustomizationSlot Slot) const
+{
+    return (Model ? Model->GetDraft() : FCustomizationProfile()).GetSlotPartId(Slot);
+}
+int32 UCustomizationViewModel::GetSlotColor(ECustomizationSlot Slot) const
+{
+    return (Model ? Model->GetDraft() : FCustomizationProfile()).GetSlotColor(Slot);
+}
+int32 UCustomizationViewModel::GetSkinColor() const { return (Model ? Model->GetDraft() : FCustomizationProfile()).SkinColor; }
+float UCustomizationViewModel::GetHeadShape() const { return (Model ? Model->GetDraft() : FCustomizationProfile()).HeadShape; }
 FText UCustomizationViewModel::GetFailureText() const { return GetCustomizationFailureText(LastFailure); }
 
 void UCustomizationViewModel::OnModelChanged()
@@ -151,14 +140,9 @@ void UCustomizationViewModel::OnModelChanged()
         }
     };
     TGuardValue<bool> Guard(bNotifying, true);
-    UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetPartId);
-    UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetEyewearId);
-    UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetBeakWearId);
-    UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetHue);
-    UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetShape);
-    UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetEyeSize);
-    UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetBeakLength);
-    UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetBodyLength);
+    UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetPartIds);
+    UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetColorIndices);
+    UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetHeadShape);
 }
 
 void UCustomizationViewModel::BeginDestroy()
