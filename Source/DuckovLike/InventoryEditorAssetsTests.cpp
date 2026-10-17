@@ -91,6 +91,14 @@ FItemDefinitionRow BagDefinition(FIntPoint Size)
     return Row;
 }
 
+FItemDefinitionRow ArmorDefinition()
+{
+    FItemDefinitionRow Row;
+    Row.Size = FIntPoint(2, 2);
+    Row.EquipmentType = EItemEquipmentType::Armor;
+    return Row;
+}
+
 bool MatchesDefinition(const FItemDefinitionRow* Row, const FItemDefinitionRow& Expected)
 {
     return Row && FItemDefinitionRow::StaticStruct()->CompareScriptStruct(Row, &Expected, 0);
@@ -275,10 +283,12 @@ bool CreateInventoryWidgets()
     return CompileAndSave(ScreenBP);
 }
 
-bool CheckOriginalDefinitions(UDataTable* Table)
+// 장비 slot 이전의 DT는 Rifle이 장비 종류 None이다. 그 외 값은 처음 세 정의 그대로여야 한다.
+bool CheckOriginalDefinitions(UDataTable* Table, EItemEquipmentType RifleType)
 {
     FItemDefinitionRow Rifle;
     Rifle.Size = FIntPoint(2, 1);
+    Rifle.EquipmentType = RifleType;
     FItemDefinitionRow Ammo;
     Ammo.bStackable = true; Ammo.MaxStack = 30;
     FItemDefinitionRow Medkit;
@@ -305,6 +315,7 @@ bool FGenerateInventoryAssets::RunTest(const FString& Parameters)
     Table->RowStruct = FItemDefinitionRow::StaticStruct();
     FItemDefinitionRow Rifle;
     Rifle.Size = FIntPoint(2, 1);
+    Rifle.EquipmentType = EItemEquipmentType::Weapon;
     Table->AddRow(TEXT("Rifle"), Rifle);
     FItemDefinitionRow Ammo;
     Ammo.bStackable = true; Ammo.MaxStack = 30;
@@ -314,6 +325,7 @@ bool FGenerateInventoryAssets::RunTest(const FString& Parameters)
     Table->AddRow(TEXT("Medkit"), Medkit);
     Table->AddRow(TEXT("SmallBag"), BagDefinition(FIntPoint(4, 4)));
     Table->AddRow(TEXT("LargeBag"), BagDefinition(FIntPoint(6, 4)));
+    Table->AddRow(TEXT("Armor"), ArmorDefinition());
     if (!SaveAsset(Table)) { AddError(TEXT("DataTable 저장 실패")); return false; }
 
     if (!CreateInventoryWidgets()) { AddError(TEXT("인벤토리 Widget Blueprint 생성/컴파일/저장 실패")); return false; }
@@ -365,8 +377,10 @@ bool FVerifyInventoryAssets::RunTest(const FString& Parameters)
     UDataTable* Table = LoadObject<UDataTable>(nullptr, TEXT("/Game/Inventory/DT_ItemDefinitions.DT_ItemDefinitions"));
     if (!TestNotNull(TEXT("DataTable"), Table)) { return false; }
     TestEqual(TEXT("DataTable row struct"), Table->RowStruct.Get(), FItemDefinitionRow::StaticStruct());
-    TestEqual(TEXT("정의 행 수"), Table->GetRowNames().Num(), 5);
-    TestTrue(TEXT("기존 세 정의의 모든 값 보존"), CheckOriginalDefinitions(Table));
+    TestEqual(TEXT("정의 행 수"), Table->GetRowNames().Num(), 6);
+    TestTrue(TEXT("기존 세 정의의 값 보존, Rifle만 무기"), CheckOriginalDefinitions(Table, EItemEquipmentType::Weapon));
+    TestTrue(TEXT("방어구 2x2, non-stackable, Armor"), MatchesDefinition(
+        Table->FindRow<FItemDefinitionRow>(TEXT("Armor"), TEXT("에셋 검증"), false), ArmorDefinition()));
     TestTrue(TEXT("소형 가방 1x1, non-stackable, capacity 4x4"), MatchesDefinition(
         Table->FindRow<FItemDefinitionRow>(TEXT("SmallBag"), TEXT("에셋 검증"), false), BagDefinition(FIntPoint(4, 4))));
     TestTrue(TEXT("대형 가방 1x1, non-stackable, capacity 6x4"), MatchesDefinition(
@@ -418,13 +432,14 @@ bool FVerifyInventoryAssets::RunTest(const FString& Parameters)
 }
 
 // main이 원본 DT를 backup한 뒤 명시적으로 실행한다. Duckov.* 회귀 선택에서는 저장하지 않는다.
+// 장비 slot 이전 DT 전용이다. 이후 DT는 InventoryEquipmentAssets.AddDefinitions가 이어받았고, 이 명령은 저장 없이 실패한다.
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAddBagDefinitions, "InventoryBagAssets.AddDefinitions", Flags)
 bool FAddBagDefinitions::RunTest(const FString& Parameters)
 {
     UDataTable* Table = LoadObject<UDataTable>(nullptr, TEXT("/Game/Inventory/DT_ItemDefinitions.DT_ItemDefinitions"));
     if (!TestNotNull(TEXT("기존 DataTable"), Table)
         || !TestTrue(TEXT("정의 struct"), Table->GetRowStruct() == FItemDefinitionRow::StaticStruct())) { return false; }
-    if (!TestTrue(TEXT("기존 세 정의와 capacity zero 보존"), CheckOriginalDefinitions(Table))) { return false; }
+    if (!TestTrue(TEXT("기존 세 정의와 capacity zero 보존"), CheckOriginalDefinitions(Table, EItemEquipmentType::None))) { return false; }
     const TPair<FName, FIntPoint> Bags[] = {{TEXT("SmallBag"), FIntPoint(4, 4)}, {TEXT("LargeBag"), FIntPoint(6, 4)}};
     int32 Existing = 3;
     for (const auto& Bag : Bags)
@@ -446,8 +461,37 @@ bool FAddBagDefinitions::RunTest(const FString& Parameters)
         }
     }
     if (bAdded) { TestTrue(TEXT("두 가방 정의 DT 저장"), SaveAsset(Table)); }
-    TestTrue(TEXT("추가 후 원래 세 정의 보존"), CheckOriginalDefinitions(Table));
+    TestTrue(TEXT("추가 후 원래 세 정의 보존"), CheckOriginalDefinitions(Table, EItemEquipmentType::None));
     TestEqual(TEXT("추가 후 정의 행 수"), Table->GetRowNames().Num(), 5);
+    return !HasAnyErrors();
+}
+
+// main이 원본 DT를 backup한 뒤 명시적으로 실행한다. Rifle을 무기로 표시하고 방어구 정의를 더한다. 다시 실행해도 같은 결과다.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAddEquipmentDefinitions, "InventoryEquipmentAssets.AddDefinitions", Flags)
+bool FAddEquipmentDefinitions::RunTest(const FString& Parameters)
+{
+    UDataTable* Table = LoadObject<UDataTable>(nullptr, TEXT("/Game/Inventory/DT_ItemDefinitions.DT_ItemDefinitions"));
+    if (!TestNotNull(TEXT("기존 DataTable"), Table)
+        || !TestTrue(TEXT("정의 struct"), Table->GetRowStruct() == FItemDefinitionRow::StaticStruct())) { return false; }
+    const bool bMigrated = CheckOriginalDefinitions(Table, EItemEquipmentType::Weapon);
+    if (!TestTrue(TEXT("기존 세 정의 보존"), bMigrated || CheckOriginalDefinitions(Table, EItemEquipmentType::None))
+        || !TestTrue(TEXT("두 가방 정의 보존"),
+            MatchesDefinition(Table->FindRow<FItemDefinitionRow>(TEXT("SmallBag"), TEXT("EquipmentAssets"), false), BagDefinition(FIntPoint(4, 4)))
+            && MatchesDefinition(Table->FindRow<FItemDefinitionRow>(TEXT("LargeBag"), TEXT("EquipmentAssets"), false), BagDefinition(FIntPoint(6, 4)))))
+    {
+        return false;
+    }
+    const FItemDefinitionRow* Armor = Table->FindRow<FItemDefinitionRow>(TEXT("Armor"), TEXT("EquipmentAssets"), false);
+    if ((Armor && !TestTrue(TEXT("동명 방어구 정의 충돌 없음"), MatchesDefinition(Armor, ArmorDefinition())))
+        || !TestEqual(TEXT("예상 외 정의 행 없음"), Table->GetRowNames().Num(), Armor ? 6 : 5)) { return false; }
+    if (!bMigrated || !Armor)
+    {
+        Table->FindRow<FItemDefinitionRow>(TEXT("Rifle"), TEXT("EquipmentAssets"))->EquipmentType = EItemEquipmentType::Weapon;
+        if (!Armor) { Table->AddRow(TEXT("Armor"), ArmorDefinition()); }
+        TestTrue(TEXT("장비 정의 DT 저장"), SaveAsset(Table));
+    }
+    TestTrue(TEXT("추가 후 Rifle만 무기로 바뀜"), CheckOriginalDefinitions(Table, EItemEquipmentType::Weapon));
+    TestEqual(TEXT("추가 후 정의 행 수"), Table->GetRowNames().Num(), 6);
     return !HasAnyErrors();
 }
 }
