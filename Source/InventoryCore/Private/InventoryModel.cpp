@@ -112,6 +112,32 @@ bool FitsBagSlot(const FInventoryContainer& Slot, const FItemInstance& Item, con
 }
 }
 
+namespace InventoryEquipmentInternal
+{
+// 정의의 장비 종류가 slot 종류와 같고 수량 1의 non-stackable 항목이어야 한다.
+EInventoryOperationFailure CheckItem(const FItemInstance& Item, EItemEquipmentType Type)
+{
+    const UDataTable* Table = Item.DefinitionTable.LoadSynchronous();
+    if (!Table || !Table->GetRowStruct() ||
+        !Table->GetRowStruct()->IsChildOf(FItemDefinitionRow::StaticStruct()))
+    {
+        return EInventoryOperationFailure::InvalidDefinition;
+    }
+    const FItemDefinitionRow* Definition =
+        Table->FindRow<FItemDefinitionRow>(Item.DefinitionRowName, TEXT("InventoryEquipment"), false);
+    if (!Definition || Definition->Size.X <= 0 || Definition->Size.Y <= 0)
+    {
+        return EInventoryOperationFailure::InvalidDefinition;
+    }
+    if (Type == EItemEquipmentType::None || Definition->EquipmentType != Type ||
+        Definition->bStackable || Definition->MaxStack != 1 || Item.Quantity != 1)
+    {
+        return EInventoryOperationFailure::InvalidCategory;
+    }
+    return EInventoryOperationFailure::None;
+}
+}
+
 EInventorySaveFailure UInventoryModel::Load(const FInventorySaveRecord& Record)
 {
     check(IsInGameThread());
@@ -128,6 +154,8 @@ EInventorySaveFailure UInventoryModel::Load(const FInventorySaveRecord& Record)
             // 이름은 유지해 일반 연산 우회를 막고, callback 전에 재검증이 필요한 상태로 바꾼다.
             BagBindingState = EBagBindingState::NeedsValidation;
         }
+        // 장비 slot도 이름은 유지해 일반 연산 우회를 막고, 재검증 전에는 이동도 막는다.
+        for (FEquipmentSlotBinding& Slot : EquipmentSlots) { Slot.bValidated = false; }
         Changed.Broadcast(Change);
     }
     return Result;
@@ -162,12 +190,17 @@ EInventoryOperationFailure UInventoryModel::CanMove(FName Source, FName Target, 
     const auto* From = FindContainer(Source);
     const auto* To = FindContainer(Target);
     if (!From || !To) { return EInventoryOperationFailure::InvalidContainer; }
-    return FInventoryOperations::CanMove(*From, *To, InstanceId, Anchor, bRotated);
+    FIntPoint PlacedAnchor = Anchor;
+    bool bPlacedRotated = bRotated;
+    const EInventoryOperationFailure EquipmentFailure =
+        CheckEquipmentMove(Source, Target, InstanceId, PlacedAnchor, bPlacedRotated);
+    if (EquipmentFailure != EInventoryOperationFailure::None) { return EquipmentFailure; }
+    return FInventoryOperations::CanMove(*From, *To, InstanceId, PlacedAnchor, bPlacedRotated);
 }
 
 EInventoryOperationFailure UInventoryModel::CanStack(FName Source, FName Target, int32 SourceId, int32 TargetId) const
 {
-    if (IsProtectedBagSlot(Source) || IsProtectedBagSlot(Target))
+    if (IsProtectedBagSlot(Source) || IsProtectedBagSlot(Target) || IsEquipmentSlot(Source) || IsEquipmentSlot(Target))
     {
         return EInventoryOperationFailure::InvalidContainer;
     }
@@ -179,18 +212,22 @@ EInventoryOperationFailure UInventoryModel::CanStack(FName Source, FName Target,
 
 int32 UInventoryModel::FindSingleOverlap(FName Source, FName Target, int32 InstanceId, FIntPoint Anchor, bool bRotated) const
 {
-    if (IsProtectedBagSlot(Source) || IsProtectedBagSlot(Target)) { return INDEX_NONE; }
+    if (IsProtectedBagSlot(Source) || IsProtectedBagSlot(Target) || IsEquipmentSlot(Source) || IsEquipmentSlot(Target))
+    {
+        return INDEX_NONE;
+    }
     const auto* From = FindContainer(Source);
     const auto* To = FindContainer(Target);
     return From && To ? FInventoryOperations::FindSingleOverlap(*From, *To, InstanceId, Anchor, bRotated) : INDEX_NONE;
 }
 
 EInventoryOperationFailure UInventoryModel::Apply(FName Source, FName Target,
-    TFunctionRef<EInventoryOperationFailure(FInventoryContainer&, FInventoryContainer&)> Operation)
+    TFunctionRef<EInventoryOperationFailure(FInventoryContainer&, FInventoryContainer&)> Operation, bool bEquipmentMove)
 {
     check(IsInGameThread());
     if (bApplying) { return EInventoryOperationFailure::OperationInProgress; }
-    if (IsProtectedBagSlot(Source) || IsProtectedBagSlot(Target))
+    if (IsProtectedBagSlot(Source) || IsProtectedBagSlot(Target) ||
+        (!bEquipmentMove && (IsEquipmentSlot(Source) || IsEquipmentSlot(Target))))
     {
         return EInventoryOperationFailure::InvalidContainer;
     }
@@ -221,10 +258,15 @@ EInventoryOperationFailure UInventoryModel::Apply(FName Source, FName Target,
 EInventoryOperationFailure UInventoryModel::TryMove(FName Source, FName Target, int32 InstanceId,
     FIntPoint Anchor, bool bRotated)
 {
-    return Apply(Source, Target, [=](auto& From, auto& To)
+    return Apply(Source, Target, [=, this](auto& From, auto& To)
     {
-        return FInventoryOperations::TryMove(From, To, InstanceId, Anchor, bRotated);
-    });
+        FIntPoint PlacedAnchor = Anchor;
+        bool bPlacedRotated = bRotated;
+        const EInventoryOperationFailure EquipmentFailure =
+            CheckEquipmentMove(Source, Target, InstanceId, PlacedAnchor, bPlacedRotated);
+        if (EquipmentFailure != EInventoryOperationFailure::None) { return EquipmentFailure; }
+        return FInventoryOperations::TryMove(From, To, InstanceId, PlacedAnchor, bPlacedRotated);
+    }, true);
 }
 
 EInventoryOperationFailure UInventoryModel::TryTransferAll(FName Source, FName Target)
@@ -373,7 +415,8 @@ EInventoryOperationFailure UInventoryModel::BindBagSlot(FName SlotId, FName BagI
     check(IsInGameThread());
     if (bApplying) { return EInventoryOperationFailure::OperationInProgress; }
     if (SlotId.IsNone() || BagId.IsNone() || ExchangeContainerId.IsNone() ||
-        SlotId == BagId || SlotId == ExchangeContainerId || BagId == ExchangeContainerId)
+        SlotId == BagId || SlotId == ExchangeContainerId || BagId == ExchangeContainerId ||
+        IsEquipmentSlot(SlotId) || IsEquipmentSlot(BagId) || IsEquipmentSlot(ExchangeContainerId))
     {
         return EInventoryOperationFailure::InvalidContainer;
     }
@@ -474,6 +517,71 @@ EInventoryOperationFailure UInventoryModel::TryEquipBag(int32 InstanceId)
     Slot->Container = MoveTemp(PlannedSlot);
     Bag->Container = MoveTemp(PlannedBag);
     Changed.Broadcast(Change);
+    return EInventoryOperationFailure::None;
+}
+
+const UInventoryModel::FEquipmentSlotBinding* UInventoryModel::FindEquipmentSlot(FName ContainerId) const
+{
+    return ContainerId.IsNone() ? nullptr : EquipmentSlots.FindByPredicate(
+        [ContainerId](const FEquipmentSlotBinding& Slot) { return Slot.SlotId == ContainerId; });
+}
+
+bool UInventoryModel::IsEquipmentSlotBound(FName ContainerId) const
+{
+    const FEquipmentSlotBinding* Slot = FindEquipmentSlot(ContainerId);
+    return Slot && Slot->bValidated;
+}
+
+EInventoryOperationFailure UInventoryModel::BindEquipmentSlot(FName SlotId, EItemEquipmentType Type)
+{
+    check(IsInGameThread());
+    if (bApplying) { return EInventoryOperationFailure::OperationInProgress; }
+    if (Type == EItemEquipmentType::None) { return EInventoryOperationFailure::InvalidCategory; }
+    if (SlotId.IsNone() || (BagBindingState != EBagBindingState::Unbound &&
+        (SlotId == BagSlotContainerId || SlotId == BagContentsContainerId || SlotId == BagExchangeContainerId)))
+    {
+        return EInventoryOperationFailure::InvalidContainer;
+    }
+    const FInventoryContainer* Slot = FindContainer(SlotId);
+    if (!Slot || Slot->Items.Num() > 1) { return EInventoryOperationFailure::InvalidContainer; }
+    TGuardValue<bool> Guard(bApplying, true);
+    if (Slot->Items.Num() == 1)
+    {
+        const FItemInstance& Item = Slot->Items[0];
+        const EInventoryOperationFailure Failure = InventoryEquipmentInternal::CheckItem(Item, Type);
+        if (Failure != EInventoryOperationFailure::None) { return Failure; }
+        if (Item.AnchorCell != FIntPoint::ZeroValue || Item.bRotated) { return EInventoryOperationFailure::InvalidContainer; }
+    }
+    FEquipmentSlotBinding* Binding = EquipmentSlots.FindByPredicate(
+        [SlotId](const FEquipmentSlotBinding& Entry) { return Entry.SlotId == SlotId; });
+    if (!Binding)
+    {
+        Binding = &EquipmentSlots.AddDefaulted_GetRef();
+        Binding->SlotId = SlotId;
+    }
+    Binding->Type = Type;
+    Binding->bValidated = true;
+    return EInventoryOperationFailure::None;
+}
+
+EInventoryOperationFailure UInventoryModel::CheckEquipmentMove(FName Source, FName Target, int32 InstanceId,
+    FIntPoint& InOutAnchor, bool& bInOutRotated) const
+{
+    const FEquipmentSlotBinding* SourceSlot = FindEquipmentSlot(Source);
+    const FEquipmentSlotBinding* TargetSlot = FindEquipmentSlot(Target);
+    if ((SourceSlot && !SourceSlot->bValidated) || (TargetSlot && !TargetSlot->bValidated))
+    {
+        return EInventoryOperationFailure::InvalidContainer;
+    }
+    if (!TargetSlot) { return EInventoryOperationFailure::None; }
+    // 없는 항목의 실패 사유(ItemNotFound)는 일반 이동 검사가 정한다.
+    const FItemInstance* Item = FindItem(Source, InstanceId);
+    if (!Item) { return EInventoryOperationFailure::None; }
+    const EInventoryOperationFailure Failure = InventoryEquipmentInternal::CheckItem(*Item, TargetSlot->Type);
+    if (Failure != EInventoryOperationFailure::None) { return Failure; }
+    // 원작처럼 slot에 놓을 때는 놓은 칸이나 드래그 중 회전과 상관없이 slot 원점에 바로 세운다.
+    InOutAnchor = FIntPoint::ZeroValue;
+    bInOutRotated = false;
     return EInventoryOperationFailure::None;
 }
 
