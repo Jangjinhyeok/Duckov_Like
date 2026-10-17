@@ -64,7 +64,7 @@ private:
     // 창고를 쓸 수 없으면(레이드) 창고 패널 전체를 감춘다.
     UPROPERTY(meta=(BindWidgetOptional))
     TObjectPtr<UWidget> StashPanel;
-    // 장비(가방 슬롯) 패널이 들어갈 자리. 없으면 화면 위쪽에 띄운다.
+    // 장비(무기·방어구 slot 줄과 가방 슬롯) 패널이 들어갈 자리. 없으면 가방 슬롯만 화면 위쪽에 띄우고 slot 줄은 만들지 않는다.
     UPROPERTY(meta=(BindWidgetOptional))
     TObjectPtr<UPanelWidget> EquipmentSlot;
     UPROPERTY(Transient)
@@ -85,6 +85,17 @@ private:
     TObjectPtr<UButton> EquipSmallBagButton;
     UPROPERTY(Transient)
     TObjectPtr<UButton> EquipLargeBagButton;
+    // 무기·방어구 장비 slot. 처음 열 때 EquipmentSlot 안에 WBP_InventoryGrid로 만들고, 두 slot이 Model에 등록됐을 때만 보인다.
+    UPROPERTY(Transient)
+    TObjectPtr<UWidget> EquipmentSlotsPanel;
+    UPROPERTY(Transient)
+    TObjectPtr<UInventoryGridWidget> WeaponSlotGrid;
+    UPROPERTY(Transient)
+    TObjectPtr<UInventoryGridWidget> ArmorSlotGrid;
+    UPROPERTY(Transient)
+    TObjectPtr<UContainerViewModel> WeaponSlotVM;
+    UPROPERTY(Transient)
+    TObjectPtr<UContainerViewModel> ArmorSlotVM;
     UPROPERTY(Transient)
     TObjectPtr<UTextBlock> FailureText;
     UPROPERTY(Transient)
@@ -114,6 +125,8 @@ private:
     void RefreshDragView();
     void RefreshStashAccess();
     void CreateBagEquipmentPanel();
+    void CreateEquipmentSlots();
+    void BindEquipmentSlots(bool bActive);
     void RefreshBagEquipment();
     void OnBagEquipmentChanged(UObject*, UE::FieldNotification::FFieldId);
     void EquipBag(FName RowName);

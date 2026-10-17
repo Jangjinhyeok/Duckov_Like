@@ -109,6 +109,9 @@ bool FInventoryLayout::RunTest(const FString& Parameters)
         TestTrue(TEXT("창고 격자는 창고 패널 안"), IsInside(Screen->GetWidgetFromName(TEXT("LeftGrid")), StashPanel));
         TestTrue(TEXT("가방 슬롯은 장비 자리 안"), IsInside(Screen->GetWidgetFromName(TEXT("BagEquipmentPanel")),
             Screen->GetWidgetFromName(TEXT("EquipmentSlot"))));
+        // 데모 map의 Model은 무기·방어구 slot을 등록하지 않으므로 slot 줄을 감춘다.
+        const UWidget* EquipmentSlots = Field<UWidget>(Screen, TEXT("EquipmentSlotsPanel"));
+        TestTrue(TEXT("slot 미등록이면 slot 줄 감춤"), EquipmentSlots && EquipmentSlots->GetVisibility() == ESlateVisibility::Collapsed);
 
         // 용량: 차지한 칸 / 전체 칸. 창고 = Rifle 2 + Ammo 1 + LargeBag 1, 가방 = Medkit 2x2.
         TestEqual(TEXT("가방 헤더 용량"), GetHeader(Screen, TEXT("RightGrid")), FString(TEXT("가방 (4/16)")));

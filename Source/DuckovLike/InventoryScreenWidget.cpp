@@ -8,6 +8,7 @@
 #include "Components/TextBlock.h"
 #include "Components/VerticalBox.h"
 #include "Components/HorizontalBox.h"
+#include "Components/HorizontalBoxSlot.h"
 #include "Components/PanelWidget.h"
 #include "Blueprint/WidgetTree.h"
 #include "ContainerViewModel.h"
@@ -89,10 +90,15 @@ void UInventoryScreenWidget::NativeOnActivated()
     if (!RightVM) { RightVM = NewObject<UContainerViewModel>(this); }
     if (!Interaction) { Interaction = NewObject<UInteractionViewModel>(this); }
     if (!BagEquipment) { BagEquipment = NewObject<UBagEquipmentViewModel>(this); }
+    if (!WeaponSlotVM) { WeaponSlotVM = NewObject<UContainerViewModel>(this); }
+    if (!ArmorSlotVM) { ArmorSlotVM = NewObject<UContainerViewModel>(this); }
     RightVM->Bind(Model, TEXT("Bag"));
     Interaction->Bind(Model);
     BagEquipment->Bind(Model);
+    // 원작처럼 장비 slot 줄을 가방 슬롯 위에 둔다.
+    CreateEquipmentSlots();
     CreateBagEquipmentPanel();
+    BindEquipmentSlots(true);
     BagEquipmentHandle = BagEquipment->AddFieldValueChangedDelegate(
         UBagEquipmentViewModel::FFieldNotificationClassDescriptor::GetEquippedText,
         INotifyFieldValueChanged::FFieldValueChangedDelegate::CreateUObject(this, &ThisClass::OnBagEquipmentChanged));
@@ -147,6 +153,7 @@ void UInventoryScreenWidget::NativeOnDeactivated()
     DraggedItem.Reset();
     if (LeftGrid) { LeftGrid->HidePreview(); }
     if (RightGrid) { RightGrid->HidePreview(); }
+    BindEquipmentSlots(false);
     if (FailureText) { FailureText->SetText(FText::GetEmpty()); }
     if (LeftGrid) { LeftGrid->Bind(nullptr); }
     if (RightGrid) { RightGrid->Bind(nullptr); }
@@ -302,6 +309,15 @@ void UInventoryScreenWidget::UpdateItemDrag(FVector2D AbsolutePosition)
     {
         Interaction->Preview(TEXT("Bag"), Cell - PointerOffset);
     }
+    // slot 안의 칸은 의미가 없다. 놓을 위치는 Model이 slot 원점으로 정한다.
+    else if (WeaponSlotGrid && WeaponSlotGrid->TryGetCell(AbsolutePosition, Cell))
+    {
+        Interaction->Preview(TEXT("WeaponSlot"), FIntPoint::ZeroValue);
+    }
+    else if (ArmorSlotGrid && ArmorSlotGrid->TryGetCell(AbsolutePosition, Cell))
+    {
+        Interaction->Preview(TEXT("ArmorSlot"), FIntPoint::ZeroValue);
+    }
     else { Interaction->Preview(NAME_None, FIntPoint::ZeroValue); }
 }
 
@@ -347,6 +363,8 @@ void UInventoryScreenWidget::RefreshDragView()
     if (StoreAllButton) { StoreAllButton->SetIsEnabled(bStashAccessible && !IsInventoryInteractionBlocked()); }
     if (LeftGrid) { LeftGrid->HidePreview(); }
     if (RightGrid) { RightGrid->HidePreview(); }
+    if (WeaponSlotGrid) { WeaponSlotGrid->HidePreview(); }
+    if (ArmorSlotGrid) { ArmorSlotGrid->HidePreview(); }
     if (!Interaction) { return; }
     if (FailureText) { FailureText->SetText(Interaction->GetFailureText()); }
     if (!Interaction->IsDragging())
@@ -355,14 +373,17 @@ void UInventoryScreenWidget::RefreshDragView()
         ReleasePointerCapture();
         return;
     }
-    UInventoryGridWidget* Target = Interaction->GetTargetContainerId() == TEXT("Stash") ? LeftGrid.Get()
-        : Interaction->GetTargetContainerId() == TEXT("Bag") ? RightGrid.Get() : nullptr;
+    const FName TargetId = Interaction->GetTargetContainerId();
+    const bool bSlotTarget = TargetId == TEXT("WeaponSlot") || TargetId == TEXT("ArmorSlot");
+    UInventoryGridWidget* Target = TargetId == TEXT("Stash") ? LeftGrid.Get() : TargetId == TEXT("Bag") ? RightGrid.Get()
+        : TargetId == TEXT("WeaponSlot") ? WeaponSlotGrid.Get() : TargetId == TEXT("ArmorSlot") ? ArmorSlotGrid.Get() : nullptr;
     UItemViewModel* Item = DraggedItem.Get();
     if (!Target || !Item || !Item->IsAvailable()) { return; }
     FIntPoint Footprint = Item->GetFootprint();
-    if (Item->IsRotated() != Interaction->IsPreviewRotated()) { Swap(Footprint.X, Footprint.Y); }
+    // slot에는 드래그 중 회전과 상관없이 원래 방향으로 선다(Model의 정규화와 같은 모양으로 보인다).
+    if (Item->IsRotated() != (!bSlotTarget && Interaction->IsPreviewRotated())) { Swap(Footprint.X, Footprint.Y); }
     const bool bValid = Interaction->GetPreviewFailure() == EInventoryOperationFailure::None;
-    Target->ShowPreview(Interaction->GetPreviewCell(), Footprint, bValid,
+    Target->ShowPreview(bSlotTarget ? FIntPoint::ZeroValue : Interaction->GetPreviewCell(), Footprint, bValid,
         !bValid ? Interaction->GetFailureText() : Interaction->IsPreviewStacking()
             ? NSLOCTEXT("Inventory", "PreviewStack", "합치기") : NSLOCTEXT("Inventory", "PreviewValid", "배치 가능"));
 }
@@ -450,6 +471,7 @@ bool UInventoryScreenWidget::OpenSplitDialog(FName Source, UItemViewModel* Item)
     SplitOverlay->SetVisibility(ESlateVisibility::Visible);
     LeftGrid->SetIsEnabled(false);
     RightGrid->SetIsEnabled(false);
+    if (EquipmentSlotsPanel) { EquipmentSlotsPanel->SetIsEnabled(false); }
     CloseButton->SetIsEnabled(false);
     SortLeftButton->SetIsEnabled(false);
     SortRightButton->SetIsEnabled(false);
@@ -470,6 +492,7 @@ void UInventoryScreenWidget::CloseSplitDialog()
     SplitOverlay->SetVisibility(ESlateVisibility::Collapsed);
     if (LeftGrid) { LeftGrid->SetIsEnabled(bStashAccessible); }
     if (RightGrid) { RightGrid->SetIsEnabled(true); }
+    if (EquipmentSlotsPanel) { EquipmentSlotsPanel->SetIsEnabled(true); }
     if (CloseButton) { CloseButton->SetIsEnabled(true); }
     if (SortLeftButton) { SortLeftButton->SetIsEnabled(bStashAccessible); }
     if (SortRightButton) { SortRightButton->SetIsEnabled(true); }
@@ -616,6 +639,49 @@ void UInventoryScreenWidget::CreateBagEquipmentPanel()
     EquipSmallBagButton->OnClicked.AddUniqueDynamic(this, &ThisClass::EquipSmallBag);
     EquipLargeBagButton->OnClicked.AddUniqueDynamic(this, &ThisClass::EquipLargeBag);
     Panel->SetVisibility(ESlateVisibility::Collapsed);
+}
+
+void UInventoryScreenWidget::CreateEquipmentSlots()
+{
+    if (EquipmentSlotsPanel || !EquipmentSlot || !LeftGrid) { return; }
+    UHorizontalBox* Row = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("EquipmentSlotsPanel"));
+    EquipmentSlotsPanel = Row;
+    EquipmentSlot->AddChild(Row);
+    auto AddSlot = [&](FName Name, const FText& Label)
+    {
+        UVerticalBox* Column = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
+        UTextBlock* Caption = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
+        Caption->SetText(Label);
+        Caption->SetColorAndOpacity(FSlateColor(FLinearColor::White));
+        FSlateFontInfo Font = Caption->GetFont();
+        Font.Size = 14;
+        Caption->SetFont(Font);
+        Column->AddChild(Caption);
+        // 창고·가방과 같은 grid 위젯을 써서 드래그·미리보기·아이템 표시를 그대로 재사용한다.
+        UInventoryGridWidget* Grid = CreateWidget<UInventoryGridWidget>(this, LeftGrid->GetClass(), Name);
+        Column->AddChild(Grid);
+        UHorizontalBoxSlot* ColumnSlot = Row->AddChildToHorizontalBox(Column);
+        ColumnSlot->SetPadding(FMargin(0.f, 0.f, 16.f, 8.f));
+        ColumnSlot->SetVerticalAlignment(VAlign_Top);
+        return Grid;
+    };
+    WeaponSlotGrid = AddSlot(TEXT("WeaponSlotGrid"), NSLOCTEXT("Inventory", "WeaponSlot", "무기"));
+    ArmorSlotGrid = AddSlot(TEXT("ArmorSlotGrid"), NSLOCTEXT("Inventory", "ArmorSlot", "방어구"));
+    Row->SetVisibility(ESlateVisibility::Collapsed);
+}
+
+void UInventoryScreenWidget::BindEquipmentSlots(bool bActive)
+{
+    if (!EquipmentSlotsPanel || !WeaponSlotGrid || !ArmorSlotGrid || !WeaponSlotVM || !ArmorSlotVM) { return; }
+    const bool bBound = bActive && Model && Model->IsEquipmentSlotBound(TEXT("WeaponSlot"))
+        && Model->IsEquipmentSlotBound(TEXT("ArmorSlot"));
+    WeaponSlotGrid->HidePreview();
+    ArmorSlotGrid->HidePreview();
+    WeaponSlotVM->Bind(bBound ? Model.Get() : nullptr, bBound ? FName(TEXT("WeaponSlot")) : NAME_None);
+    ArmorSlotVM->Bind(bBound ? Model.Get() : nullptr, bBound ? FName(TEXT("ArmorSlot")) : NAME_None);
+    WeaponSlotGrid->Bind(bBound ? WeaponSlotVM.Get() : nullptr, this, TEXT("WeaponSlot"));
+    ArmorSlotGrid->Bind(bBound ? ArmorSlotVM.Get() : nullptr, this, TEXT("ArmorSlot"));
+    EquipmentSlotsPanel->SetVisibility(bBound ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
 }
 
 void UInventoryScreenWidget::OnBagEquipmentChanged(UObject*, UE::FieldNotification::FFieldId) { RefreshBagEquipment(); }
