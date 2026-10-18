@@ -182,3 +182,25 @@ UE render/ref bone transforms·최종 Build/Automation·독립 검토·사용자
   `-ExecutePythonScript`로 실행하고, 새로 생긴 uasset만 저장소 Content로 옮긴다. 옵션은 `import_slots.py`와 같다.
   body import에 기존과 같은 `Not all the deformers are stored in this BindPose` 경고 1건이 있다.
 - 통짜 body·안경·부리 고리의 FBX와 uasset은 지웠다. 그 원본 형상은 기존 `.blend` 두 개에 남아 있다.
+
+## 2026-10-18 플레이어 애니메이션 — 발 bone과 Idle·Walk
+
+`author_animation.py`가 `CustomizationParts.blend`를 열어 새 파생 원본 `CharacterAnimation.blend`를 만든다. 부위 원본은 바뀌지 않는다.
+
+- 공통 rig에 `foot_l`/`foot_r`(부모 root, 발목 (±10, 0, 6) → 발끝 -Y 방향)를 더해 7 bones다. 발 mesh 2종(Webbed/Boot)의 weight를 root에서
+  x 부호에 따라 발 bone으로 옮겼다. 다른 mesh는 빈 foot vertex group만 갖고 weight는 그대로다. 이전에는 발이 root에 붙어 걸어도 미끄러지기만 했다.
+- action 2개, 30 fps, 제자리(root motion 없음), 마지막 frame = 첫 frame:
+  - `A_DuckIdle` 60 frames(2초): 몸 0.8 cm 호흡 bob, 고개 끄덕임·갸웃, 날개 벌어짐.
+  - `A_DuckWalk` 16 frames(0.53초, 두 걸음): 발 보폭 ±9 cm·들림 6 cm·발끝 들기, 디딘 발 쪽 몸 기울기(±7.4°)와 두 번 튐, 앞숙임, 머리 역기울기, 날개 반대 흔들기.
+- `export`는 `A_DuckIdle.fbx`/`A_DuckWalk.fbx`(armature만, bake)와 7 bones로 다시 낸 `SK_CustomizationBaseBody`·`SK_CustomizationFoot*` FBX를 쓴다.
+  mesh FBX는 rest pose로 내보낸다. 이 세 FBX는 이제 이 원본이 기준이다 — `author_parts.py -- export`를 다시 돌리면 5 bones로 되돌아간다.
+- `verify`: bone 계층·발 weight 분리·루프 이음매(위치·회전)·발밑 지면 관통(-1 cm 초과 금지). `create`/`export`는 FBX를 빈 scene으로 다시 읽어 bone 위치를 비교한다.
+  `render`는 게임 시점·옆 시점 frame PNG를 `Saved/Automation/CharacterAnimation/frames`에 만든다.
+- UE import는 `import_animation.py`를 disposable pilot(Content/Customization/Prototype 사본)에서 `-ExecutePythonScript`로 실행한다.
+  body·발을 같은 asset에 다시 import해 공통 Skeleton에 발 bone 2개가 merge되고, `A_DuckIdle`/`A_DuckWalk`가 `/Game/Character`에 생긴다.
+  바뀐 Skeleton·body·발 3개와 새 AnimSequence 2개만 저장소 Content로 옮겼다. body import의 `Not all the deformers are stored in this BindPose` 경고 1건은 이전과 같다.
+  `BS_DuckLocomotion`은 본 프로젝트의 `CharacterAnimationAssets.Create`가 만든다. 게임 연결 구조는 `docs/architecture/034-player-locomotion-animation.md`.
+
+```powershell
+& $blenderExe --background --factory-startup --offline-mode --python-exit-code 1 --python Art/CustomizationPrototype/author_animation.py -- create
+```

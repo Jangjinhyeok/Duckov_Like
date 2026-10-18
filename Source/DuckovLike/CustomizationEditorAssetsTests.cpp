@@ -85,12 +85,19 @@ bool FCustomizationImportedAssets::RunTest(const FString& Parameters)
         TestEqual(TEXT("부위 슬롯 수"), Item->GetMaterials().Num(), 1);
     }
     Parts.Add(Body);
+    // body와 발 mesh는 걷기 애니메이션의 발 bone 2개를 더 가진다(author_animation.py). 앞 5개는 모든 mesh가 같다.
+    const FName FootBones[] = {TEXT("foot_l"), TEXT("foot_r")};
     for (USkeletalMesh* Item : Parts)
     {
-        TestEqual(TEXT("공통 bone 5개"), Item->GetRefSkeleton().GetNum(), 5);
+        const bool bHasFeet = Item == Body || Item->GetName().StartsWith(TEXT("SK_CustomizationFoot"));
+        TestEqual(TEXT("공통 bone 5개(body·발은 발 bone 포함 7개)"), Item->GetRefSkeleton().GetNum(), bHasFeet ? 7 : 5);
         for (int32 Index = 0; Index < 5 && Index < Item->GetRefSkeleton().GetNum(); ++Index)
         {
             TestEqual(TEXT("공통 bone 이름"), Item->GetRefSkeleton().GetBoneName(Index), Expected[Index]);
+        }
+        for (int32 Index = 5; bHasFeet && Index < 7 && Index < Item->GetRefSkeleton().GetNum(); ++Index)
+        {
+            TestEqual(TEXT("발 bone 이름"), Item->GetRefSkeleton().GetBoneName(Index), FootBones[Index - 5]);
         }
         const auto* RenderData = Item->GetResourceForRendering();
         TestTrue(TEXT("실제 LOD0 vertex"), RenderData && RenderData->LODRenderData.Num() == 1 && RenderData->LODRenderData[0].GetNumVertices() > 0);
