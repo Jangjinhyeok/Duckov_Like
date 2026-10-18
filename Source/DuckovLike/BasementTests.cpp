@@ -11,6 +11,7 @@
 #include "InteractionRangeComponent.h"
 #include "InventoryScreenWidget.h"
 #include "WorldLootActor.h"
+#include "Animation/AnimSingleNodeInstance.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Editor.h"
@@ -324,6 +325,11 @@ bool FBasementCharacterMovement::RunTest(const FString& Parameters)
         UCustomizationAppearanceComponent* Appearance = Character->GetAppearance();
         USkeletalMeshComponent* Body = Appearance->GetDisplayedBody();
         TestTrue(TEXT("세션 Profile로 외형 표시"), Body && Body->IsVisible() && Appearance->GetDisplayedMesh());
+        const UAnimSingleNodeInstance* Locomotion = Body ? Body->GetSingleNodeInstance() : nullptr;
+        TestTrue(TEXT("body가 tick하며 걷기 BlendSpace 재생"), Locomotion && Body->IsComponentTickEnabled() && Locomotion->GetAnimationAsset()
+            && Locomotion->GetAnimationAsset()->GetPathName() == ADuckovCharacter::LocomotionAnimationPath);
+        const auto* Hair = Cast<USkeletalMeshComponent>(Appearance->GetDisplayedSlotMesh(ECustomizationSlot::Hair));
+        TestTrue(TEXT("부위 파츠가 body pose를 따름"), Hair && Hair->LeaderPoseComponent.Get() == Body);
         TestTrue(TEXT("외형은 capsule 바닥 기준점에 붙음"), Body && Body->GetAttachParent() != Character->GetRootComponent()
             && FMath::IsNearlyEqual(Body->GetComponentLocation().Z,
                 Character->GetActorLocation().Z - Character->GetSimpleCollisionHalfHeight(), 1.f));
@@ -408,6 +414,11 @@ bool FBasementCharacterMovement::RunTest(const FString& Parameters)
         const FVector ScreenRight = FVector::CrossProduct(FVector::UpVector, ScreenUpOnGround(Scene->Character.Get()));
         TestTrue(TEXT("D는 화면 오른쪽 방향"), FVector::DotProduct(Scene->Character->GetVelocity().GetSafeNormal2D(), ScreenRight) > 0.95f);
         TestTrue(TEXT("Shift로 걷기보다 빠르게 달림"), Scene->PeakSpeed > ADuckovCharacter::WalkSpeed + 100.f);
+        FVector Input = FVector::ZeroVector, Filtered = FVector::ZeroVector;
+        const USkeletalMeshComponent* Shown = Scene->Character->GetAppearance()->GetDisplayedBody();
+        UAnimSingleNodeInstance* Locomotion = Shown ? Shown->GetSingleNodeInstance() : nullptr;
+        if (Locomotion) { Locomotion->GetBlendSpaceState(Input, Filtered); }
+        TestTrue(TEXT("달리는 속도가 걷기 애니메이션 입력"), Locomotion && Input.X > ADuckovCharacter::WalkSpeed + 100.f);
         Scene->Controller->ToggleInventory();
     }, 0.f));
     ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("인벤토리 Menu 입력과 정지"), [Scene]
@@ -427,6 +438,11 @@ bool FBasementCharacterMovement::RunTest(const FString& Parameters)
         SendKey(EKeys::W, false);
         if (!IsSceneValid(*Scene)) { AddError(TEXT("베이스먼트 scene unavailable")); return; }
         TestTrue(TEXT("인벤토리가 열린 동안 이동 입력 차단"), MovedSinceHold(*Scene).Size() < 5.f);
+        FVector Input = FVector::ZeroVector, Filtered = FVector::ZeroVector;
+        const USkeletalMeshComponent* Shown = Scene->Character->GetAppearance()->GetDisplayedBody();
+        UAnimSingleNodeInstance* Locomotion = Shown ? Shown->GetSingleNodeInstance() : nullptr;
+        if (Locomotion) { Locomotion->GetBlendSpaceState(Input, Filtered); }
+        TestTrue(TEXT("멈추면 Idle 입력"), Locomotion && Input.X < 1.f);
         UInventoryScreenWidget* Screen = Field<UInventoryScreenWidget>(Scene->Controller.Get(), TEXT("Screen"));
         TestTrue(TEXT("베이스먼트에서 인벤토리 열림"), Screen && Screen->IsActivated());
         Scene->Controller->ToggleInventory();

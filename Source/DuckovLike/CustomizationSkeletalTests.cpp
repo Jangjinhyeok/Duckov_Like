@@ -4,7 +4,11 @@
 #include "CustomizationAppearanceComponent.h"
 #include "CustomizationModel.h"
 #include "CustomizationTestSupport.h"
+#include "Animation/AnimSequence.h"
+#include "Animation/AnimSingleNodeInstance.h"
 #include "Animation/MorphTarget.h"
+#include "Animation/Skeleton.h"
+#include "DuckovCharacter.h"
 #include "Components/SceneComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
@@ -147,6 +151,103 @@ bool FCustomizationSkeletalAtomicity::RunTest(const FString& Parameters)
     Target->ClearPreview();
     TestTrue(TEXT("body까지 정리"), !Target->GetDisplayedBody() && !Target->GetDisplayedBodyMID()
         && !Target->GetDisplayedSlotMesh(ECustomizationSlot::Hair) && !Target->GetDisplayedSlotMID(ECustomizationSlot::Hair));
+    return true;
+}
+// 지상 캐릭터의 걷기 애니메이션 경로다. body만 BlendSpace를 재생하고 부위 파츠는 body pose를 따른다.
+// 미리보기(애니메이션 없음)의 tick 없는 reference pose와 일괄 교체 보증은 그대로여야 한다.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCustomizationAnimatedBody,
+    "Duckov.Customization.Skeletal.AnimatedBodyLeadsParts", EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+bool FCustomizationAnimatedBody::RunTest(const FString& Parameters)
+{
+    using CustomizationTestSupport::FDisplaySnapshot;
+    CustomizationTestSupport::FRealWorld Scene;
+    auto* Target = Scene.CreateTarget();
+    UAnimationAsset* Locomotion = LoadObject<UAnimationAsset>(nullptr, ADuckovCharacter::LocomotionAnimationPath);
+    if (!TestNotNull(TEXT("걷기 BlendSpace"), Locomotion)) { return false; }
+    Target->SetBodyAnimation(Locomotion);
+    FCustomizationProfile Profile; Profile.HeadShape = 0.4f;
+    if (!TestEqual(TEXT("애니메이션 외형 준비"), Target->TryApply(Profile), ECustomizationFailure::None)) { return false; }
+    const auto CheckFollows = [&](const TCHAR* What, const FCustomizationProfile& Applied, const USkeletalMeshComponent* Leader)
+    {
+        int32 Expected = 0, Following = 0;
+        for (const ECustomizationSlot Slot : GetCustomizationSlots())
+        {
+            Expected += Applied.GetSlotPartId(Slot).IsNone() ? 0 : 1;
+            const auto* Part = Cast<USkeletalMeshComponent>(Target->GetDisplayedSlotMesh(Slot));
+            Following += Part && Part->LeaderPoseComponent.Get() == Leader && !Part->IsComponentTickEnabled() ? 1 : 0;
+        }
+        TestTrue(What, Expected > 0 && Following == Expected);
+    };
+    USkeletalMeshComponent* Body = Target->GetDisplayedBody();
+    UAnimSingleNodeInstance* Instance = Body ? Body->GetSingleNodeInstance() : nullptr;
+    TestTrue(TEXT("body만 tick 설정으로 BlendSpace 재생"), Instance && Instance->GetAnimationAsset() == Locomotion
+        && Body->PrimaryComponentTick.bCanEverTick && !Body->bForceRefpose);
+    CheckFollows(TEXT("모든 파츠가 tick 없이 body pose를 따름"), Profile, Body);
+
+    // 애니메이션을 평가해도 머리 모양 Morph는 유지된다.
+    const auto Advance = [Body](int32 Frames, float Step, float& OutLow, float& OutHigh)
+    {
+        OutLow = TNumericLimits<float>::Max(); OutHigh = TNumericLimits<float>::Lowest();
+        for (int32 Frame = 0; Frame < Frames; ++Frame)
+        {
+            Body->TickAnimation(Step, false);
+            Body->RefreshBoneTransforms();
+            const float Z = Body->GetBoneLocation(TEXT("foot_l"), EBoneSpaces::ComponentSpace).Z;
+            OutLow = FMath::Min(OutLow, Z); OutHigh = FMath::Max(OutHigh, Z);
+        }
+    };
+    float Low = 0.f, High = 0.f;
+    Advance(60, 1.f / 30.f, Low, High);
+    TestTrue(TEXT("정지 입력은 Idle: 발이 들리지 않음"), High - Low < 0.01f);
+    TestEqual(TEXT("애니메이션 평가 뒤 머리 모양 Morph 유지"), Body->GetMorphTarget(TEXT("HeadFlat")), 0.6f);
+    Target->SetBodyAnimationInput(ADuckovCharacter::WalkSpeed);
+    Advance(30, 1.f / 30.f, Low, High);
+    Advance(16, 1.f / 30.f, Low, High);
+    TestTrue(TEXT("걷기 입력은 Walk: 한 주기에 발이 5 cm 넘게 들림"), High - Low > 5.f);
+    int32 MorphIndex = INDEX_NONE;
+    Body->GetSkeletalMeshAsset()->FindMorphTargetAndIndex(TEXT("HeadFlat"), MorphIndex);
+    TestTrue(TEXT("평가된 render weight 유지"), Body->MorphTargetWeights.IsValidIndex(MorphIndex)
+        && FMath::IsNearlyEqual(Body->MorphTargetWeights[MorphIndex], 0.6f));
+
+    // 같은 외형은 그대로 두고, body가 바뀌면 재사용 파츠도 새 body를 따른다. 입력은 이어받는다.
+    const FDisplaySnapshot Before(Target);
+    TestEqual(TEXT("같은 외형 재적용"), Target->TryApply(Profile), ECustomizationFailure::None);
+    TestTrue(TEXT("같은 외형은 component 재사용"), FDisplaySnapshot(Target) == Before);
+    FCustomizationProfile Skin = Profile; Skin.SkinColor = 3;
+    TestEqual(TEXT("피부색 변경"), Target->TryApply(Skin), ECustomizationFailure::None);
+    USkeletalMeshComponent* NewBody = Target->GetDisplayedBody();
+    TestTrue(TEXT("body만 새로 준비하고 파츠는 재사용"), NewBody && NewBody != Body
+        && Target->GetDisplayedSlotMesh(ECustomizationSlot::Hair) == Before.Meshes[static_cast<int32>(ECustomizationSlot::Hair)]);
+    CheckFollows(TEXT("재사용 파츠가 새 body를 따름"), Skin, NewBody);
+    FVector Position = FVector::ZeroVector, Filtered = FVector::ZeroVector;
+    UAnimSingleNodeInstance* NewInstance = NewBody ? NewBody->GetSingleNodeInstance() : nullptr;
+    if (NewInstance) { NewInstance->GetBlendSpaceState(Position, Filtered); }
+    TestTrue(TEXT("새 body가 걷기 입력을 이어받음"), NewInstance && Position.X == ADuckovCharacter::WalkSpeed);
+
+    // 다른 Skeleton의 애니메이션은 실패하고 표시를 바꾸지 않는다.
+    UAnimSequence* Foreign = NewObject<UAnimSequence>(GetTransientPackage());
+    Foreign->SetSkeleton(LoadObject<USkeleton>(nullptr, TEXT("/Game/Customization/Tests/SKEL_Unexpected.SKEL_Unexpected")));
+    Target->SetBodyAnimation(Foreign);
+    const FDisplaySnapshot Shown(Target);
+    FCustomizationProfile Next = Skin; Next.SkinColor = 5;
+    TestEqual(TEXT("다른 Skeleton 애니메이션 거부"), Target->TryApply(Next), ECustomizationFailure::SkeletonMismatch);
+    TestTrue(TEXT("실패는 표시 보존"), FDisplaySnapshot(Target) == Shown);
+
+    // 애니메이션을 끄면 미리보기와 같은 tick 없는 reference pose로 돌아간다.
+    Target->SetBodyAnimation(nullptr);
+    TestEqual(TEXT("애니메이션 해제"), Target->TryApply(Skin), ECustomizationFailure::None);
+    const USkeletalMeshComponent* StillBody = Target->GetDisplayedBody();
+    bool bPartsStill = true;
+    for (const ECustomizationSlot Slot : GetCustomizationSlots())
+    {
+        if (const auto* Part = Cast<USkeletalMeshComponent>(Target->GetDisplayedSlotMesh(Slot)))
+        {
+            bPartsStill &= !Part->LeaderPoseComponent.IsValid() && !Part->IsComponentTickEnabled() && Part->bForceRefpose;
+        }
+    }
+    TestTrue(TEXT("body·파츠 tick 없는 reference pose"), StillBody && !StillBody->IsComponentTickEnabled() && StillBody->bForceRefpose
+        && !StillBody->GetAnimInstance() && bPartsStill);
+    Target->ClearPreview();
     return true;
 }
 #endif

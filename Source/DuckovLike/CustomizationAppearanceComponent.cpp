@@ -1,5 +1,7 @@
 #include "CustomizationAppearanceComponent.h"
 
+#include "Animation/AnimSingleNodeInstance.h"
+#include "Animation/AnimationAsset.h"
 #include "Animation/MorphTarget.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -92,17 +94,40 @@ namespace
         return true;
     }
 
-    void ConfigureSkeletal(USkeletalMeshComponent* Component, USkeletalMesh* Mesh)
+    // 애니메이션이 없으면 tick 없이 reference pose만 평가한다. 있으면 그 component만 tick하며 재생한다.
+    void ConfigureSkeletal(USkeletalMeshComponent* Component, USkeletalMesh* Mesh, UAnimationAsset* Animation = nullptr)
     {
-        Component->PrimaryComponentTick.bCanEverTick = false;
-        Component->PrimaryComponentTick.bStartWithTickEnabled = false;
+        const bool bAnimated = Animation != nullptr;
+        Component->PrimaryComponentTick.bCanEverTick = bAnimated;
+        Component->PrimaryComponentTick.bStartWithTickEnabled = bAnimated;
         Component->bEnableUpdateRateOptimizations = false;
         Component->SetDisablePostProcessBlueprint(true);
-        Component->SetForceRefPose(true);
+        Component->SetForceRefPose(!bAnimated);
         Component->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
         Component->SetSkeletalMesh(Mesh);
-        // C3 시험 에셋의 LOD0와 reference pose만 사용한다.
+        // C3 시험 에셋의 LOD0만 사용한다.
         Component->SetForcedLOD(1);
+        if (bAnimated)
+        {
+            // 등록할 때 single node instance가 만들어진다. 재생할 asset은 등록 뒤 PlayAnimation으로 준다.
+            Component->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+        }
+    }
+
+    // body가 기대한 재생 상태인지다. 애니메이션이 없으면 tick 없는 reference pose 고정이다.
+    // tick 등록 자체는 owner의 BeginPlay를 따르므로(game world) 여기서는 tick 가능 설정만 본다.
+    bool HasBodyAnimation(const USkeletalMeshComponent* Component, const UAnimationAsset* Animation)
+    {
+        const bool bCanTick = Component->PrimaryComponentTick.bCanEverTick;
+        if (!Animation) { return Component->bForceRefpose && !bCanTick && !Component->GetAnimInstance(); }
+        const UAnimSingleNodeInstance* Instance = Component->GetSingleNodeInstance();
+        return !Component->bForceRefpose && bCanTick && Instance && Instance->GetAnimationAsset() == Animation && Instance->IsPlaying();
+    }
+
+    // 애니메이션 body를 따르는 파츠는 자기 pose 배열이 없다(leader가 계산한다). 따르는 body는 공개할 때 다시 맞춘다.
+    bool HasPreparedPart(const USkeletalMeshComponent* Part, bool bFollowsBody)
+    {
+        return bFollowsBody ? Part->LeaderPoseComponent.IsValid() : !Part->LeaderPoseComponent.IsValid() && HasPreparedPose(Part, {}, {});
     }
 
     void RegisterHidden(UMeshComponent* Component, USceneComponent* Parent, const FTransform& Transform)
@@ -252,6 +277,11 @@ FCustomizationFailureDetail UCustomizationAppearanceComponent::Prepare(const FCu
     {
         return FDetail::Of(ECustomizationFailure::UnsupportedBodyAdjustment);
     }
+    // 다른 Skeleton의 애니메이션은 재생되지 않고 reference pose로 남는다. 성공으로 공개하지 않는다.
+    if (BodyAnimation && Body.Mesh.IsValid() && BodyAnimation->GetSkeleton() != Body.Mesh->GetSkeleton())
+    {
+        return FDetail::Of(ECustomizationFailure::SkeletonMismatch);
+    }
 
     // 2) 로드한 뒤의 런타임 준비 상태. render 자원과 Morph batch가 실제로 만들어졌는지 본다.
     const TConstArrayView<FName> BodyMorphs = GetCustomizationBodyMorphs();
@@ -322,7 +352,7 @@ FCustomizationFailureDetail UCustomizationAppearanceComponent::Prepare(const FCu
             && Current->GetRelativeLocation() == Plan.Transform.GetLocation()
             && Current->GetRelativeScale3D() == FVector::OneVector
             && Current->GetRelativeTransform().GetRotation() == FQuat::Identity
-            && (!CurrentSkeletal || HasPreparedPose(CurrentSkeletal, {}, {}));
+            && (!CurrentSkeletal || HasPreparedPart(CurrentSkeletal, BodyAnimation != nullptr));
         Plan.bInPlace = !Plan.bReuse && bSameMesh && Plan.Loaded.StaticMesh;
         bAllReused &= Plan.bReuse;
     }
@@ -331,7 +361,7 @@ FCustomizationFailureDetail UCustomizationAppearanceComponent::Prepare(const FCu
             && DisplayedBody->GetMaterial(0) == DisplayedBodyMID
             && MatchesMaterial(DisplayedBodyMID, Body.Material.Get(), BodyColorParameter, SkinColor)
             && DisplayedBody->GetRelativeTransform().Equals(FTransform::Identity)
-            && HasPreparedPose(DisplayedBody, BodyMorphs, BodyWeights)
+            && HasPreparedPose(DisplayedBody, BodyMorphs, BodyWeights) && HasBodyAnimation(DisplayedBody, BodyAnimation)
         : !DisplayedBody && !DisplayedBodyMID;
     bool bRemovesSlot = false;
     for (int32 Index = 0; Index < CustomizationSlotCount; ++Index)
@@ -394,7 +424,7 @@ FCustomizationFailureDetail UCustomizationAppearanceComponent::Prepare(const FCu
     if (Body.Mesh.IsValid() && !bSameBody)
     {
         StagedBody.Reset(NewObject<USkeletalMeshComponent>(Owner, NAME_None, RF_Transient));
-        ConfigureSkeletal(StagedBody.Get(), Body.Mesh.Get());
+        ConfigureSkeletal(StagedBody.Get(), Body.Mesh.Get(), BodyAnimation);
         StagedBody->ClearMorphTargets();
         for (int32 Index = 0; Index < BodyMorphs.Num(); ++Index)
         {
@@ -402,6 +432,14 @@ FCustomizationFailureDetail UCustomizationAppearanceComponent::Prepare(const FCu
         }
         StagedBody->SetMaterial(0, BodyMID.Get());
         RegisterHidden(StagedBody.Get(), Parent, FTransform::Identity);
+        if (BodyAnimation && StagedBody->IsRegistered())
+        {
+            StagedBody->PlayAnimation(BodyAnimation, true);
+            if (UAnimSingleNodeInstance* Instance = StagedBody->GetSingleNodeInstance())
+            {
+                Instance->SetBlendSpacePosition(FVector(BodyAnimationInput, 0.0f, 0.0f));
+            }
+        }
     }
     const auto DiscardStaged = [&Plans, &StagedBody]
     {
@@ -427,7 +465,7 @@ FCustomizationFailureDetail UCustomizationAppearanceComponent::Prepare(const FCu
     }
     if (StagedBody.IsValid()
         && !(StagedBody->IsRegistered() && StagedBody->GetMaterial(0) == BodyMID.Get()
-            && HasPreparedPose(StagedBody.Get(), BodyMorphs, BodyWeights)))
+            && HasPreparedPose(StagedBody.Get(), BodyMorphs, BodyWeights) && HasBodyAnimation(StagedBody.Get(), BodyAnimation)))
     {
         DiscardStaged();
         return FDetail::Of(ECustomizationFailure::PreparationFailed);
@@ -459,8 +497,25 @@ FCustomizationFailureDetail UCustomizationAppearanceComponent::Prepare(const FCu
         DisplayedBodyMID = BodyMID.Get();
         if (DisplayedBody) { Show(DisplayedBody); }
     }
+    // 재사용 파츠도 새 body를 따르게 한 뒤 이전 body를 없앤다. 같은 body면 SetLeaderPoseComponent는 아무것도 하지 않는다.
+    if (BodyAnimation && DisplayedBody)
+    {
+        for (UMeshComponent* Mesh : DisplayedMeshes)
+        {
+            if (auto* Part = Cast<USkeletalMeshComponent>(Mesh)) { Part->SetLeaderPoseComponent(DisplayedBody); }
+        }
+    }
     for (UMeshComponent* Previous : Retired) { DestroyPreview(Previous); }
     return FDetail();
+}
+
+void UCustomizationAppearanceComponent::SetBodyAnimationInput(float Value)
+{
+    BodyAnimationInput = Value;
+    if (UAnimSingleNodeInstance* Instance = BodyAnimation && DisplayedBody ? DisplayedBody->GetSingleNodeInstance() : nullptr)
+    {
+        Instance->SetBlendSpacePosition(FVector(Value, 0.0f, 0.0f));
+    }
 }
 
 void UCustomizationAppearanceComponent::ClearPreview()

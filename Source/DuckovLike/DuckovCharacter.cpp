@@ -1,5 +1,6 @@
 #include "DuckovCharacter.h"
 
+#include "Animation/AnimationAsset.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "CustomizationAppearanceComponent.h"
@@ -29,7 +30,8 @@ constexpr float CameraFieldOfView = 45.f;
 
 ADuckovCharacter::ADuckovCharacter()
 {
-    PrimaryActorTick.bCanEverTick = false;
+    // 매 frame 이동 속도를 걷기 애니메이션 입력으로 넘긴다.
+    PrimaryActorTick.bCanEverTick = true;
     GetCapsuleComponent()->InitCapsuleSize(DuckovCharacterSetup::CapsuleRadius, DuckovCharacterSetup::CapsuleHalfHeight);
     bUseControllerRotationYaw = false;
     UCharacterMovementComponent* Movement = GetCharacterMovement();
@@ -84,6 +86,9 @@ void ADuckovCharacter::BeginPlay()
 {
     Super::BeginPlay();
     Appearance->SetAttachParent(VisualRoot);
+    UAnimationAsset* Locomotion = LoadObject<UAnimationAsset>(nullptr, LocomotionAnimationPath);
+    if (!Locomotion) { UE_LOG(LogTemp, Warning, TEXT("걷기 애니메이션 없음: %s. reference pose로 표시합니다"), LocomotionAnimationPath); }
+    Appearance->SetBodyAnimation(Locomotion);
     UGameInstance* GameInstance = GetGameInstance();
     UGameSessionSubsystem* Session = GameInstance ? GameInstance->GetSubsystem<UGameSessionSubsystem>() : nullptr;
     if (!Session) { return; }
@@ -91,6 +96,12 @@ void ADuckovCharacter::BeginPlay()
     // 편집 중 Draft가 아니라 확정된 Profile만 반영한다. 변경 통지마다 같은 값이면 적용 비용만 든다.
     CustomizationHandle = CustomizationModel->OnChanged().AddUObject(this, &ThisClass::ApplyConfirmedAppearance);
     ApplyConfirmedAppearance();
+}
+
+void ADuckovCharacter::Tick(float DeltaSeconds)
+{
+    Super::Tick(DeltaSeconds);
+    Appearance->SetBodyAnimationInput(GetVelocity().Size2D());
 }
 
 void ADuckovCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)

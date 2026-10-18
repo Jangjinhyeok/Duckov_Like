@@ -6,6 +6,7 @@
 #include "CustomizationTypes.h"
 #include "CustomizationAppearanceComponent.generated.h"
 
+class UAnimationAsset;
 class UMaterialInstanceDynamic;
 class UMeshComponent;
 class USceneComponent;
@@ -39,6 +40,11 @@ public:
     // 표시 mesh를 붙일 부모다. 지정하지 않으면 owner의 root에 붙는다.
     // 발밑 원점 mesh를 중심 원점 capsule에 맞출 때처럼 owner root와 기준점이 다를 때 쓴다.
     void SetAttachParent(USceneComponent* Parent) { AttachParent = Parent; }
+    // 표시 body가 재생할 애니메이션이다. 부위 파츠는 body pose를 따른다(leader pose). body만 tick한다.
+    // 비워 두면 tick 없이 reference pose로 고정한다(커스터마이징 미리보기). 바꾸면 다음 TryApply가 body를 새로 준비한다.
+    void SetBodyAnimation(UAnimationAsset* Animation) { BodyAnimation = Animation; }
+    // BlendSpace의 첫 축 입력이다. 새로 준비하는 body도 이 값으로 시작한다.
+    void SetBodyAnimationInput(float Value);
 
     // 잘못된 리소스는 정상 UI catalog에 등록하지 않고 자동 검사의 seam에서만 교체한다.
     void SetResourcesForTests(FName PartId, const FCustomizationPartResources& Resources);
@@ -61,6 +67,10 @@ private:
 
     UPROPERTY(Transient)
     TObjectPtr<USceneComponent> AttachParent;
+
+    UPROPERTY(Transient)
+    TObjectPtr<UAnimationAsset> BodyAnimation;
+    float BodyAnimationInput = 0.0f;
 
     // 슬롯 순서(ECustomizationSlot)로 표시 중인 파츠 mesh와 MID다.
     UPROPERTY(Transient)

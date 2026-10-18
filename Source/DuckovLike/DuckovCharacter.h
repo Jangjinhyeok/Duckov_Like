@@ -24,6 +24,9 @@ public:
     USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
     static constexpr float WalkSpeed = 350.f;
     static constexpr float SprintSpeed = 600.f;
+    // 수평 속도(cm/s)를 입력으로 받는 Idle·Walk BlendSpace다(CharacterAnimationAssets.Create).
+    static constexpr const TCHAR* LocomotionAnimationPath = TEXT("/Game/Character/BS_DuckLocomotion.BS_DuckLocomotion");
+    virtual void Tick(float DeltaSeconds) override;
 protected:
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
