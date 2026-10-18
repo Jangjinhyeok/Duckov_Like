@@ -51,6 +51,8 @@ flowchart LR
 - 공통 Skeleton이 7 bones가 되어 `CustomizationAssets.Verify`의 bone 수 기대를 body·발 7개로 바꿨다(앞 5개 공통 bone 검사는 유지).
 - 게임 world에서 component tick 등록은 owner의 BeginPlay를 따른다. 준비 단계는 "tick 가능 설정"만 확인하고 실제 tick은 PIE 테스트가 확인한다.
 - BlendSpace는 Python에서 sample을 넣을 수 없어 Editor Automation(`CharacterAnimationAssets.Create`)으로 만든다. 축·sample은 protected라 reflection으로 설정한다.
+- UE 5.7 FBX 애니메이션 import는 mesh와 같은 축 옵션이어도 애니메이션 전체를 reference pose보다 yaw +90° 돌려 놓는다.
+  `author_animation.py`가 애니메이션 FBX를 내보낼 때만 root bone 키에 반대 회전(`ANIMATION_EXPORT_YAW`)을 넣는다. 원본 action은 그대로다.
 - 발 미끄러짐(foot sliding)은 감수한다. 걷기 속도 350 cm/s에 보폭 ±9 cm라 정확한 접지가 아닌 만화식 표현이다.
 
 ## Revisit Conditions
@@ -79,4 +81,9 @@ flowchart LR
   (`Visual/sheet.png`). 게임 로그에 외형 실패·애니메이션 경고 없음.
 - 독립 검토: cpp-reviewer Approve, 구체적 결함 없음(정적 검토). 참고 사항은 M3 worklog에 남겼다.
 - 사용자 PIE 확인(2026-10-18): "PIE 확인했어".
+- 사후 결함(2026-10-18, 사용자 PIE 보고 "플레이어의 측면을 정면으로 인식하고 있어"): 마우스 조준을 넣자 재생 중 외형이 옆을 보는 것이 드러났다.
+  mesh·reference pose는 +X 정면이었고, import한 애니메이션 두 개의 root가 yaw +90° 돌아가 있었다. 이전 검사는 발 높이 차와 component 축만 봐서 놓쳤다.
+  Force Front X 끄기·body mesh 함께 내보내기·armature object 회전은 효과가 없었고, 내보낼 때 root bone 키에 회전을 넣어 Idle 첫 frame이 reference pose와
+  위치 0 cm·회전 0°로 일치했다. `import_animation.py`의 첫 frame 비교, `CharacterAnimationAssets.Verify`의 root·body 방향, 재생 중 왼쪽 날개 위치 검사
+  (`AnimatedBodyLeadsParts`, `Basement.CharacterMovement`)를 더했고, 세 검사가 이전 에셋에서 실패하는 것을 확인했다(`AxisNegative.log`). 수정 뒤 전체 131개 통과(`AxisRunFull1.log`).
 - 미검증: 게임패드(범위 밖), 패키징 cook 포함 여부(BlendSpace는 문자열 경로로 로드한다).
