@@ -371,6 +371,9 @@ bool FBasementCharacterMovement::RunTest(const FString& Parameters)
         const USkeletalMeshComponent* Body = Character->GetAppearance()->GetDisplayedBody();
         TestTrue(TEXT("외형 정면이 진행 방향"), Body
             && FVector::DotProduct(Body->GetForwardVector(), Character->GetActorForwardVector()) > 0.99f);
+        // component 축만으로는 재생 중 pose가 돌아간 것을 못 잡는다. 실제 왼쪽 날개 bone이 캐릭터 왼쪽에 있어야 한다.
+        TestTrue(TEXT("재생 중 왼쪽 날개가 캐릭터 왼쪽"), Body && FVector::DotProduct(
+            Body->GetBoneLocation(TEXT("wing_l")) - Character->GetActorLocation(), Character->GetActorRightVector()) < -15.f);
         TestTrue(TEXT("캐릭터가 돌아도 카메라는 고정"), Character->GetCameraBoom()->GetComponentRotation().Equals(FRotator(-55.f, -40.f, 0.f), 0.1f));
         BeginHold(*Scene);
         SendKey(EKeys::A, true);

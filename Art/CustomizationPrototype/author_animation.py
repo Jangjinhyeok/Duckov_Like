@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 import bpy
-from mathutils import Euler, Vector
+from mathutils import Euler, Matrix, Vector
 
 sys.dont_write_bytecode = True
 
@@ -38,6 +38,11 @@ FPS = 30
 # 이름 -> 루프 길이(frame). 마지막 frame은 첫 frame과 같은 pose라 UE에서 이음매 없이 반복된다.
 IDLE = ("A_DuckIdle", 60)
 WALK = ("A_DuckWalk", 16)
+# 애니메이션 FBX만 armature를 Z축으로 이만큼 돌려 내보낸다. UE 5.7의 FBX 애니메이션 import는 mesh import(Force Front X)와 달리
+# 애니메이션 전체를 reference pose보다 yaw +90° 돌려 놓았다(armature만 내보내도, mesh를 함께 내보내도 같았다). 2026-10-18.
+# 원본 action은 그대로 두고 export용 복사본의 root bone 키에만 넣는다. armature object를 돌리면 UE가 버려 효과가 없었다.
+# UE 쪽 검사는 import_animation.py의 첫 frame 비교다.
+ANIMATION_EXPORT_YAW = math.pi / 2
 
 spec = importlib.util.spec_from_file_location("existing_author_assets", ART / "author_assets.py")
 existing = importlib.util.module_from_spec(spec)
@@ -254,10 +259,28 @@ def export_mesh(names):
 
 def export_animation(action_name):
     armature = rig()
-    use_action(armature, bpy.data.actions[action_name])
+    original = bpy.data.actions[action_name]
+    temp = original.copy()
+    use_action(armature, temp)
+    root = armature.pose.bones["root"]
+    rest = root.bone.matrix_local.to_3x3()
+    turn = (rest.inverted() @ Matrix.Rotation(ANIMATION_EXPORT_YAW, 3, "Z") @ rest).to_quaternion()
+    for frame in range(int(temp.frame_range[0]), int(temp.frame_range[1]) + 1):
+        root.rotation_quaternion = turn
+        root.keyframe_insert("rotation_quaternion", frame=frame)
     existing.activate(armature)
     target = EXPORTS / (action_name + ".fbx")
-    outcome = bpy.ops.export_scene.fbx(
+    try:
+        outcome = export_armature(target)
+    finally:
+        use_action(armature, original)
+        bpy.data.actions.remove(temp)
+    assert outcome == {"FINISHED"} and target.stat().st_size > 5000
+    return {"name": target.name, "bytes": target.stat().st_size, "sha256": hashlib.sha256(target.read_bytes()).hexdigest()}
+
+
+def export_armature(target):
+    return bpy.ops.export_scene.fbx(
         filepath=str(target), use_selection=True, object_types={"ARMATURE"},
         global_scale=1.0, apply_unit_scale=True, apply_scale_options="FBX_SCALE_UNITS",
         axis_forward="-Y", axis_up="Z", bake_space_transform=False,
@@ -267,8 +290,6 @@ def export_animation(action_name):
         bake_anim_use_all_actions=False, bake_anim_force_startend_keying=True,
         bake_anim_step=1.0, bake_anim_simplify_factor=0.0, use_custom_props=False,
     )
-    assert outcome == {"FINISHED"} and target.stat().st_size > 5000
-    return {"name": target.name, "bytes": target.stat().st_size, "sha256": hashlib.sha256(target.read_bytes()).hexdigest()}
 
 
 def export():
@@ -278,15 +299,16 @@ def export():
 
 
 def roundtrip():
-    """애니메이션 FBX를 빈 scene으로 다시 읽어 bone 집합·길이·발 위치가 원본과 같은지 본다."""
+    """애니메이션 FBX를 빈 scene으로 다시 읽어 bone 집합·길이·발 위치가 원본(export 회전 포함)과 같은지 본다."""
     expected = {}
     armature = rig()
+    turn = Matrix.Rotation(ANIMATION_EXPORT_YAW, 4, "Z")
     for name, length in (IDLE, WALK):
         use_action(armature, bpy.data.actions[name])
         expected[name] = {}
         for frame in (0, length // 4, length // 2):
             bpy.context.scene.frame_set(frame)
-            expected[name][frame] = {bone: head.copy() for bone, head in bone_heads(armature).items()}
+            expected[name][frame] = {bone: turn @ head for bone, head in bone_heads(armature).items()}
     results = {}
     for name, length in (IDLE, WALK):
         bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -365,7 +387,7 @@ def render_frames():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=("create", "export", "verify", "render"))
+    parser.add_argument("mode", choices=("create", "export", "export-animations", "verify", "render"))
     args = parser.parse_args(sys.argv[sys.argv.index("--") + 1:])
     GATE.mkdir(parents=True, exist_ok=True)
     parts_hash = hashlib.sha256(PARTS.read_bytes()).hexdigest()
@@ -375,6 +397,10 @@ def main():
     result = verify()
     if args.mode in ("create", "export"):
         result["export"] = export()
+        result["roundtrip"] = roundtrip()
+    if args.mode == "export-animations":
+        # mesh FBX는 그대로 두고 애니메이션 FBX만 다시 낸다.
+        result["export"] = {"animations": [export_animation(name) for name, _ in (IDLE, WALK)]}
         result["roundtrip"] = roundtrip()
     if args.mode == "render":
         result["frames"] = render_frames()

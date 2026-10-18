@@ -204,6 +204,9 @@ bool FCustomizationAnimatedBody::RunTest(const FString& Parameters)
     Advance(30, 1.f / 30.f, Low, High);
     Advance(16, 1.f / 30.f, Low, High);
     TestTrue(TEXT("걷기 입력은 Walk: 한 주기에 발이 5 cm 넘게 들림"), High - Low > 5.f);
+    // 재생 중에도 외형 정면은 component +X다. 왼쪽 날개는 -Y(왼쪽)에 있고 앞뒤로는 몸 기울기만큼만 움직인다.
+    const FVector WingL = Body->GetBoneLocation(TEXT("wing_l"), EBoneSpaces::ComponentSpace);
+    TestTrue(TEXT("재생 중 왼쪽 날개가 왼쪽(-Y)"), WingL.Y < -15.f && FMath::Abs(WingL.X) < 10.f);
     int32 MorphIndex = INDEX_NONE;
     Body->GetSkeletalMeshAsset()->FindMorphTargetAndIndex(TEXT("HeadFlat"), MorphIndex);
     TestTrue(TEXT("평가된 render weight 유지"), Body->MorphTargetWeights.IsValidIndex(MorphIndex)

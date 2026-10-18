@@ -4,13 +4,17 @@
 `-ExecutePythonScript="<이 파일>"`로 실행하고, 저장된 package만 저장소 Content로 옮긴다.
 1) body·발 mesh를 7 bones FBX로 같은 asset에 다시 import한다. 공통 Skeleton에 foot_l/foot_r가 merge된다.
    옵션은 import_slots.py와 같다(Skeletal Mesh, Morph Targets, animation/material/texture 없음, 공통 Skeleton 지정).
-2) A_DuckIdle/A_DuckWalk를 같은 Skeleton의 AnimSequence로 /Game/Character에 import한다.
-   축 변환은 mesh와 같다(Convert Scene, Force Front X Axis, Convert Scene Unit). root motion은 없다.
+2) A_DuckIdle/A_DuckWalk를 같은 Skeleton의 AnimSequence로 /Game/Character에 import한다. root motion은 없다.
+   축 변환 옵션은 mesh와 같다(Convert Scene, Force Front X Axis, Convert Scene Unit). 그래도 UE가 애니메이션을 reference pose보다
+   yaw +90° 돌려 놓아 author_animation.py가 애니메이션 FBX만 반대로 돌려 내보낸다(ANIMATION_EXPORT_YAW).
+   첫 frame의 날개·발 수평 위치와 root·body 방향이 reference pose와 같은지 검사한다.
+`animations` 인자를 주면 mesh는 다시 import하지 않고 애니메이션만 import한다.
 BlendSpace는 Python에서 sample을 넣을 수 없어 본 프로젝트의 CharacterAnimationAssets.Create가 만든다.
 """
 
 import hashlib
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -19,6 +23,9 @@ import unreal
 sys.dont_write_bytecode = True
 ART = Path(sys.argv[0]).resolve().parent
 sys.path.insert(0, str(ART))
+ANIMATIONS_ONLY = "animations" in sys.argv[1:]
+# import_slots는 import될 때 인자를 파츠 이름으로 읽어 import하므로 인자를 비운다.
+sys.argv = sys.argv[:1]
 import import_slots as base  # noqa: E402  pilot 확인·material 연결 규칙을 그대로 쓴다.
 
 ANIM_DEST = "/Game/Character"
@@ -93,16 +100,48 @@ def import_animation(name, skeleton):
     return anim, source
 
 
+def component_location(pose, bone):
+    return unreal.AnimPoseExtensions.get_bone_pose(pose, bone, unreal.AnimPoseSpaces.WORLD).translation
+
+
+def anim_pose(anim, time):
+    return unreal.AnimPoseExtensions.get_anim_pose_at_time(anim, time, unreal.AnimPoseEvaluationOptions())
+
+
 def component_z(anim, time, bone):
-    pose = unreal.AnimPoseExtensions.get_anim_pose_at_time(anim, time, unreal.AnimPoseEvaluationOptions())
-    return unreal.AnimPoseExtensions.get_bone_pose(pose, bone, unreal.AnimPoseSpaces.WORLD).translation.z
+    return component_location(anim_pose(anim, time), bone).z
+
+
+def rotation_gap_degrees(anim, skeleton):
+    """첫 frame과 reference pose의 root·body 방향 차이(도)다. 몸 기울기는 수 도라 90° 회전과 구별된다."""
+    reference = unreal.AnimPoseExtensions.get_reference_pose(skeleton)
+    first = anim_pose(anim, 0.0)
+    gap = 0.0
+    for bone in ("root", "body"):
+        a = unreal.AnimPoseExtensions.get_bone_pose(reference, bone, unreal.AnimPoseSpaces.WORLD).rotation
+        b = unreal.AnimPoseExtensions.get_bone_pose(first, bone, unreal.AnimPoseSpaces.WORLD).rotation
+        dot = abs(a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w) / ((a.x ** 2 + a.y ** 2 + a.z ** 2 + a.w ** 2)
+                                                       * (b.x ** 2 + b.y ** 2 + b.z ** 2 + b.w ** 2)) ** 0.5
+        gap = max(gap, math.degrees(2.0 * math.acos(min(1.0, dot))))
+    return gap
+
+
+def horizontal_gap(anim, skeleton):
+    """첫 frame과 reference pose의 수평 bone 위치 차이(cm)다. 축 변환이 어긋나면 날개·발이 90° 돌아가 수십 cm가 된다."""
+    reference = unreal.AnimPoseExtensions.get_reference_pose(skeleton)
+    first = anim_pose(anim, 0.0)
+    gap = 0.0
+    for bone in ("wing_l", "wing_r", "foot_l", "foot_r"):
+        a, b = component_location(reference, bone), component_location(first, bone)
+        gap = max(gap, ((a.x - b.x) ** 2 + (a.y - b.y) ** 2) ** 0.5)
+    return gap
 
 
 def main():
     skeleton = base.EDITOR.load_asset(base.SKELETON)
     assert isinstance(skeleton, unreal.Skeleton)
     report = {"status": "PASS", "meshes": {}, "animations": {}}
-    for name, (material_path, morphs) in MESHES.items():
+    for name, (material_path, morphs) in ({} if ANIMATIONS_ONLY else MESHES).items():
         mesh, source = reimport_mesh(name, skeleton)
         material = base.connect(mesh, material_path, morphs)
         mesh.get_editor_property("asset_import_data").scripted_add_filename(str(source), 0, "")
@@ -124,6 +163,11 @@ def main():
         anim.get_editor_property("asset_import_data").scripted_add_filename(str(source), 0, "")
         assert base.EDITOR.save_loaded_asset(anim, only_if_is_dirty=False)
         item = {"seconds": length, "frames": keys, "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest()}
+        # Idle 첫 frame은 거의 reference pose이고 Walk는 발 보폭(±9 cm)만큼 앞뒤로 벌어진다. 90° 회전이면 20 cm를 넘는다.
+        item["first_frame_horizontal_gap_cm"] = horizontal_gap(anim, skeleton)
+        item["first_frame_rotation_gap_deg"] = rotation_gap_degrees(anim, skeleton)
+        assert item["first_frame_horizontal_gap_cm"] < (1.0 if name == "A_DuckIdle" else 10.0), (name, item)
+        assert item["first_frame_rotation_gap_deg"] < (3.0 if name == "A_DuckIdle" else 15.0), (name, item)
         if name == "A_DuckWalk":
             # phase 0: 왼발이 6 cm 들리고 오른발은 땅에 있다. 축 변환 뒤에도 위(+Z)가 유지되는지 본다.
             lift = component_z(anim, 0.0, "foot_l") - component_z(anim, 0.0, "foot_r")

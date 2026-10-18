@@ -158,6 +158,15 @@ bool FVerifyCharacterAnimationAssets::RunTest(const FString& Parameters)
         TestTrue(*FString::Printf(TEXT("%s: 공통 Skeleton·30 fps·root motion 없음"), *Anim->GetName()), Anim->GetSkeleton() == Skeleton
             && Anim->GetSamplingFrameRate() == FFrameRate(30, 1) && !Anim->bEnableRootMotion);
     }
+    // Idle 첫 frame은 reference pose와 같은 방향이다. FBX import가 root를 90° 돌려 외형 전체가 옆을 본 회귀를 막는다.
+    for (const TCHAR* Name : {TEXT("root"), TEXT("body")})
+    {
+        const int32 Index = Bones.FindBoneIndex(Name);
+        FTransform First;
+        Idle->GetBoneTransform(First, FSkeletonPoseBoneIndex(Index), FAnimExtractContext(0.0), false);
+        TestTrue(*FString::Printf(TEXT("Idle 첫 frame %s 방향이 reference pose와 같음"), Name), Index != INDEX_NONE
+            && First.GetRotation().AngularDistance(Bones.GetRefBonePose()[Index].GetRotation()) < FMath::DegreesToRadians(1.0));
+    }
     TestTrue(TEXT("Idle 2초"), FMath::IsNearlyEqual(Idle->GetPlayLength(), 2.0, 1e-3));
     TestTrue(TEXT("Walk 16 frame"), FMath::IsNearlyEqual(Walk->GetPlayLength(), 16.0 / 30.0, 1e-3));
     // BlendSpace: 0=Idle, 걷기 속도=Walk, 달리기 속도=Walk를 빠르게.

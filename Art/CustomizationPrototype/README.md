@@ -193,12 +193,15 @@ UE render/ref bone transforms·최종 Build/Automation·독립 검토·사용자
   - `A_DuckIdle` 60 frames(2초): 몸 0.8 cm 호흡 bob, 고개 끄덕임·갸웃, 날개 벌어짐.
   - `A_DuckWalk` 16 frames(0.53초, 두 걸음): 발 보폭 ±9 cm·들림 6 cm·발끝 들기, 디딘 발 쪽 몸 기울기(±7.4°)와 두 번 튐, 앞숙임, 머리 역기울기, 날개 반대 흔들기.
 - `export`는 `A_DuckIdle.fbx`/`A_DuckWalk.fbx`(armature만, bake)와 7 bones로 다시 낸 `SK_CustomizationBaseBody`·`SK_CustomizationFoot*` FBX를 쓴다.
+  `export-animations`는 애니메이션 FBX만 다시 쓴다. 애니메이션 FBX는 root bone 키에 Z축 +90°(`ANIMATION_EXPORT_YAW`)를 넣어 내보낸다 —
+  UE 5.7 import가 애니메이션을 reference pose보다 yaw +90° 돌려 놓기 때문이다(2026-10-18). Blender에서 FBX를 다시 읽으면 그만큼 돌아가 보인다.
   mesh FBX는 rest pose로 내보낸다. 이 세 FBX는 이제 이 원본이 기준이다 — `author_parts.py -- export`를 다시 돌리면 5 bones로 되돌아간다.
 - `verify`: bone 계층·발 weight 분리·루프 이음매(위치·회전)·발밑 지면 관통(-1 cm 초과 금지). `create`/`export`는 FBX를 빈 scene으로 다시 읽어 bone 위치를 비교한다.
   `render`는 게임 시점·옆 시점 frame PNG를 `Saved/Automation/CharacterAnimation/frames`에 만든다.
 - UE import는 `import_animation.py`를 disposable pilot(Content/Customization/Prototype 사본)에서 `-ExecutePythonScript`로 실행한다.
   body·발을 같은 asset에 다시 import해 공통 Skeleton에 발 bone 2개가 merge되고, `A_DuckIdle`/`A_DuckWalk`가 `/Game/Character`에 생긴다.
-  바뀐 Skeleton·body·발 3개와 새 AnimSequence 2개만 저장소 Content로 옮겼다. body import의 `Not all the deformers are stored in this BindPose` 경고 1건은 이전과 같다.
+  바뀐 Skeleton·body·발 3개와 새 AnimSequence 2개만 저장소 Content로 옮겼다. `animations` 인자를 주면 애니메이션만 다시 import하고,
+  첫 frame의 날개·발 수평 위치와 root·body 방향이 reference pose와 다르면 실패한다. body import의 `Not all the deformers are stored in this BindPose` 경고 1건은 이전과 같다.
   `BS_DuckLocomotion`은 본 프로젝트의 `CharacterAnimationAssets.Create`가 만든다. 게임 연결 구조는 `docs/architecture/034-player-locomotion-animation.md`.
 
 ```powershell
