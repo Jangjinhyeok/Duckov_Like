@@ -1,8 +1,11 @@
 #include "DuckovPlayerController.h"
 
+#include "AimCrosshair.h"
 #include "Blueprint/WidgetBlueprintLibrary.h"
 #include "Components/WidgetComponent.h"
 #include "CustomizationScreenWidget.h"
+#include "DuckovCharacter.h"
+#include "Engine/GameViewportClient.h"
 #include "Engine/GameInstance.h"
 #include "Engine/LocalPlayer.h"
 #include "GameFramework/Pawn.h"
@@ -72,8 +75,14 @@ void ADuckovPlayerController::BeginPlay()
     {
         Hud->SetMessage(DuckovFlow::GetExtractionResultText(*Result));
     }
-    SetInputMode(FInputModeGameOnly());
-    bShowMouseCursor = false;
+    // 원작처럼 게임 중 커서는 십자선이다. Slate가 커서 위치에 그리므로 위치를 갱신하는 tick이 없다.
+    DefaultMouseCursor = EMouseCursor::Crosshairs;
+    CurrentMouseCursor = EMouseCursor::Crosshairs;
+    if (UGameViewportClient* Viewport = GetWorld()->GetGameViewport())
+    {
+        Viewport->SetSoftwareCursorWidget(EMouseCursor::Crosshairs, SNew(SAimCrosshair));
+    }
+    RestoreGameInput();
     RefreshHud();
 }
 
@@ -233,6 +242,32 @@ void ADuckovPlayerController::OpenCustomization()
         [this](UCustomizationScreenWidget& NewScreen) { NewScreen.SetSession(CustomizationModel); });
 }
 
+void ADuckovPlayerController::PlayerTick(float DeltaTime)
+{
+    Super::PlayerTick(DeltaTime);
+    // 메뉴가 열린 동안 커서는 UI를 가리키므로 조준을 바꾸지 않는다. 커서가 viewport 밖이면 마지막 조준을 유지한다.
+    ADuckovCharacter* Aimer = Cast<ADuckovCharacter>(GetPawn());
+    FVector2D Mouse;
+    FVector Point;
+    if (Aimer && !IsMenuOpen() && GetMousePosition(Mouse.X, Mouse.Y) && ScreenToAimPoint(Mouse, Point))
+    {
+        Aimer->SetAimPoint(Point);
+    }
+}
+
+bool ADuckovPlayerController::ScreenToAimPoint(const FVector2D& ScreenPosition, FVector& OutPoint) const
+{
+    const APawn* CurrentPawn = GetPawn();
+    FVector Origin, Direction;
+    if (!CurrentPawn || !DeprojectScreenPositionToWorld(ScreenPosition.X, ScreenPosition.Y, Origin, Direction)) { return false; }
+    // 탑다운 카메라의 시선은 아래를 향한다. 수평에 가깝거나 위를 향하면 면과 만나지 않는다.
+    if (Direction.Z > -UE_KINDA_SMALL_NUMBER) { return false; }
+    const float Distance = (CurrentPawn->GetActorLocation().Z - Origin.Z) / Direction.Z;
+    if (Distance <= 0.f) { return false; }
+    OutPoint = Origin + Direction * Distance;
+    return true;
+}
+
 bool ADuckovPlayerController::IsMenuOpen() const
 {
     return RootLayout && RootLayout->GetMenuStack()->GetActiveWidget() != nullptr;
@@ -293,9 +328,13 @@ void ADuckovPlayerController::RestoreGameInput()
     {
         if (UCommonUIActionRouterBase* Router = LocalPlayer->GetSubsystem<UCommonUIActionRouterBase>())
         {
-            Router->SetActiveUIInputConfig(FUIInputConfig(ECommonInputMode::Game, EMouseCaptureMode::CapturePermanently));
+            // 커서 위치로 조준하므로 커서를 보이게 두고 고정하지 않는다. CapturePermanently는 high precision 마우스라
+            // 커서가 한 자리에 묶인다. 누르는 동안만 capture해 viewport 밖으로 끌어도 버튼 입력을 놓치지 않는다.
+            Router->SetActiveUIInputConfig(FUIInputConfig(ECommonInputMode::Game, EMouseCaptureMode::CaptureDuringMouseDown, false));
         }
     }
+    // Router는 local player에 남아 맵을 넘어도 같은 설정을 다시 적용하지 않는다. 새 controller의 커서 표시는 직접 켠다.
+    SetShowMouseCursor(true);
     UWidgetBlueprintLibrary::SetFocusToGameViewport();
 }
 

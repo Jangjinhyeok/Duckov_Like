@@ -334,6 +334,22 @@ bool FBasementCharacterMovement::RunTest(const FString& Parameters)
             && FMath::IsNearlyEqual(Body->GetComponentLocation().Z,
                 Character->GetActorLocation().Z - Character->GetSimpleCollisionHalfHeight(), 1.f));
         TestTrue(TEXT("카메라 고정 각도"), Character->GetCameraBoom()->GetComponentRotation().Equals(FRotator(-55.f, -40.f, 0.f), 0.1f));
+        // 게임 중 커서는 Slate가 그리는 십자선이고, 커서 위치를 읽도록 보이게 둔다.
+        ADuckovPlayerController* Controller = Scene->Controller.Get();
+        UGameViewportClient* ViewportClient = Character->GetWorld()->GetGameViewport();
+        TestTrue(TEXT("게임 커서는 보이는 십자선"), Controller->ShouldShowMouseCursor()
+            && Controller->CurrentMouseCursor == EMouseCursor::Crosshairs && ViewportClient && ViewportClient->HasSoftwareCursor(EMouseCursor::Crosshairs));
+        // 화면 좌표를 캐릭터 높이의 수평면에 투영하고, 그 지점을 다시 투영하면 같은 화면 좌표다.
+        int32 SizeX = 0, SizeY = 0;
+        Controller->GetViewportSize(SizeX, SizeY);
+        const FVector2D ScreenRight(SizeX * 0.8f, SizeY * 0.5f);
+        FVector AimPoint;
+        FVector2D Projected;
+        TestTrue(TEXT("커서 화면 좌표가 캐릭터 높이의 조준 지점"), Controller->ScreenToAimPoint(ScreenRight, AimPoint)
+            && FMath::IsNearlyEqual(AimPoint.Z, Character->GetActorLocation().Z, 0.1f)
+            && Controller->ProjectWorldLocationToScreen(AimPoint, Projected) && Projected.Equals(ScreenRight, 1.f));
+        // 실제 마우스가 viewport 밖이어도 아래 회전 검사가 의미를 갖도록 조준 지점을 하나 둔다. 마우스가 안에 있으면 그 값으로 바뀐다.
+        Character->SetAimPoint(AimPoint);
         // 확정 Profile이 바뀌면 같은 캐릭터가 바로 다시 그린다.
         UCustomizationModel* Model = Character->GetGameInstance()->GetSubsystem<UGameSessionSubsystem>()->GetCustomizationModel();
         auto Present = [](const FCustomizationProfile&) { return ECustomizationFailure::None; };
@@ -366,10 +382,15 @@ bool FBasementCharacterMovement::RunTest(const FString& Parameters)
             FVector::DotProduct(Delta.GetSafeNormal(), ScreenUpOnGround(Character)));
         TestTrue(TEXT("W 키로 실제 이동"), Delta.Size() > 80.f);
         TestTrue(TEXT("W는 화면 위 방향"), FVector::DotProduct(Delta.GetSafeNormal(), ScreenUpOnGround(Character)) > 0.95f);
-        TestTrue(TEXT("진행 방향을 바라봄"), FVector::DotProduct(Character->GetActorForwardVector(), ScreenUpOnGround(Character)) > 0.9f);
+        // 회전은 이동 방향이 아니라 조준 지점(마우스 커서)을 따른다.
+        // 실제 마우스가 몸 안쪽을 가리키면 돌지 않는 것이 의도라 그때는 방향을 보지 않는다.
+        const FVector ToAim = Character->GetAimPoint() - Character->GetActorLocation();
+        const bool bAimOutsideBody = ToAim.Size2D() > Character->GetSimpleCollisionRadius();
+        TestTrue(TEXT("이동 중에도 조준 지점을 바라봄"), Character->HasAimPoint()
+            && (!bAimOutsideBody || FVector::DotProduct(Character->GetActorForwardVector(), ToAim.GetSafeNormal2D()) > 0.99f));
         // 외형 component의 회전 보정이 다시 들어오는 회귀를 막는다. 부리가 +X를 향한다는 사실 자체는 독립 실행 화면으로 확인했다.
         const USkeletalMeshComponent* Body = Character->GetAppearance()->GetDisplayedBody();
-        TestTrue(TEXT("외형 정면이 진행 방향"), Body
+        TestTrue(TEXT("외형 정면이 캐릭터 정면"), Body
             && FVector::DotProduct(Body->GetForwardVector(), Character->GetActorForwardVector()) > 0.99f);
         // component 축만으로는 재생 중 pose가 돌아간 것을 못 잡는다. 실제 왼쪽 날개 bone이 캐릭터 왼쪽에 있어야 한다.
         TestTrue(TEXT("재생 중 왼쪽 날개가 캐릭터 왼쪽"), Body && FVector::DotProduct(

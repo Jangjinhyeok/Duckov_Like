@@ -2,6 +2,7 @@
 
 #include "Animation/AnimationAsset.h"
 #include "Camera/CameraComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "CustomizationAppearanceComponent.h"
 #include "CustomizationModel.h"
@@ -16,6 +17,8 @@
 #include "InputAction.h"
 #include "InputMappingContext.h"
 #include "InputModifiers.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "UObject/ConstructorHelpers.h"
 
 namespace DuckovCharacterSetup
 {
@@ -26,6 +29,26 @@ constexpr float CapsuleHalfHeight = 46.f;
 const FRotator CameraRotation(-55.f, -40.f, 0.f);
 constexpr float CameraDistance = 1500.f;
 constexpr float CameraFieldOfView = 45.f;
+// 조준선 굵기와 끝 점 지름(cm), 색이다. 원작의 가는 노란 선을 따른다.
+constexpr float AimLineWidth = 1.5f;
+constexpr float AimDotSize = 5.f;
+const FLinearColor AimColor(1.f, 0.85f, 0.1f);
+
+UStaticMeshComponent* CreateAimMesh(ADuckovCharacter* Owner, const TCHAR* Name, UStaticMesh* Mesh)
+{
+    UStaticMeshComponent* Result = Owner->CreateDefaultSubobject<UStaticMeshComponent>(Name);
+    Result->SetupAttachment(Owner->GetRootComponent());
+    // 매 frame 월드 위치를 정하므로 부모 회전·크기를 따르지 않는다.
+    Result->SetUsingAbsoluteLocation(true);
+    Result->SetUsingAbsoluteRotation(true);
+    Result->SetUsingAbsoluteScale(true);
+    Result->SetStaticMesh(Mesh);
+    Result->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    Result->SetGenerateOverlapEvents(false);
+    Result->SetCastShadow(false);
+    Result->SetVisibility(false);
+    return Result;
+}
 }
 
 ADuckovCharacter::ADuckovCharacter()
@@ -35,8 +58,8 @@ ADuckovCharacter::ADuckovCharacter()
     GetCapsuleComponent()->InitCapsuleSize(DuckovCharacterSetup::CapsuleRadius, DuckovCharacterSetup::CapsuleHalfHeight);
     bUseControllerRotationYaw = false;
     UCharacterMovementComponent* Movement = GetCharacterMovement();
-    Movement->bOrientRotationToMovement = true;
-    Movement->RotationRate = FRotator(0.f, 720.f, 0.f);
+    // 회전은 이동 방향이 아니라 조준 지점이 정한다(UpdateAim).
+    Movement->bOrientRotationToMovement = false;
     Movement->MaxWalkSpeed = WalkSpeed;
 
     CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
@@ -58,6 +81,10 @@ ADuckovCharacter::ADuckovCharacter()
     VisualRoot->SetRelativeLocation(FVector(0.f, 0.f, -DuckovCharacterSetup::CapsuleHalfHeight));
     GetMesh()->SetVisibility(false);
     Appearance = CreateDefaultSubobject<UCustomizationAppearanceComponent>(TEXT("Appearance"));
+    static ConstructorHelpers::FObjectFinder<UStaticMesh> Cylinder(TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+    static ConstructorHelpers::FObjectFinder<UStaticMesh> Sphere(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+    AimLine = DuckovCharacterSetup::CreateAimMesh(this, TEXT("AimLine"), Cylinder.Object);
+    AimDot = DuckovCharacterSetup::CreateAimMesh(this, TEXT("AimDot"), Sphere.Object);
     CreateInput();
 }
 
@@ -86,6 +113,13 @@ void ADuckovCharacter::BeginPlay()
 {
     Super::BeginPlay();
     Appearance->SetAttachParent(VisualRoot);
+    if (UMaterialInterface* Material = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial")))
+    {
+        UMaterialInstanceDynamic* AimMaterial = UMaterialInstanceDynamic::Create(Material, this);
+        AimMaterial->SetVectorParameterValue(TEXT("Color"), DuckovCharacterSetup::AimColor);
+        AimLine->SetMaterial(0, AimMaterial);
+        AimDot->SetMaterial(0, AimMaterial);
+    }
     UAnimationAsset* Locomotion = LoadObject<UAnimationAsset>(nullptr, LocomotionAnimationPath);
     if (!Locomotion) { UE_LOG(LogTemp, Warning, TEXT("걷기 애니메이션 없음: %s. reference pose로 표시합니다"), LocomotionAnimationPath); }
     Appearance->SetBodyAnimation(Locomotion);
@@ -102,6 +136,62 @@ void ADuckovCharacter::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
     Appearance->SetBodyAnimationInput(GetVelocity().Size2D());
+    // 캐릭터가 움직이면 선의 시작점이 바뀌므로 조준 지점이 그대로여도 매 frame 다시 맞춘다.
+    UpdateAim();
+}
+
+void ADuckovCharacter::SetAimPoint(const FVector& WorldPoint)
+{
+    AimPoint = WorldPoint;
+    bHasAimPoint = true;
+}
+
+void ADuckovCharacter::SetLaserSightEnabled(bool bEnabled)
+{
+    bLaserSightEnabled = bEnabled;
+    // 켜면 다음 tick의 UpdateAim이 선을 그린다. 끄면 바로 숨긴다.
+    if (!bEnabled)
+    {
+        AimLine->SetVisibility(false);
+        AimDot->SetVisibility(false);
+    }
+}
+
+void ADuckovCharacter::UpdateAim()
+{
+    if (!bHasAimPoint) { return; }
+    const FVector Origin = GetActorLocation();
+    const FVector ToAim = FVector(AimPoint.X - Origin.X, AimPoint.Y - Origin.Y, 0.f);
+    const float Distance = ToAim.Size();
+    // 원작처럼 카메라가 커서 쪽으로 앞서 간다. 기존 camera lag가 부드럽게 따라가게 한다.
+    CameraBoom->TargetOffset = (ToAim * LookAheadRatio).GetClampedToMaxSize(MaxLookAhead);
+    // 커서가 몸 안쪽이면 방향이 흔들리므로 돌지 않고 조준선을 숨긴다.
+    const float Radius = GetCapsuleComponent()->GetScaledCapsuleRadius();
+    if (Distance <= Radius)
+    {
+        AimLine->SetVisibility(false);
+        AimDot->SetVisibility(false);
+        return;
+    }
+    const FVector Direction = ToAim / Distance;
+    SetActorRotation(FRotator(0.f, Direction.Rotation().Yaw, 0.f));
+    // 레이저 사이트가 없으면 십자선만 보인다. 선을 긋지 않으므로 trace도 하지 않는다.
+    if (!bLaserSightEnabled) { return; }
+    const FVector Start = Origin + Direction * Radius;
+    FVector End = Origin + ToAim;
+    FHitResult Hit;
+    if (GetWorld()->LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, FCollisionQueryParams(SCENE_QUERY_STAT(DuckovAim), false, this)))
+    {
+        End = Hit.ImpactPoint;
+    }
+    // Cylinder는 높이 100 cm, 지름 100 cm이고 Z축 방향이다.
+    const float Length = FVector::Dist(Start, End);
+    AimLine->SetWorldLocationAndRotation((Start + End) * 0.5f, FRotationMatrix::MakeFromZ(Direction).Rotator());
+    AimLine->SetWorldScale3D(FVector(DuckovCharacterSetup::AimLineWidth / 100.f, DuckovCharacterSetup::AimLineWidth / 100.f, Length / 100.f));
+    AimDot->SetWorldLocation(End);
+    AimDot->SetWorldScale3D(FVector(DuckovCharacterSetup::AimDotSize / 100.f));
+    AimLine->SetVisibility(Length > 1.f);
+    AimDot->SetVisibility(true);
 }
 
 void ADuckovCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)

@@ -358,6 +358,9 @@ bool FRaidLoopFromBasement::RunTest(const FString& Parameters)
         if (!IsSceneValid(*Scene)) { AddError(TEXT("레이드 scene unavailable")); return; }
         TestTrue(TEXT("같은 게임 인스턴스"), Scene->World->GetGameInstance() == Scene->GameInstance.Get());
         TestEqual(TEXT("레이드 장소"), GetHudText(Scene->Controller.Get(), TEXT("LocationText")), FString(TEXT("레이드 구역")));
+        // 맵 이동 뒤 새 controller도 십자선 커서를 보인다. CommonUI는 같은 입력 설정을 다시 적용하지 않는다.
+        TestTrue(TEXT("레이드 도착 뒤 십자선 커서 표시"), Scene->Controller->ShouldShowMouseCursor()
+            && Scene->Controller->GetMouseCursor() == EMouseCursor::Crosshairs);
         TestTrue(TEXT("레이드에서도 같은 세션 인벤토리"),
             Field<UInventoryModel>(Scene->Controller.Get(), TEXT("Model")) == Scene->Model.Get());
         AWorldLootActor* Loot = FindLoot(Scene->World.Get(), TEXT("Medkit"));
@@ -432,6 +435,8 @@ bool FRaidLoopFromBasement::RunTest(const FString& Parameters)
         if (!IsSceneValid(*Scene)) { AddError(TEXT("복귀 scene unavailable")); return; }
         UInventoryModel* Model = Scene->Model.Get();
         TestTrue(TEXT("복귀 뒤에도 같은 세션 인벤토리"), Field<UInventoryModel>(Scene->Controller.Get(), TEXT("Model")) == Model);
+        TestTrue(TEXT("복귀 뒤 십자선 커서 표시"), Scene->Controller->ShouldShowMouseCursor()
+            && Scene->Controller->GetMouseCursor() == EMouseCursor::Crosshairs);
         TestEqual(TEXT("탈출하면 가방이 비워짐"), GetIds(Model, TEXT("Bag")).Num(), 0);
         for (const int32 Id : Scene->CarriedIds)
         {
