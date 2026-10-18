@@ -76,12 +76,12 @@ TMap<FName, float> WeightsAt(const UBlendSpace* Space, float Speed)
 }
 }
 
-using namespace CharacterAnimationAssetsTests;
-
 // 명시적으로 한 번 실행하는 생성 경로다. 이미 있으면 덮어쓰지 않는다.
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCreateCharacterAnimationAssets, "CharacterAnimationAssets.Create", Flags)
+// unity build에서 다른 테스트의 Flags와 겹치지 않도록 namespace를 함수 안에서만 연다.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCreateCharacterAnimationAssets, "CharacterAnimationAssets.Create", CharacterAnimationAssetsTests::Flags)
 bool FCreateCharacterAnimationAssets::RunTest(const FString& Parameters)
 {
+    using namespace CharacterAnimationAssetsTests;
     if (FPackageName::DoesPackageExist(BlendSpacePackage))
     {
         AddError(TEXT("기존 BlendSpace를 덮어쓰지 않습니다."));
@@ -110,9 +110,10 @@ bool FCreateCharacterAnimationAssets::RunTest(const FString& Parameters)
     return TestTrue(TEXT("BlendSpace 저장"), SaveAsset(Space));
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FVerifyCharacterAnimationAssets, "CharacterAnimationAssets.Verify", Flags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FVerifyCharacterAnimationAssets, "CharacterAnimationAssets.Verify", CharacterAnimationAssetsTests::Flags)
 bool FVerifyCharacterAnimationAssets::RunTest(const FString& Parameters)
 {
+    using namespace CharacterAnimationAssetsTests;
     // 공통 Skeleton: 기존 5 bones에 발목 bone 두 개를 root 아래에 더했다.
     const USkeletalMesh* Body = Cast<USkeletalMesh>(GetDefaultCustomizationBodyMesh().TryLoad());
     if (!TestNotNull(TEXT("고정 몸통"), Body)) { return false; }
