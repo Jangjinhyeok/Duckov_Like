@@ -81,6 +81,8 @@ public:
     FOnClosed& OnClosed() { return Closed; }
     UCustomizationScreenWidget(const FObjectInitializer& Initializer);
     void SetSession(UCustomizationModel* InModel) { Model = InModel; }
+    // 확인 뒤에도 화면을 닫지 않고 OnClosed(true)만 알린다. 확인 직후 맵 이동 연출이 이 화면을 덮을 때 쓰며, 연 쪽이 닫는다.
+    void SetKeepOpenOnApply(bool bKeep) { bKeepOpenOnApply = bKeep; }
     UCustomizationViewModel* GetViewModel() const { return ViewModel; }
     ACustomizationPreviewActor* GetPreview() const { return Preview; }
     virtual void NativeOnActivated() override;
@@ -133,6 +135,7 @@ private:
     FDelegateHandle FailureHandle;
     FOnClosed Closed;
     bool bSynchronizing = false;
+    bool bKeepOpenOnApply = false;
     void Refresh();
     void OnStateChanged(UObject*, UE::FieldNotification::FFieldId);
     void OnFailureChanged(UObject*, UE::FieldNotification::FFieldId);

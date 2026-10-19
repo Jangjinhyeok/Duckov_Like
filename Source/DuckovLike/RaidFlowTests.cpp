@@ -10,6 +10,7 @@
 #include "InteractionRangeComponent.h"
 #include "InventoryModel.h"
 #include "InventoryScreenWidget.h"
+#include "LoadingScreenTestSupport.h"
 #include "LoadingScreenWidget.h"
 #include "WorldLootActor.h"
 #include "Components/TextBlock.h"
@@ -69,6 +70,7 @@ struct FFlowScene
     TWeakObjectPtr<UGameInstance> GameInstance;
     TWeakObjectPtr<UInventoryModel> Model;
     TWeakObjectPtr<AWorldLootActor> Loot;
+    TWeakObjectPtr<ULoadingScreenWidget> Arrival;
     TArray<int32> CarriedIds;
     int32 BagQuantityBefore = 0;
     int32 LootQuantity = 0;
@@ -257,6 +259,7 @@ bool FRaidLoopFromBasement::RunTest(const FString& Parameters)
         UWidgetComponent* PromptComponent = GetPromptComponent(Scene->Controller.Get());
         TestTrue(TEXT("대상이 없으면 프롬프트 tick 꺼짐"), PromptComponent && !PromptComponent->IsComponentTickEnabled());
         TestTrue(TEXT("HUD 표시"), IsHudShown(Scene->Controller.Get()));
+        TestNull(TEXT("맵에서 바로 시작하면 도착 대기 화면 없음"), Field<ULoadingScreenWidget>(Scene->Controller.Get(), TEXT("LoadingScreen")));
         TestEqual(TEXT("베이스먼트 장소"), GetHudText(Scene->Controller.Get(), TEXT("LocationText")), FString(TEXT("기지")));
         AInteractionPointActor* Stash = FindPoint(Scene->World.Get(), EInteractionKind::Stash);
         if (!TestNotNull(TEXT("창고"), Stash)) { return; }
@@ -351,8 +354,54 @@ bool FRaidLoopFromBasement::RunTest(const FString& Parameters)
     {
         if (!Scene->Controller.IsValid()) { AddError(TEXT("로딩 화면을 관찰하기 전에 맵이 바뀜")); return; }
         TestFalse(TEXT("로딩 중 프롬프트 숨김"), IsPromptShown(Scene->Controller.Get()) || IsPromptWidgetVisible(Scene->Controller.Get()));
+        // 설계결정기록 037: 출발은 원이 오므라드는 동안 HUD도 원 안에 보이고, 캐릭터는 멈춘다.
+        ULoadingScreenWidget* Departure = Field<ULoadingScreenWidget>(Scene->Controller.Get(), TEXT("LoadingScreen"));
+        TestTrue(TEXT("출발 원이 오므라드는 중"), Departure && Departure->GetPhase() == ELoadingScreenPhase::Departing);
+        TestTrue(TEXT("오므라드는 동안 HUD 유지"), IsHudShown(Scene->Controller.Get()));
+        TestTrue(TEXT("출발 중 이동 입력 무시"), Scene->Controller->IsMoveInputIgnored());
     }, 0.f));
+    // 원이 다 덮이면 맵이 바뀌기 전에 "로딩 중..." 단계가 되고 HUD를 숨긴다. 단계 상태만 본다.
+    // standalone에서 문구가 실제로 한 번 그려지는지는 PIE의 이동 순서가 달라 이 검사로 가려지지 않는다(설계결정기록 037).
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("맵 이동 전 로딩 문구 단계"), [this, Scene]
+    {
+        ULoadingScreenWidget* Departure = Scene->Controller.IsValid()
+            ? Field<ULoadingScreenWidget>(Scene->Controller.Get(), TEXT("LoadingScreen")) : nullptr;
+        if (!Departure)
+        {
+            AddError(TEXT("로딩 문구 단계를 보기 전에 맵이 바뀜"));
+            return true;
+        }
+        if (Departure->GetPhase() != ELoadingScreenPhase::Loading) { return false; }
+        TestTrue(TEXT("로딩 문구 표시"), Departure->GetWidgetFromName(TEXT("LoadingText"))->IsVisible());
+        TestFalse(TEXT("다 덮이면 HUD 숨김"), IsHudShown(Scene->Controller.Get()));
+        return true;
+    }));
     ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("레이드 맵 이동과 착지"), [Scene] { return CaptureLandedScene(*Scene, TEXT("L_Raid")); }));
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("레이드 도착 화면 표시"), [Scene]
+    {
+        ULoadingScreenWidget* Arrival = Scene->Controller.IsValid() ? Field<ULoadingScreenWidget>(Scene->Controller.Get(), TEXT("LoadingScreen")) : nullptr;
+        return !Scene->Controller.IsValid() || (Arrival && Arrival->GetCachedGeometry().GetLocalSize().X > 0.f);
+    }));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        if (!IsSceneValid(*Scene)) { AddError(TEXT("레이드 scene unavailable")); return; }
+        ADuckovPlayerController* Controller = Scene->Controller.Get();
+        ULoadingScreenWidget* Arrival = Field<ULoadingScreenWidget>(Controller, TEXT("LoadingScreen"));
+        if (!TestNotNull(TEXT("레이드 도착 화면"), Arrival)) { return; }
+        Scene->Arrival = Arrival;
+        TestTrue(TEXT("도착하면 클릭을 기다림"), Arrival->GetPhase() == ELoadingScreenPhase::AwaitingClick);
+        TestFalse(TEXT("클릭 전에는 HUD 숨김"), IsHudShown(Controller));
+        TestTrue(TEXT("클릭 전에는 이동 입력 무시"), Controller->IsMoveInputIgnored());
+        TestTrue(TEXT("실제 클릭을 도착 화면이 받음"), ClickScreenCenter(Arrival));
+        TestNull(TEXT("클릭하면 조작을 돌려받음"), Field<ULoadingScreenWidget>(Controller, TEXT("LoadingScreen")));
+        TestTrue(TEXT("클릭하면 원이 커지기 시작"), Arrival->GetPhase() == ELoadingScreenPhase::Revealing);
+        TestTrue(TEXT("드러나는 동안 HUD도 원 안에 보임"), IsHudShown(Controller));
+        TestFalse(TEXT("클릭 뒤 이동 입력 허용"), Controller->IsMoveInputIgnored());
+    }, 0.f));
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("원이 다 열리면 도착 화면이 빠짐"), [Scene]
+    {
+        return !Scene->Arrival.IsValid() || !Scene->Arrival->GetParent();
+    }));
     ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
     {
         if (!IsSceneValid(*Scene)) { AddError(TEXT("레이드 scene unavailable")); return; }
@@ -445,6 +494,8 @@ bool FRaidLoopFromBasement::RunTest(const FString& Parameters)
         TestTrue(TEXT("장착 가방 유지"), Model->IsBagSlotBound());
         TestEqual(TEXT("탈출 결과 알림"), GetHudText(Scene->Controller.Get(), TEXT("MessageText")),
             FString(TEXT("탈출 성공: 가방의 아이템을 창고로 옮겼습니다")));
+        ULoadingScreenWidget* Arrival = Field<ULoadingScreenWidget>(Scene->Controller.Get(), TEXT("LoadingScreen"));
+        TestTrue(TEXT("베이스먼트 복귀도 클릭을 기다림"), Arrival && Arrival->GetPhase() == ELoadingScreenPhase::AwaitingClick);
     }, 0.f));
     ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
     ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("PIE 종료"), [] { return !GEditor || !GEditor->PlayWorld; }));

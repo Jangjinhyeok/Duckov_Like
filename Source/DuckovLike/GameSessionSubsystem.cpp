@@ -68,3 +68,10 @@ TOptional<EInventoryOperationFailure> UGameSessionSubsystem::ConsumeExtractionRe
     PendingExtractionResult.Reset();
     return Result;
 }
+
+bool UGameSessionSubsystem::ConsumeArrivalPending()
+{
+    const bool bPending = bArrivalPending;
+    bArrivalPending = false;
+    return bPending;
+}

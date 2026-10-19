@@ -39,6 +39,8 @@ void ATitlePlayerController::StartGame()
         [this, Model](UCustomizationScreenWidget& Screen)
         {
             Screen.SetSession(Model);
+            // 원작처럼 확인한 화면이 원 안에 남은 채 덮인다. 맵을 떠날 때 EndPlay가 닫는다.
+            Screen.SetKeepOpenOnApply(true);
             // pool에서 같은 인스턴스를 다시 받으므로 이전 연결을 지우고 한 번만 묶는다.
             Screen.OnClosed().RemoveAll(this);
             Screen.OnClosed().AddUObject(this, &ThisClass::OnCustomizationClosed);
@@ -50,12 +52,19 @@ void ATitlePlayerController::OnCustomizationClosed(bool bApplied)
     if (!bApplied || !RootLayout || LoadingScreen) { return; }
     LoadingScreen = CreateWidget<ULoadingScreenWidget>(this, ULoadingScreenWidget::StaticClass());
     RootLayout->AddNoticeElement(LoadingScreen);
-    // 로딩 화면이 한 번 그려진 뒤 맵을 불러오도록 다음 tick에 이동한다. 불러오는 동안 이 화면이 남는다.
+    LoadingScreen->OnCovered().AddUObject(this, &ThisClass::OnDepartureCovered);
+    LoadingScreen->BeginDeparture();
+}
+
+void ATitlePlayerController::OnDepartureCovered()
+{
+    // "로딩 중..."이 한 번 그려진 뒤 맵을 불러오도록 다음 tick에 이동한다. 불러오는 동안 이 화면이 남는다.
     TravelHandle = GetWorldTimerManager().SetTimerForNextTick(this, &ThisClass::TravelToBasement);
 }
 
 void ATitlePlayerController::TravelToBasement()
 {
+    GetGameInstance()->GetSubsystem<UGameSessionSubsystem>()->SetArrivalPending();
     UGameplayStatics::OpenLevel(this, FName(TitleFlow::BasementMap));
 }
 

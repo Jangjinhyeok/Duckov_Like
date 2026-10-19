@@ -21,10 +21,15 @@ public:
     // 레이드에서 탈출할 때 남기고, 돌아온 베이스먼트가 한 번 꺼내 결과를 알린다.
     void SetExtractionResult(EInventoryOperationFailure Result) { PendingExtractionResult = Result; }
     TOptional<EInventoryOperationFailure> ConsumeExtractionResult();
+    // 맵 이동을 시작한 쪽이 남기고, 도착한 맵의 controller가 한 번 꺼내 클릭 대기 화면을 띄운다.
+    // 맵에서 바로 시작한 PIE에는 남아 있지 않으므로 대기 화면 없이 시작한다.
+    void SetArrivalPending() { bArrivalPending = true; }
+    bool ConsumeArrivalPending();
 private:
     UPROPERTY(Transient)
     TObjectPtr<UCustomizationModel> CustomizationModel;
     UPROPERTY(Transient)
     TObjectPtr<UInventoryModel> InventoryModel;
     TOptional<EInventoryOperationFailure> PendingExtractionResult;
+    bool bArrivalPending = false;
 };

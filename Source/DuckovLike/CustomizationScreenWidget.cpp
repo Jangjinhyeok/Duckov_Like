@@ -467,7 +467,7 @@ void UCustomizationScreenWidget::Apply()
 {
     if (ViewModel && ViewModel->Apply() == ECustomizationFailure::None)
     {
-        DeactivateWidget();
+        if (!bKeepOpenOnApply) { DeactivateWidget(); }
         Closed.Broadcast(true);
     }
 }

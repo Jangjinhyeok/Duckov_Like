@@ -7,6 +7,7 @@
 #include "GameSessionSubsystem.h"
 #include "DuckovCharacter.h"
 #include "DuckovPlayerController.h"
+#include "LoadingScreenTestSupport.h"
 #include "LoadingScreenWidget.h"
 #include "TitleGameMode.h"
 #include "TitlePlayerController.h"
@@ -249,12 +250,14 @@ bool FTitleFlowToBasement::RunTest(const FString& Parameters)
         HeadShape->OnValueChanged.Broadcast(0.5f);
         Scene->SessionModel = Scene->GameInstance->GetSubsystem<UGameSessionSubsystem>()->GetCustomizationModel();
         ClickButton(Customization, TEXT("ApplyButton"));
-        TestFalse(TEXT("확인으로 커스터마이징 닫힘"), Customization->IsActivated());
+        // 설계결정기록 037: 원이 오므라드는 동안 확인한 화면이 원 안에 남는다. 맵을 떠날 때 controller가 닫는다.
+        TestTrue(TEXT("확인한 커스터마이징이 덮일 때까지 남음"), Customization->IsActivated() && Customization->GetPreview());
         TestTrue(TEXT("확인 값이 세션 Model에 확정"), Scene->SessionModel.IsValid()
             && FMath::IsNearlyEqual(Scene->SessionModel->GetProfile().HeadShape, 0.5f));
         ULoadingScreenWidget* Loading = Field<ULoadingScreenWidget>(Scene->Controller.Get(), TEXT("LoadingScreen"));
         TestTrue(TEXT("확인 뒤 로딩 화면이 Notice layer에 표시"),
             Loading && Loading->GetParent() == Scene->Layout->GetWidgetFromName(TEXT("NoticeLayer")));
+        TestTrue(TEXT("확인 뒤 원이 오므라들며 덮기 시작"), Loading && Loading->GetPhase() == ELoadingScreenPhase::Departing);
     }, 0.f));
     ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("베이스먼트 맵 이동"), [Scene]
     {
@@ -262,6 +265,26 @@ bool FTitleFlowToBasement::RunTest(const FString& Parameters)
         return World && !Scene->TitleWorld.HasSameIndexAndSerialNumber(TWeakObjectPtr<UWorld>(World))
             && Cast<ADuckovPlayerController>(UGameplayStatics::GetPlayerController(World, 0));
     }));
+    // 설계결정기록 037: 도착한 베이스먼트는 클릭을 기다리고, 그 전에는 메뉴를 열 수 없다.
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("베이스먼트 도착 화면 표시"), []
+    {
+        UWorld* World = GEditor ? GEditor->PlayWorld : nullptr;
+        auto* Controller = World ? Cast<ADuckovPlayerController>(UGameplayStatics::GetPlayerController(World, 0)) : nullptr;
+        ULoadingScreenWidget* Arrival = Controller ? Field<ULoadingScreenWidget>(Controller, TEXT("LoadingScreen")) : nullptr;
+        return Arrival && Arrival->GetCachedGeometry().GetLocalSize().X > 0.f;
+    }));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        UWorld* World = GEditor->PlayWorld;
+        auto* Controller = World ? Cast<ADuckovPlayerController>(UGameplayStatics::GetPlayerController(World, 0)) : nullptr;
+        ULoadingScreenWidget* Arrival = Controller ? Field<ULoadingScreenWidget>(Controller, TEXT("LoadingScreen")) : nullptr;
+        if (!TestNotNull(TEXT("베이스먼트 도착 화면"), Arrival)) { return; }
+        TestTrue(TEXT("도착하면 클릭을 기다림"), Arrival->GetPhase() == ELoadingScreenPhase::AwaitingClick);
+        Controller->OpenCustomization();
+        TestNull(TEXT("클릭 전에는 커스터마이징이 열리지 않음"), Field<UCustomizationScreenWidget>(Controller, TEXT("CustomizationScreen")));
+        TestTrue(TEXT("실제 클릭을 도착 화면이 받음"), ClickScreenCenter(Arrival));
+        TestNull(TEXT("클릭하면 조작을 돌려받음"), Field<ULoadingScreenWidget>(Controller, TEXT("LoadingScreen")));
+    }, 0.f));
     ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
     {
         UWorld* World = GEditor->PlayWorld;

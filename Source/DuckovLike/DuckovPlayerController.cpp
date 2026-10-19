@@ -83,6 +83,23 @@ void ADuckovPlayerController::BeginPlay()
         Viewport->SetSoftwareCursorWidget(EMouseCursor::Crosshairs, SNew(SAimCrosshair));
     }
     RestoreGameInput();
+    // 맵 이동으로 도착했다면 원작처럼 검은 화면에서 클릭을 기다린 뒤 원이 커지며 드러낸다. 그동안 캐릭터는 움직이지 않는다.
+    if (Session->ConsumeArrivalPending())
+    {
+        LoadingScreen = CreateWidget<ULoadingScreenWidget>(this, ULoadingScreenWidget::StaticClass());
+        RootLayout->AddNoticeElement(LoadingScreen);
+        LoadingScreen->OnContinued().AddUObject(this, &ThisClass::OnArrivalContinued);
+        LoadingScreen->BeginArrival();
+        SetIgnoreMoveInput(true);
+    }
+    RefreshHud();
+}
+
+void ADuckovPlayerController::OnArrivalContinued()
+{
+    // 원이 커지는 동안 화면은 스스로 빠진다. 조작과 HUD는 클릭한 순간 돌려준다.
+    LoadingScreen = nullptr;
+    SetIgnoreMoveInput(false);
     RefreshHud();
 }
 
@@ -209,9 +226,26 @@ void ADuckovPlayerController::StartTravel(FName Map)
     if (LoadingScreen || !RootLayout) { return; }
     LoadingScreen = CreateWidget<ULoadingScreenWidget>(this, ULoadingScreenWidget::StaticClass());
     RootLayout->AddNoticeElement(LoadingScreen);
+    TravelMap = Map;
+    // 원이 오므라드는 동안 캐릭터를 멈춘다. 맵을 떠나므로 되돌리지 않는다.
+    SetIgnoreMoveInput(true);
+    LoadingScreen->OnCovered().AddUObject(this, &ThisClass::OnDepartureCovered);
+    LoadingScreen->BeginDeparture();
     RefreshHud();
-    // OpenLevel은 이동을 예약만 하고 실제 맵 로드는 다음 engine frame에 한다. 그 사이 로딩 화면이 한 번 그려진다.
-    UGameplayStatics::OpenLevel(this, Map);
+}
+
+void ADuckovPlayerController::OnDepartureCovered()
+{
+    RefreshHud();
+    // 다 덮인 순간은 Slate paint 도중이라 "로딩 중..."은 다음 frame에야 그려진다. 바로 OpenLevel을 부르면
+    // 다음 frame의 engine tick이 paint보다 먼저 맵을 내리므로, 한 tick 미뤄 문구가 한 번 그려진 뒤 이동한다.
+    TravelHandle = GetWorldTimerManager().SetTimerForNextTick(this, &ThisClass::TravelAfterDeparture);
+}
+
+void ADuckovPlayerController::TravelAfterDeparture()
+{
+    GetGameInstance()->GetSubsystem<UGameSessionSubsystem>()->SetArrivalPending();
+    UGameplayStatics::OpenLevel(this, TravelMap);
 }
 
 void ADuckovPlayerController::ToggleInventory()
@@ -246,11 +280,11 @@ void ADuckovPlayerController::OpenCustomization()
 void ADuckovPlayerController::PlayerTick(float DeltaTime)
 {
     Super::PlayerTick(DeltaTime);
-    // 메뉴가 열린 동안 커서는 UI를 가리키므로 조준을 바꾸지 않는다. 커서가 viewport 밖이면 마지막 조준을 유지한다.
+    // 메뉴나 로딩 화면이 있는 동안 커서는 UI를 가리키므로 조준을 바꾸지 않는다. 커서가 viewport 밖이면 마지막 조준을 유지한다.
     ADuckovCharacter* Aimer = Cast<ADuckovCharacter>(GetPawn());
     FVector2D Mouse;
     FVector Point;
-    if (Aimer && !IsMenuOpen() && GetMousePosition(Mouse.X, Mouse.Y) && ScreenToAimPoint(Mouse, Point))
+    if (Aimer && !IsMenuOpen() && !LoadingScreen && GetMousePosition(Mouse.X, Mouse.Y) && ScreenToAimPoint(Mouse, Point))
     {
         Aimer->SetAimPoint(Point);
     }
@@ -291,12 +325,12 @@ void ADuckovPlayerController::ToggleLaserSight()
 void ADuckovPlayerController::RefreshHud()
 {
     if (!Hud) { return; }
-    // 원작처럼 메뉴나 로딩 화면이 열리면 HUD와 프롬프트를 감춘다.
-    const bool bVisible = !IsMenuOpen() && !LoadingScreen;
+    // 원작처럼 메뉴가 열리거나 로딩 화면이 게임을 다 덮으면 HUD를 감춘다. 원이 오므라들거나 커지는 동안에는 HUD도 원 안에 보인다.
+    const bool bVisible = !IsMenuOpen() && !(LoadingScreen && LoadingScreen->IsCoveringGame());
     Hud->SetVisibility(bVisible ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
-    // 프롬프트는 빙의한 pawn이 있을 때만 있다.
+    // 프롬프트는 빙의한 pawn이 있을 때만 있다. 로딩 화면이 있으면 상호작용할 수 없으므로 감춘다.
     if (!PromptComponent) { return; }
-    UInteractionRangeComponent* Target = bVisible ? GetInteractionTarget() : nullptr;
+    UInteractionRangeComponent* Target = bVisible && !LoadingScreen ? GetInteractionTarget() : nullptr;
     UUserWidget* Prompt = PromptComponent->GetUserWidgetObject();
     if (Target)
     {
@@ -358,6 +392,7 @@ void ADuckovPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
     Targets.Reset();
     if (RootLayout) { RootLayout->GetMenuStack()->OnDisplayedWidgetChanged().RemoveAll(this); }
     GetWorldTimerManager().ClearTimer(RestoreInputHandle);
+    GetWorldTimerManager().ClearTimer(TravelHandle);
     // 세션 Model은 다음 맵에서도 남는다. 화면을 비활성화해 이 맵의 ViewModel 구독을 먼저 끊는다.
     if (CustomizationScreen && CustomizationScreen->IsActivated()) { CustomizationScreen->DeactivateWidget(); }
     if (Screen && Screen->IsActivated()) { Screen->DeactivateWidget(); }

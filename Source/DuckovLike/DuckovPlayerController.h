@@ -70,6 +70,9 @@ private:
     // 범위에 들어온 순서다.
     TArray<TWeakObjectPtr<UInteractionRangeComponent>> Targets;
     FTimerHandle RestoreInputHandle;
+    // 출발 화면이 다 덮인 뒤 이동할 맵이다.
+    FName TravelMap;
+    FTimerHandle TravelHandle;
     bool bInRaid = false;
     UFUNCTION()
     void OnPawnBeginOverlap(AActor* OverlappedActor, AActor* OtherActor);
@@ -79,6 +82,9 @@ private:
     void PickupLoot(UInteractionRangeComponent* Target);
     void Extract();
     void StartTravel(FName Map);
+    void OnDepartureCovered();
+    void TravelAfterDeparture();
+    void OnArrivalContinued();
     bool IsMenuOpen() const;
     void RefreshHud();
     void DestroyPromptComponent();
