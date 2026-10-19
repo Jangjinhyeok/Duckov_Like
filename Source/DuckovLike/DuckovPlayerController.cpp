@@ -92,6 +92,7 @@ void ADuckovPlayerController::SetupInputComponent()
     InputComponent->BindKey(EKeys::I, IE_Pressed, this, &ThisClass::ToggleInventory);
     InputComponent->BindKey(EKeys::F, IE_Pressed, this, &ThisClass::Interact);
     InputComponent->BindKey(EKeys::O, IE_Pressed, this, &ThisClass::ToggleControls);
+    InputComponent->BindKey(EKeys::L, IE_Pressed, this, &ThisClass::ToggleLaserSight);
 }
 
 void ADuckovPlayerController::OnPossess(APawn* InPawn)
@@ -276,6 +277,15 @@ bool ADuckovPlayerController::IsMenuOpen() const
 void ADuckovPlayerController::ToggleControls()
 {
     if (Hud && !IsMenuOpen() && !LoadingScreen) { Hud->ToggleControls(); }
+}
+
+void ADuckovPlayerController::ToggleLaserSight()
+{
+    // 캐릭터마다 상태를 가지므로 맵을 이동하면 새 캐릭터는 다시 꺼진 상태로 시작한다.
+    if (ADuckovCharacter* Aimer = Cast<ADuckovCharacter>(GetPawn()))
+    {
+        Aimer->SetLaserSightEnabled(!Aimer->IsLaserSightEnabled());
+    }
 }
 
 void ADuckovPlayerController::RefreshHud()

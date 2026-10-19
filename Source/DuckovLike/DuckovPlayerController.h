@@ -40,6 +40,9 @@ public:
     void OpenCustomization();
     UFUNCTION(Exec)
     void ToggleControls();
+    // 테스트용: L로 빙의한 캐릭터의 레이저 사이트 선을 켜고 끈다. 레이저 사이트 장비가 생기면 장착 상태로 대체한다.
+    UFUNCTION(Exec)
+    void ToggleLaserSight();
     // 범위 안의 대상 중 가장 최근에 들어온 것이다. 없으면 null이다.
     UInteractionRangeComponent* GetInteractionTarget() const;
 protected:

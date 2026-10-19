@@ -368,6 +368,10 @@ bool FBasementCharacterMovement::RunTest(const FString& Parameters)
     ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
     {
         if (!IsSceneValid(*Scene)) { AddError(TEXT("베이스먼트 scene unavailable")); return; }
+        TestFalse(TEXT("레이저 사이트는 기본 꺼짐"), Scene->Character->IsLaserSightEnabled());
+        // 테스트용 L키로 레이저 사이트를 켠 채 걷는다.
+        SendKey(EKeys::L, true);
+        SendKey(EKeys::L, false);
         BeginHold(*Scene);
         SendKey(EKeys::W, true);
     }, 0.f));
@@ -396,6 +400,12 @@ bool FBasementCharacterMovement::RunTest(const FString& Parameters)
         TestTrue(TEXT("재생 중 왼쪽 날개가 캐릭터 왼쪽"), Body && FVector::DotProduct(
             Body->GetBoneLocation(TEXT("wing_l")) - Character->GetActorLocation(), Character->GetActorRightVector()) < -15.f);
         TestTrue(TEXT("캐릭터가 돌아도 카메라는 고정"), Character->GetCameraBoom()->GetComponentRotation().Equals(FRotator(-55.f, -40.f, 0.f), 0.1f));
+        // 조준 지점이 몸 안쪽이면 선을 숨기는 것이 의도라 그때는 표시를 보지 않는다.
+        TestTrue(TEXT("L키로 레이저 사이트 켜짐"), Character->IsLaserSightEnabled()
+            && (!bAimOutsideBody || Character->GetAimDot()->IsVisible()));
+        // 키 입력은 다음 frame에 처리되므로 꺼짐은 다음 단계에서 본다.
+        SendKey(EKeys::L, true);
+        SendKey(EKeys::L, false);
         BeginHold(*Scene);
         SendKey(EKeys::A, true);
     }, 0.f));
@@ -404,6 +414,8 @@ bool FBasementCharacterMovement::RunTest(const FString& Parameters)
     {
         SendKey(EKeys::A, false);
         if (!IsSceneValid(*Scene)) { AddError(TEXT("베이스먼트 scene unavailable")); return; }
+        TestTrue(TEXT("L키를 다시 누르면 꺼짐"), !Scene->Character->IsLaserSightEnabled()
+            && !Scene->Character->GetAimLine()->IsVisible() && !Scene->Character->GetAimDot()->IsVisible());
         const FVector ScreenLeft = -FVector::CrossProduct(FVector::UpVector, ScreenUpOnGround(Scene->Character.Get()));
         const FVector Delta = MovedSinceHold(*Scene);
         // 키를 바꾼 직후에는 이전 방향의 관성이 남으므로 hold 끝의 속도 방향으로 판정한다.

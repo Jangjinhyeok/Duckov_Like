@@ -51,6 +51,7 @@ void UGameHudWidget::NativeOnInitialized()
         {NSLOCTEXT("Hud", "Sprint", "달리기"), FText::FromString(TEXT("Shift"))},
         {NSLOCTEXT("Hud", "Interact", "상호작용"), FText::FromString(TEXT("F"))},
         {NSLOCTEXT("Hud", "Inventory", "인벤토리"), FText::FromString(TEXT("I"))},
+        {NSLOCTEXT("Hud", "LaserSight", "레이저 사이트(테스트)"), FText::FromString(TEXT("L"))},
         {NSLOCTEXT("Hud", "CloseMenu", "메뉴 닫기"), FText::FromString(TEXT("Esc"))},
     };
     for (const TPair<FText, FText>& Key : Keys)
