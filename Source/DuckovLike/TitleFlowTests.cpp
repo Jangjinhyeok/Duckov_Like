@@ -186,10 +186,22 @@ bool FTitleFlowToBasement::RunTest(const FString& Parameters)
         if (!IsTitleSceneValid(*Scene)) { AddError(TEXT("타이틀 scene unavailable")); return; }
         TestTrue(TEXT("시작 버튼 keyboard activation"), RouteFocusedKey(EKeys::Enter));
         Scene->Customization = Field<UCustomizationScreenWidget>(Scene->Controller.Get(), TEXT("CustomizationScreen"));
-        if (!TestTrue(TEXT("게임 시작으로 커스터마이징 열림"), Scene->Customization.IsValid() && Scene->Customization->IsActivated())) { return; }
-        TestTrue(TEXT("커스터마이징은 타이틀 위에 쌓임"), Scene->Layout->GetMenuStack()->GetActiveWidget() == Scene->Customization.Get());
+        if (!TestTrue(TEXT("게임 시작으로 커스터마이징 생성"), Scene->Customization.IsValid())) { return; }
         TestFalse(TEXT("커스터마이징 중 타이틀 비활성"), Scene->Title->IsActivated());
+        // 설계결정기록 036: 메뉴끼리는 이전 화면이 사라진 뒤 새 화면이 활성화되고 나타난다.
+        TestTrue(TEXT("전환 동안 타이틀이 사라지는 중"), Scene->Layout->GetMenuStack()->GetActiveWidget() == Scene->Title.Get()
+            && !Scene->Customization->IsActivated());
+        // 전환 중에도 focus는 시작 버튼에 남는다. 다시 눌러도 커스터마이징이 하나 더 쌓이지 않아야 한다.
+        RouteFocusedKey(EKeys::Enter);
+        TestTrue(TEXT("전환 중 다시 시작해도 같은 커스터마이징"),
+            Field<UCustomizationScreenWidget>(Scene->Controller.Get(), TEXT("CustomizationScreen")) == Scene->Customization.Get()
+            && Scene->Layout->GetMenuStack()->GetNumWidgets() == 2);
     }, 0.f));
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("전환 뒤 커스터마이징이 타이틀 위에 쌓임"), [Scene]
+    {
+        return Scene->Customization.IsValid() && Scene->Customization->IsActivated() && Scene->Layout.IsValid()
+            && Scene->Layout->GetMenuStack()->GetActiveWidget() == Scene->Customization.Get();
+    }));
     ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("커스터마이징의 Menu 입력"), [Scene]
     {
         return Scene->Customization.IsValid() && IsMenuActive(Scene->Controller.Get(), Scene->Customization.Get());
@@ -201,10 +213,13 @@ bool FTitleFlowToBasement::RunTest(const FString& Parameters)
         if (!Router) { AddError(TEXT("Router unavailable")); return; }
         TestEqual(TEXT("커스터마이징 Back routed"), Router->ProcessInput(EKeys::Escape, IE_Pressed), ERouteUIInputResult::Handled);
         TestFalse(TEXT("Back으로 커스터마이징 닫힘"), Scene->Customization->IsActivated());
-        TestTrue(TEXT("Back 뒤 타이틀 메뉴 복귀"), Scene->Title->IsActivated() && Scene->Title->IsMenuVisible()
-            && Scene->Layout->GetMenuStack()->GetActiveWidget() == Scene->Title.Get());
         TestTrue(TEXT("취소로는 맵 이동 없음"), Field<ULoadingScreenWidget>(Scene->Controller.Get(), TEXT("LoadingScreen")) == nullptr);
     }, 0.f));
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("Back 전환 뒤 타이틀 메뉴 복귀"), [Scene]
+    {
+        return IsTitleSceneValid(*Scene) && Scene->Title->IsActivated() && Scene->Title->IsMenuVisible()
+            && Scene->Layout->GetMenuStack()->GetActiveWidget() == Scene->Title.Get();
+    }));
     ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("Back 뒤 타이틀의 Menu 입력"), [Scene]
     {
         return IsTitleSceneValid(*Scene) && IsMenuActive(Scene->Controller.Get(), Scene->Title.Get());
@@ -213,9 +228,21 @@ bool FTitleFlowToBasement::RunTest(const FString& Parameters)
     {
         if (!IsTitleSceneValid(*Scene) || !Scene->GameInstance.IsValid()) { AddError(TEXT("타이틀 scene unavailable")); return; }
         ClickButton(Scene->Title.Get(), TEXT("StartButton"));
-        UCustomizationScreenWidget* Customization = Field<UCustomizationScreenWidget>(Scene->Controller.Get(), TEXT("CustomizationScreen"));
-        if (!TestTrue(TEXT("다시 게임 시작"), Customization && Customization->IsActivated())) { return; }
-        TestTrue(TEXT("재개방은 pool의 같은 인스턴스"), Customization == Scene->Customization.Get());
+        TestTrue(TEXT("재개방은 pool의 같은 인스턴스"),
+            Field<UCustomizationScreenWidget>(Scene->Controller.Get(), TEXT("CustomizationScreen")) == Scene->Customization.Get());
+    }, 0.f));
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("다시 게임 시작 전환 완료"), [Scene]
+    {
+        return Scene->Customization.IsValid() && Scene->Customization->IsActivated();
+    }));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        if (!IsTitleSceneValid(*Scene) || !Scene->GameInstance.IsValid() || !Scene->Customization.IsValid())
+        {
+            AddError(TEXT("타이틀 scene unavailable"));
+            return;
+        }
+        UCustomizationScreenWidget* Customization = Scene->Customization.Get();
         USlider* HeadShape = Cast<USlider>(Customization->GetWidgetFromName(TEXT("HeadShapeSlider")));
         if (!TestNotNull(TEXT("머리 모양 slider"), HeadShape)) { return; }
         HeadShape->SetValue(0.5f);

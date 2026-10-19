@@ -10,6 +10,7 @@
 #include "InventoryScreenWidget.h"
 #include "ItemDefinitionRow.h"
 #include "ItemViewModel.h"
+#include "MenuTransitionTestSupport.h"
 #include "Components/Button.h"
 #include "Components/SizeBox.h"
 #include "Components/TextBlock.h"
@@ -192,6 +193,7 @@ bool FBagEquipmentPIE::RunTest(const FString& Parameters)
         if (!TestTrue(TEXT("기본 demo session"), Controller && Model)) { return; }
         Scene->Controller = Controller;
         Scene->Model = Model;
+        TestTrue(TEXT("Menu stack 즉시 전환"), DisableMenuTransitionForTest(Controller));
         TestEqual(TEXT("초기 snapshot"), Model->Save(Scene->Baseline), EInventorySaveFailure::None);
         Controller->ToggleInventory();
         UInventoryScreenWidget* Screen = Field<UInventoryScreenWidget>(Controller, TEXT("Screen"));

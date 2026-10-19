@@ -123,6 +123,8 @@ void AInventoryDemoPlayerController::ToggleInventory()
     if (!Model || !RootLayout) { return; }
     // 닫으면 Menu stack이 화면을 pool로 돌려보내고, 다시 열 때 같은 인스턴스를 재사용한다.
     if (Screen && Screen->IsActivated()) { Screen->DeactivateWidget(); return; }
+    // 닫힌 화면이 사라지는 전환 동안에는 Menu stack이 아직 그 화면을 표시한다. 그 사이 열면 pool이 새 인스턴스를 만든다.
+    if (RootLayout->GetMenuStack()->GetActiveWidget()) { return; }
     UClass* ScreenClass = LoadClass<UInventoryScreenWidget>(nullptr, TEXT("/Game/UI/WBP_InventoryScreen.WBP_InventoryScreen_C"));
     if (!ensureMsgf(ScreenClass, TEXT("인벤토리 화면 Widget Blueprint가 없습니다"))) { return; }
     const bool bStashAccessible = RaidPhase != ERaidDemoPhase::InRaid;
@@ -176,7 +178,7 @@ void AInventoryDemoPlayerController::OpenCustomizationPrototype()
     if (!GetWorld() || !Model || bRaidTransitionInProgress || RaidPhase != ERaidDemoPhase::Disabled
         || (Screen && Screen->IsActivated())) { return; }
     if (CustomizationScreen && CustomizationScreen->IsActivated()) { return; }
-    if (!RootLayout) { return; }
+    if (!RootLayout || RootLayout->GetMenuStack()->GetActiveWidget()) { return; }
     // 타이틀에서 확정한 외형을 이어서 편집하도록 세션이 소유한 Model을 쓴다.
     if (!CustomizationModel) { CustomizationModel = GetGameInstance()->GetSubsystem<UGameSessionSubsystem>()->GetCustomizationModel(); }
     CustomizationScreen = RootLayout->GetMenuStack()->AddWidget<UCustomizationScreenWidget>(UCustomizationScreenWidget::StaticClass(),

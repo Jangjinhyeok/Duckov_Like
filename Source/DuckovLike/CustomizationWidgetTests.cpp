@@ -9,6 +9,7 @@
 #include "CustomizationPartContract.h"
 #include "InventoryDemoPlayerController.h"
 #include "InventoryModel.h"
+#include "MenuTransitionTestSupport.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/Button.h"
 #include "Components/MeshComponent.h"
@@ -125,6 +126,7 @@ bool FCustomizationPIELifecycle::RunTest(const FString& Parameters)
         auto* Controller = Cast<AInventoryDemoPlayerController>(UGameplayStatics::GetPlayerController(GEditor->PlayWorld, 0));
         if (!Controller) { return; }
         Scene->Controller = Controller;
+        TestTrue(TEXT("Menu stack 즉시 전환"), DisableMenuTransitionForTest(Controller));
         auto* Inventory = Field<UInventoryModel>(Controller, TEXT("Model"));
         if (!TestNotNull(TEXT("기존 inventory Model"), Inventory)) { return; }
         TestEqual(TEXT("변경 전 inventory snapshot"), Inventory->Save(Scene->InventoryBefore), EInventorySaveFailure::None);

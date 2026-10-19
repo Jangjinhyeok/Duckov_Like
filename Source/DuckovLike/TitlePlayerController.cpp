@@ -31,7 +31,8 @@ void ATitlePlayerController::BeginPlay()
 
 void ATitlePlayerController::StartGame()
 {
-    if (!RootLayout || LoadingScreen || (CustomizationScreen && CustomizationScreen->IsActivated())) { return; }
+    // 화면 전환 중에는 타이틀이 이미 비활성인데 커스터마이징은 아직 활성 전이다. 타이틀이 활성일 때만 받아 중복 push를 막는다.
+    if (!RootLayout || LoadingScreen || !TitleScreen || !TitleScreen->IsActivated()) { return; }
     UCustomizationModel* Model = GetGameInstance()->GetSubsystem<UGameSessionSubsystem>()->GetCustomizationModel();
     // 커스터마이징은 타이틀 위에 쌓인다. 닫히면 stack이 아래의 타이틀을 다시 활성화한다.
     CustomizationScreen = RootLayout->GetMenuStack()->AddWidget<UCustomizationScreenWidget>(UCustomizationScreenWidget::StaticClass(),

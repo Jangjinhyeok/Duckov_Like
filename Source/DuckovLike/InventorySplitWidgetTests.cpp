@@ -8,6 +8,7 @@
 #include "InventoryScreenWidget.h"
 #include "InteractionViewModel.h"
 #include "ItemViewModel.h"
+#include "MenuTransitionTestSupport.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/Button.h"
 #include "Components/CanvasPanel.h"
@@ -142,6 +143,7 @@ bool FInventorySplitWidgetPIE::RunTest(const FString& Parameters)
             UGameplayStatics::GetPlayerController(GEditor->PlayWorld, 0));
         if (!TestNotNull(TEXT("PIE Controller 준비"), Controller)) { return; }
         Scene->Controller = Controller;
+        TestTrue(TEXT("Menu stack 즉시 전환"), DisableMenuTransitionForTest(Controller));
         Controller->ToggleInventory();
         Scene->Screen = Field<UInventoryScreenWidget>(Controller, TEXT("Screen"));
         Scene->Model = Field<UInventoryModel>(Controller, TEXT("Model"));

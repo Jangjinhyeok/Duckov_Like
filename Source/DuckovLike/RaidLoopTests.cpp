@@ -5,6 +5,7 @@
 #include "InventoryScreenWidget.h"
 #include "InventoryGridWidget.h"
 #include "InventoryModel.h"
+#include "MenuTransitionTestSupport.h"
 #include "ContainerViewModel.h"
 #include "ItemViewModel.h"
 #include "RaidStatusWidget.h"
@@ -84,6 +85,7 @@ bool FRaidLoopPIE::RunTest(const FString& Parameters)
         APawn* ControlledPawn = Controller ? Controller->GetPawnOrSpectator() : nullptr;
         if (!TestNotNull(TEXT("실제 Controller"), Controller) || !TestNotNull(TEXT("실제 Model"), Model)
             || !TestNotNull(TEXT("실제 이동 Pawn"), ControlledPawn)) { return; }
+        TestTrue(TEXT("Menu stack 즉시 전환"), DisableMenuTransitionForTest(Controller));
         TestEqual(TEXT("기존 데모는 기본 동작 유지"), Controller->GetRaidPhase(), ERaidDemoPhase::Disabled);
         TestEqual(TEXT("시작 전 진입 거부"), Controller->TryEnterRaid(), ERaidDemoFailure::InvalidPhase);
         TestEqual(TEXT("시작 전 탈출 거부"), Controller->TryExtractRaid(), ERaidDemoFailure::InvalidPhase);

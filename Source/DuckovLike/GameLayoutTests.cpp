@@ -131,10 +131,21 @@ bool FGameLayerStack::RunTest(const FString& Parameters)
     }));
     ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
     {
-        Scene->Controller->ToggleInventory();
+        AInventoryDemoPlayerController* Controller = Scene->Controller.Get();
+        UCommonActivatableWidgetStack* Stack = Scene->Layout->GetMenuStack();
+        TestEqual(TEXT("Menu stack 전환 시간"), Stack->GetTransitionDuration(), 0.3f);
+        Controller->ToggleInventory();
         TestFalse(TEXT("닫으면 인벤토리 비활성"), Scene->FirstScreen.IsValid() && Scene->FirstScreen->IsActivated());
-        TestNull(TEXT("닫으면 Menu stack 비어 있음"), Scene->Layout->GetMenuStack()->GetActiveWidget());
+        // 설계결정기록 036: 사라지는 전환 동안 Menu stack은 닫힌 화면을 계속 표시하고 다시 열기를 받지 않는다.
+        TestTrue(TEXT("닫는 전환 동안 화면 표시 유지"), Stack->GetActiveWidget() == Scene->FirstScreen.Get());
+        Controller->ToggleInventory();
+        TestFalse(TEXT("닫는 전환 중 재개방 무시"), Scene->FirstScreen.IsValid() && Scene->FirstScreen->IsActivated());
+        TestTrue(TEXT("닫는 전환 중 새 인스턴스 없음"), Field<UInventoryScreenWidget>(Controller, TEXT("Screen")) == Scene->FirstScreen.Get());
     }, 0.f));
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("닫는 전환 뒤 Menu stack 비움"), [Scene]
+    {
+        return Scene->Layout.IsValid() && !Scene->Layout->GetMenuStack()->GetActiveWidget();
+    }));
     ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("인벤토리 닫은 뒤 Game 입력"), [Scene] { return IsGameInputRestored(*Scene); }));
     ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
     {
@@ -153,8 +164,11 @@ bool FGameLayerStack::RunTest(const FString& Parameters)
         if (!TestNotNull(TEXT("커스터마이징 화면 생성"), Customization)) { return; }
         TestTrue(TEXT("커스터마이징도 Menu stack에 표시"), Scene->Layout->GetMenuStack()->GetActiveWidget() == Customization);
         Customization->DeactivateWidget();
-        TestNull(TEXT("커스터마이징 닫으면 Menu stack 비어 있음"), Scene->Layout->GetMenuStack()->GetActiveWidget());
     }, 0.f));
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("커스터마이징 닫는 전환 뒤 Menu stack 비움"), [Scene]
+    {
+        return Scene->Layout.IsValid() && !Scene->Layout->GetMenuStack()->GetActiveWidget();
+    }));
     ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("커스터마이징 닫은 뒤 Game 입력"), [Scene] { return IsGameInputRestored(*Scene); }));
     ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
     {

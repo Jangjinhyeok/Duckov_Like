@@ -8,6 +8,7 @@
 #include "CustomizationScreenWidget.h"
 #include "CustomizationViewModel.h"
 #include "InventoryDemoPlayerController.h"
+#include "MenuTransitionTestSupport.h"
 #include "Components/Button.h"
 #include "Components/TextBlock.h"
 #include "Editor.h"
@@ -98,6 +99,7 @@ bool FSlotSelectionPIE::RunTest(const FString& Parameters)
         auto* Controller = Cast<AInventoryDemoPlayerController>(UGameplayStatics::GetPlayerController(GEditor->PlayWorld, 0));
         if (!Controller) { return; }
         Scene->Controller = Controller;
+        TestTrue(TEXT("Menu stack 즉시 전환"), DisableMenuTransitionForTest(Controller));
         Controller->OpenCustomizationPrototype();
         Scene->Screen = Field<UCustomizationScreenWidget>(Controller, TEXT("CustomizationScreen"));
         Scene->Model = Field<UCustomizationModel>(Controller, TEXT("CustomizationModel"));
