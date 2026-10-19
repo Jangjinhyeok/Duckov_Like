@@ -230,3 +230,61 @@ flowchart TB
 | HUD(장소, 조작 설명, 결과 문구) | 받지 않음(HitTestInvisible) | controller가 값이 바뀔 때만 |
 | 상호작용 프롬프트 | 받지 않음 | 대상이 바뀔 때 붙일 곳 변경, 보이는 동안만 엔진이 위치 투영 |
 | 메뉴 | Menu stack이 CommonUI 입력 전환 | 기존과 같음 |
+
+## 2026-10-19 — Menu stack 화면 전환
+
+결정은 [Menu stack 화면 전환](architecture/036-menu-stack-transition.md)에 있다.
+층 구성은 그대로이고, `MenuStack`의 전환 시간만 0에서 0.3초(CommonUI 기본 `FadeOnly`·`Linear`)로 바뀌었다.
+CommonUI switcher는 한 번에 한 화면만 그리므로 crossfade가 아니라 "사라짐 0.15초 → 나타남 0.15초"이고, 빈 자리 쪽 절반은 생략한다.
+
+```mermaid
+sequenceDiagram
+    actor Player
+    participant PC as PlayerController
+    participant Menu as MenuStack
+    participant Screen as 인벤토리 화면
+    participant Router as Action router
+
+    Player->>PC: I 키
+    PC->>Menu: AddWidget
+    Menu->>Screen: 즉시 ActivateWidget (빈 자리에서 나오므로 사라짐 단계 생략)
+    Note over Menu: 0.15초 fade-in, 그동안 input guard가 마우스를 막음
+
+    Player->>Router: Esc
+    Router->>Screen: back action → DeactivateWidget
+    Note over Menu: 0.15초 fade-out 동안 닫힌 화면을 계속 표시<br/>IsMenuOpen()이 true라 HUD 숨김 유지, I 재입력 무시
+    Menu-->>PC: fade 끝에 OnDisplayedWidgetChanged(nullptr)
+    PC->>PC: HUD 표시, 다음 tick에 RestoreGameInput
+```
+
+| 전환 | 바뀐 점 |
+| --- | --- |
+| 게임 → 메뉴 | 활성화·입력 적용은 그대로 즉시, 화면만 0.15초 fade-in |
+| 메뉴 → 게임 | HUD와 Game 입력이 0.15초 fade-out 뒤에 돌아옴 |
+| 메뉴 → 메뉴(타이틀 ↔ 커스터마이징) | 이전 화면은 즉시 비활성, 0.15초 뒤 새 화면 활성화, 다시 0.15초 fade-in |
+
+## 2026-10-19 — 맵 이동 iris와 도착 클릭 대기
+
+결정은 [맵 이동 전환](architecture/037-map-travel-iris-transition.md)에 있다. 로딩 화면은 여전히 activatable이 아니고 Notice layer에 붙는다.
+Notice layer가 HUD·Menu stack 위에 있으므로 원형 마스크가 메뉴와 HUD까지 함께 덮는다. 맵을 넘는 신호는 세션의 일시 플래그 하나다.
+
+```mermaid
+sequenceDiagram
+    actor Player
+    participant From as 출발 맵 controller
+    participant Loading as ULoadingScreenWidget (Notice layer)
+    participant Session as UGameSessionSubsystem
+    participant To as 도착 맵 ADuckovPlayerController
+
+    Player->>From: 확인 / F(출격·탈출)
+    From->>Loading: BeginDeparture (이동 입력 무시)
+    Note over Loading: 0.44초 원 닫힘, 원 안에 지금 화면
+    Loading-->>From: OnCovered ("로딩 중...")
+    From->>Session: SetArrivalPending
+    From->>From: OpenLevel
+    To->>Session: ConsumeArrivalPending
+    To->>Loading: (새 widget) BeginArrival, 이동 입력 무시
+    Player->>Loading: 클릭
+    Loading-->>To: OnContinued → 조작·HUD 복귀
+    Note over Loading: 0.44초 원 열림 뒤 스스로 빠짐
+```

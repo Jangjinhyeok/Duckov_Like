@@ -38,6 +38,7 @@ controller의 상호 검사, Z값, delegate 연결이 함께 늘어난다. 화�
 - 입력 복구는 화면마다가 아니라 **Menu stack이 비는 순간 한 곳**에서 건다. controller가 `OnDisplayedWidgetChanged(nullptr)`를 받으면
   다음 tick에 Game · CapturePermanently를 적용하고 viewport에 focus를 준다. 다음 tick 처리와 적용 내용은 이전에 검증된 방식 그대로다.
 - 전환 시간은 0으로 둔다. 전환 중 입력 차단이 기존 열기·닫기 반응과 테스트 가정을 바꾸기 때문이다.
+  (2026-10-19 이 항목은 [설계결정기록 036](036-menu-stack-transition.md)이 대체했다. 지금은 0.3초 FadeOnly 전환이다.)
 - 기존 controller의 공개 함수(`ToggleInventory`, `OpenCustomizationPrototype`, Raid 함수)와 멤버 이름(`Screen`, `CustomizationScreen`,
   `RaidStatus`, `Model`)은 유지한다. 커스터마이징 중 인벤토리 진입 차단 같은 기존 규칙도 그대로 둔다.
 - Modal layer는 만들지 않았다. 지금 modal로 옮길 화면이 없고, 분할 수량창은 인벤토리 화면 내부 overlay로 남아 있다.
