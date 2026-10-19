@@ -24,7 +24,8 @@
 - **회전·조준선·카메라는 캐릭터 tick의 `UpdateAim`**: 조준 지점 쪽으로 즉시 yaw를 맞추고(`bOrientRotationToMovement=false`),
   레이저 사이트가 켜져 있으면 몸 가장자리에서 조준 지점까지 Visibility trace를 해 막히면 그 지점에서 선과 끝 점을 끊는다.
   원작에서 이 선은 총기에 레이저 사이트를 달아야 보이므로(사용자 설명) `SetLaserSightEnabled`로 켜는 부가 기능이고 기본은 꺼져 있다.
-  꺼져 있으면 trace도 하지 않는다. 아직 이를 켜는 장비가 없다. spring arm `TargetOffset`을
+  꺼져 있으면 trace도 하지 않는다. 아직 이를 켜는 장비가 없어 테스트용 L키(`ADuckovPlayerController::ToggleLaserSight`, 조작 설명에 표시)로
+  켜고 끈다. 상태는 캐릭터가 가지므로 맵을 이동하면 다시 꺼진 상태로 시작한다. spring arm `TargetOffset`을
   조준 방향 × 0.15(최대 300 cm)로 두어 기존 camera lag가 부드럽게 따라가게 한다. 0.15는 원작 관찰(커서를 화면 끝에 두면 캐릭터가 창 너비의 약 7% 밀림)에 맞춘 값이다.
 - **십자선은 software cursor**: `SAimCrosshair`(Slate leaf widget)를 viewport의 `Crosshairs` cursor로 등록한다. Slate가 커서 위치 중앙에 그리므로 위치를 갱신하는 tick이 없다.
 - **게임 입력은 커서 표시 + `CaptureDuringMouseDown`**: CommonUI의 `CapturePermanently`는 커서를 보여도 high precision 마우스를 켜 커서를 묶는다.
