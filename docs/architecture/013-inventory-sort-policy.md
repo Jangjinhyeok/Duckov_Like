@@ -7,7 +7,7 @@
 | 작업 범위 | M1b / 자동 정렬 |
 | Risk | LOW — 기존 API와 저장 형식을 변경하지 않는 Model 연산 추가 |
 | 판단 주체 | AI(위임 범위) |
-| 사용자 검토 | 미검토 |
+| 사용자 검토 | 검토 완료 — 사용자 PIE 확인(2026-10-20 사용자 진술로 정정, 이전 기록: 미검토). 사용자 보고이며 AI 직접 관찰 아님 |
 | 관련 | Operation Service 원자성(004), Instance 식별자(009), INVENTORY_DESIGN 자동 정렬 초안 |
 
 ## Context / Decision Question

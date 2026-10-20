@@ -7,7 +7,7 @@
 | 작업 범위 | M3 / 커스터마이징 재설계 (3 에디터 등록 검증) |
 | Risk | LOW — DuckovLike 안의 로컬 변경이고 저장 포맷·네트워크·외부 API 변경이 없다 |
 | 판단 주체 | AI(위임 범위). 사용자는 목표와 범위(1~4)를 지시했고 구조 선택은 AI가 했다 |
-| 사용자 검토 | 미검토. 사용자 직접 PIE 확인과 구조 검토는 대기 |
+| 사용자 검토 | PIE 검토 완료(2026-10-20 사용자 진술로 정정). 구조 검토는 대기. 사용자 보고이며 AI 직접 관찰 아님 |
 | 관련 | UE DataValidation 플러그인(UEditorValidatorBase), ADR 000(모듈 경계), ADR 029의 계약 검사 |
 
 ## Context / Decision Question

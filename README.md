@@ -112,7 +112,7 @@
 
 - **Back과 입력 복귀 (2026-09-25)**: drag 중의 Back은 drag만 취소하고, 그 밖의 Back은 화면을 닫는다. 닫은 다음 tick에 Game 입력과 viewport focus를 돌려준다.
   사용자가 키보드·마우스로 수동 PIE를 확인하고 수용했다. 게임패드와 packaged 빌드는 not_run이다.
-- **root layout과 Menu stack (ADR 021, 판단 주체 AI, 사용자 검토 미검토)**: 처음 시도한 Lyra식 "항상 활성인 HUD가 Game 입력을 갖는" 구조는
+- **root layout과 Menu stack (ADR 021, 판단 주체 AI, 사용자 PIE 확인)**: 처음 시도한 Lyra식 "항상 활성인 HUD가 Game 입력을 갖는" 구조는
   PIE에서 메뉴를 연 다음 프레임에 Router가 HUD를 다시 active root로 골라 Game 입력으로 돌아갔고, lifecycle 테스트 2개가 실패해 폐기했다(정확한 원인은 미확정).
   대신 **Menu stack이 비는 순간 한 곳**에서 입력을 복구하고, 폐기한 설계의 실패 지점은 `Duckov.UI.LayerStack` 회귀 테스트로 남겼다.
 - **화면 전환 (ADR 036·037)**: Menu stack에는 CommonUI 내장 `FadeOnly` 전환(0.3초)을 켰다. AI가 두 방식을 비교해 제시했고 사용자가 골랐다.
@@ -157,7 +157,7 @@
 - **저장**: 인벤토리 저장 레코드는 Model 계층까지다. 디스크 저장·슬롯과 커스터마이징 외형 저장은 구현하지 않았다.
 - **not_run**: 게임패드 입력, packaged 빌드. 카탈로그 DataTable과 애니메이션 asset이 cook에 포함되는지는 확인하지 않았다.
 - **측정 범위**: 성능 수치는 Editor PIE와 개발 PC 한 대의 기록이며 절대 시간 기준이 아니다.
-- **사용자 검토 대기**: ADR 013 이후 여러 결정(예: 015, 021, 028~030)은 `사용자 검토: 미검토`로 남아 있다.
+- **사용자 구조 검토 대기**: ADR 013 이후 결정은 모두 사용자 PIE 확인이나 결과 수용을 거쳤다. 커스터마이징 구조(ADR 028~030)는 사용자 구조 검토가 남아 있다.
 - **다음 단계**: [GDD](docs/GDD.md)의 M4 — 성능 점검과 문서·영상 정리.
 
 ---
