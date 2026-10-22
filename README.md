@@ -2,7 +2,7 @@
 
 **그리드 인벤토리와 캐릭터 커스터마이징을 Model · ViewModel · CommonUI 화면으로 나누고, 동작을 Automation Test와 실측 기록으로 검증하는 싱글플레이 탑다운 루팅·탈출 프로젝트**
 
-[기술 문서 목록 (설계결정기록)](docs/architecture/) · [개발 기록 (worklog)](docs/worklog/)
+[🎥 시연 영상](https://youtu.be/vTejYMb2Zfg) · [기술 문서 목록 (설계결정기록)](docs/architecture/) · [개발 기록 (worklog)](docs/worklog/)
 
 `UE 5.7` · `C++` · `CommonUI` · `UMG` · `MVVM (FieldNotify)` · `Automation Test` · `Windows` · `GAS: 플러그인만 활성, 미구현`
 
