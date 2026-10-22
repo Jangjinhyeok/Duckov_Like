@@ -7,7 +7,7 @@
 | 작업 범위 | M3 / UI 디테일 — 화면 전환 애니메이션 |
 | Risk | LOW — root layout의 Menu stack 설정 한 곳, 전환 중 재개방을 막는 데모·타이틀 controller 가드, 테스트 대기 조건이 바뀐다. 저장·네트워크·외부 API가 없고 메뉴 입력 흐름은 기존 경로(Menu stack이 비면 다음 tick에 Game 복구)를 그대로 쓴다 |
 | 판단 주체 | 목표는 사용자 지시("ui 애니메이션을 추가 … 화면 전환 애니메이션"). 방식은 AI가 두 안(CommonUI 내장 / 원작형 비대칭)을 비교해 제시하고 사용자가 선택("연출자체가 목적이니까 A가 맞는거같아"). 시간·테스트 수정은 AI(위임 범위) |
-| 사용자 검토 | 사용자 PIE 확인(2026-10-19) 뒤 맵 이동 연출 변경을 요청했고([037](037-map-travel-iris-transition.md)), 이 Menu stack fade는 "그대로 두자"로 유지. 사용자 보고이며 AI 직접 관찰 아님 |
+| 사용자 검토 | 사용자 PIE 확인(2026-10-19) 뒤 맵 이동 연출 변경을 요청했고([037](037-map-travel-circle-wipe.md)), 이 Menu stack fade는 "그대로 두자"로 유지. 사용자 보고이며 AI 직접 관찰 아님 |
 | 관련 | [021 CommonUI layer](021-commonui-layer-stack.md)의 Decision 중 "전환 시간은 0으로 둔다" 한 항목을 대체한다. 나머지 021 결정(layer 구성, Menu stack이 비는 순간의 입력 복구)은 그대로다. AI가 방식 설명 때 이 결정을 뒤집는다고 알렸고 사용자가 A를 골랐다 |
 
 ## Context / Decision Question
@@ -19,7 +19,7 @@ Menu stack(`UCommonActivatableWidgetStack`)은 설계결정기록 021에 따라 
 
 - 메인 메뉴 ↔ 설정: 약 0.15~0.2초 crossfade(두 화면이 겹쳐 보임).
 - 인게임 Tab 인벤토리·Esc 일시정지: 열기는 즉시, 닫기는 약 0.15~0.2초 fade와 HUD 복귀가 동시에 진행.
-- 메인 메뉴 → 로딩: 원형 iris.
+- 메인 메뉴 → 로딩: 원형 전환(circle wipe).
 
 엔진 코드(`SCommonAnimatedSwitcher`)를 읽은 결과 CommonUI 내장 전환은 crossfade가 아니라 순차 fade다.
 이전 화면이 duration의 절반 동안 사라진 뒤 활성 화면이 바뀌고, 새 화면이 나머지 절반 동안 나타난다.
@@ -65,7 +65,7 @@ Menu stack(`UCommonActivatableWidgetStack`)은 설계결정기록 021에 따라 
 
 - PIE에서 닫은 뒤 이동 복귀 지연이나 메뉴 → 메뉴의 중간 비침이 거슬린다는 피드백이 있을 때: 원작형 비대칭이나 crossfade를 다시 검토한다.
 - 전환 곡선을 바꾸고 싶을 때: `TransitionCurveType`은 protected라 Menu stack subclass가 필요하다.
-- 메인 메뉴 → 로딩의 iris처럼 Menu stack 밖(Notice layer) 전환을 넣을 때는 별도로 다룬다.
+- 메인 메뉴 → 로딩의 원형 전환처럼 Menu stack 밖(Notice layer) 전환을 넣을 때는 별도로 다룬다.
 
 ## Verification
 

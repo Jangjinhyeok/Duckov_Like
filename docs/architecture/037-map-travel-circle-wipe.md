@@ -1,4 +1,4 @@
-# 설계결정기록 037 — 맵 이동 전환: 원형 iris와 도착 클릭 대기
+# 설계결정기록 037 — 맵 이동 전환: 원형 전환(circle wipe)과 도착 클릭 대기
 
 | 항목 | 내용 |
 | --- | --- |
@@ -22,11 +22,11 @@
 
 ## Decision / Rationale
 
-- **iris는 Slate leaf `SIrisMask` 하나가 그린다.** 화면을 다 덮는 큰 원 모양 rounded box를 채우지 않고 outline만 두껍게 그리면 outline 안쪽 경계가 원이 된다.
+- **원형 전환은 Slate leaf `SCircleWipeMask` 하나가 그린다.** 화면을 다 덮는 큰 원 모양 rounded box를 채우지 않고 outline만 두껍게 그리면 outline 안쪽 경계가 원이 된다.
   draw element 하나, 텍스처·머티리얼 에셋 없이 끝난다. 반지름은 화면 대각선 절반에 대한 비율이라 화면 비율과 무관하게 1이면 다 열린다.
-- **시간표는 `IrisTransition::Evaluate` 순수 함수**: 0.07초에 0.25까지(ease out) → 0.32초까지 정지 → 0.44초에 끝까지(ease in). 닫힘·열림이 같은 시간표를 반대로 쓴다.
+- **시간표는 `CircleWipe::Evaluate` 순수 함수**: 0.07초에 0.25까지(ease out) → 0.32초까지 정지 → 0.44초에 끝까지(ease in). 닫힘·열림이 같은 시간표를 반대로 쓴다.
 - **`ULoadingScreenWidget`이 단계를 소유한다**: Departing → Loading(출발 쪽 맵), AwaitingClick → Revealing(도착 쪽 맵). Notice layer에 붙어 HUD·메뉴까지 덮는다.
-  iris가 움직이는 동안과 클릭 대기 원이 깜박이는 동안만 active timer가 돈다(상시 Tick 없음). 다 열리면 다음 frame에 스스로 화면에서 빠진다.
+  원이 움직이는 동안과 클릭 대기 원이 깜박이는 동안만 active timer가 돈다(상시 Tick 없음). 다 열리면 다음 frame에 스스로 화면에서 빠진다.
 - **맵을 넘는 신호는 세션의 일시 플래그**: 이동을 시작한 controller가 `OpenLevel` 직전에 `SetArrivalPending`을 남기고,
   도착한 `ADuckovPlayerController::BeginPlay`가 한 번 꺼내 클릭 대기 화면을 띄운다. 맵에서 바로 시작한 PIE와 테스트에는 대기 화면이 없다.
 - **다 덮인 뒤 한 tick 미뤄 이동한다**: 다 덮이는 순간은 Slate paint 도중이라 "로딩 중..."은 다음 frame에 그려진다.
@@ -41,6 +41,7 @@
 - **UI 머티리얼(원형 마스크 파라미터)**: 가장자리 부드럽게 하기 등 표현 폭은 넓지만 에셋 생성·검증 경로가 필요하다. 원작 가장자리가 또렷해 Slate 그리기로 충분했다.
 - **도착 화면을 이전 맵의 로딩 화면이 이어서 맡기**: `OpenLevel`은 이전 맵의 layout을 함께 내리므로 widget이 맵을 넘지 못한다. 세션 플래그 하나로 도착 쪽이 새로 띄운다.
 - **"필드 준비 중..." 단계**: 원작은 클릭 뒤 실제 배치 작업 문구를 잠깐 보인다. 이 프로젝트에는 그 작업이 없어 넣지 않았다.
+- **이름 iris**: 영화 편집 용어로는 iris wipe지만 UE의 Iris replication system과 헷갈려(사용자 지적, 2026-10-22) circle wipe로 이름 지었다.
 - **키보드로 계속하기**: 원작 문구가 클릭이라 마우스 클릭만 받는다. 게임패드는 범위 밖이다.
 
 ## Consequences / Accepted Costs
@@ -63,8 +64,10 @@
 
 ## Verification
 
-- `Duckov.UI.LoadingIris.Curve`: 시간표의 시작·정지·끝 값과 단조성.
-- `Duckov.UI.LoadingIris.Mask`: `FWidgetRenderer`로 그린 pixel. 반지름 0.25에서 원 안은 투명, 원 밖·모서리는 불투명 검정, 0은 전부 덮고 1은 전부 비움.
+로그 파일 이름의 `Iris`는 2026-10-22 이름 변경 전에 붙인 이름이다. 당시 클래스·테스트 이름은 `SIrisMask`, `IrisTransition`, `Duckov.UI.LoadingIris.*`였다.
+
+- `Duckov.UI.LoadingCircleWipe.Curve`: 시간표의 시작·정지·끝 값과 단조성.
+- `Duckov.UI.LoadingCircleWipe.Mask`: `FWidgetRenderer`로 그린 pixel. 반지름 0.25에서 원 안은 투명, 원 밖·모서리는 불투명 검정, 0은 전부 덮고 1은 전부 비움.
   처음 구현은 이 검사에서 원 안이 흰색으로 채워져 실패했고(MakeBox의 tint가 채움 색), tint를 투명으로 바꿔 고쳤다. PIE 흐름 테스트는 그 상태에서도 통과했으므로 이 검사가 그리기 결과의 유일한 자동 검증이다.
 - `Duckov.Raid.LoopFromBasement`: 맵에서 바로 시작하면 대기 화면 없음, 출격 시 Departing·HUD 유지·이동 무시, 레이드 도착 시 AwaitingClick·HUD 숨김·이동 무시,
   실제 Slate 마우스 클릭(hit test)으로 계속하기 → 조작·HUD 즉시 복귀와 Revealing, 원이 다 열리면 widget이 빠짐, 탈출 뒤 베이스먼트도 클릭 대기.

@@ -263,9 +263,9 @@ sequenceDiagram
 | 메뉴 → 게임 | HUD와 Game 입력이 0.15초 fade-out 뒤에 돌아옴 |
 | 메뉴 → 메뉴(타이틀 ↔ 커스터마이징) | 이전 화면은 즉시 비활성, 0.15초 뒤 새 화면 활성화, 다시 0.15초 fade-in |
 
-## 2026-10-19 — 맵 이동 iris와 도착 클릭 대기
+## 2026-10-19 — 맵 이동 원형 전환과 도착 클릭 대기
 
-결정은 [맵 이동 전환](architecture/037-map-travel-iris-transition.md)에 있다. 로딩 화면은 여전히 activatable이 아니고 Notice layer에 붙는다.
+결정은 [맵 이동 전환](architecture/037-map-travel-circle-wipe.md)에 있다. 로딩 화면은 여전히 activatable이 아니고 Notice layer에 붙는다.
 Notice layer가 HUD·Menu stack 위에 있으므로 원형 마스크가 메뉴와 HUD까지 함께 덮는다. 맵을 넘는 신호는 세션의 일시 플래그 하나다.
 
 ```mermaid

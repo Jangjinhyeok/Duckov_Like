@@ -116,10 +116,10 @@
   PIE에서 메뉴를 연 다음 프레임에 Router가 HUD를 다시 active root로 골라 Game 입력으로 돌아갔고, lifecycle 테스트 2개가 실패해 폐기했다(정확한 원인은 미확정).
   대신 **Menu stack이 비는 순간 한 곳**에서 입력을 복구하고, 폐기한 설계의 실패 지점은 `Duckov.UI.LayerStack` 회귀 테스트로 남겼다.
 - **화면 전환 (ADR 036·037)**: Menu stack에는 CommonUI 내장 `FadeOnly` 전환(0.3초)을 켰다. AI가 두 방식을 비교해 제시했고 사용자가 골랐다.
-  맵 이동에는 원형 iris와 도착 후 클릭 대기를 넣었다. 범위는 사용자가 정했고 구조·시간표는 AI가 정했다. 둘 다 2026-10-19 사용자가 PIE로 확인했다.
+  맵 이동에는 원형 전환(circle wipe)과 도착 후 클릭 대기를 넣었다. 범위는 사용자가 정했고 구조·시간표는 AI가 정했다. 둘 다 2026-10-19 사용자가 PIE로 확인했다.
 - 전환을 켜며 생긴 결함(전환 중 시작을 두 번 누르면 커스터마이징 화면이 두 개 쌓임)은 독립 검토에서 발견됐다. 수정 전 코드에서 실패하는 검사를 먼저 추가한 뒤 고쳤다.
 
-→ [ADR 021](docs/architecture/021-commonui-layer-stack.md) · [036](docs/architecture/036-menu-stack-transition.md) · [037](docs/architecture/037-map-travel-iris-transition.md) · [CommonUI 적용 구조](docs/COMMONUI_STRUCTURE.md) · [M2 worklog](docs/worklog/M2.md) · [M3 worklog](docs/worklog/M3.md)
+→ [ADR 021](docs/architecture/021-commonui-layer-stack.md) · [036](docs/architecture/036-menu-stack-transition.md) · [037](docs/architecture/037-map-travel-circle-wipe.md) · [CommonUI 적용 구조](docs/COMMONUI_STRUCTURE.md) · [M2 worklog](docs/worklog/M2.md) · [M3 worklog](docs/worklog/M3.md)
 
 ### 5. 캐릭터 이동과 마우스 조준
 
