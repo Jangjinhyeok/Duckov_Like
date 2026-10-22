@@ -1,7 +1,7 @@
 #include "Misc/AutomationTest.h"
 
 #if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
-#include "IrisMask.h"
+#include "CircleWipeMask.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Slate/WidgetRenderer.h"
 #include "TextureResource.h"
@@ -17,7 +17,7 @@ const FIntPoint MaskSize(320, 180);
 // 마스크를 투명 render target에 그려 pixel을 읽는다. 덮인 곳은 alpha가 차고 비운 곳은 0이다.
 TArray<FColor> RenderMask(float Radius)
 {
-    TSharedRef<SIrisMask> Mask = SNew(SIrisMask);
+    TSharedRef<SCircleWipeMask> Mask = SNew(SCircleWipeMask);
     Mask->SetRadius(Radius);
     TStrongObjectPtr<UTextureRenderTarget2D> Target(FWidgetRenderer::CreateTargetFor(FVector2D(MaskSize), TF_Bilinear, false));
     Target->ClearColor = FLinearColor::Transparent;
@@ -35,10 +35,10 @@ uint8 AlphaAt(const TArray<FColor>& Pixels, int32 X, int32 Y)
 }
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FIrisCurve, "Duckov.UI.LoadingIris.Curve", Flags)
-bool FIrisCurve::RunTest(const FString& Parameters)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCircleWipeCurve, "Duckov.UI.LoadingCircleWipe.Curve", Flags)
+bool FCircleWipeCurve::RunTest(const FString& Parameters)
 {
-    using namespace IrisTransition;
+    using namespace CircleWipe;
     TestEqual(TEXT("닫힘 시작은 열린 화면"), Evaluate(0.f, false), 1.f);
     TestEqual(TEXT("닫힘은 빠르게 중간 크기"), Evaluate(SnapTime, false), HoldRadius);
     TestEqual(TEXT("닫힘 중간에 멈춤"), Evaluate((SnapTime + HoldEndTime) * 0.5f, false), HoldRadius);
@@ -58,12 +58,12 @@ bool FIrisCurve::RunTest(const FString& Parameters)
     return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FIrisMaskPixels, "Duckov.UI.LoadingIris.Mask", Flags)
-bool FIrisMaskPixels::RunTest(const FString& Parameters)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCircleWipeMaskPixels, "Duckov.UI.LoadingCircleWipe.Mask", Flags)
+bool FCircleWipeMaskPixels::RunTest(const FString& Parameters)
 {
     const FIntPoint Center = MaskSize / 2;
     // 320×180에서 대각선 절반은 약 183.6 px이고, 반지름 0.25는 약 45.9 px이다. 가장자리 anti-aliasing은 피해서 본다.
-    const TArray<FColor> Hold = RenderMask(IrisTransition::HoldRadius);
+    const TArray<FColor> Hold = RenderMask(CircleWipe::HoldRadius);
     if (!TestEqual(TEXT("render pixel 수"), Hold.Num(), MaskSize.X * MaskSize.Y)) { return false; }
     TestEqual(TEXT("원 가운데는 비움"), AlphaAt(Hold, Center.X, Center.Y), uint8(0));
     TestEqual(TEXT("원 안쪽 가장자리 근처도 비움"), AlphaAt(Hold, Center.X + 38, Center.Y), uint8(0));

@@ -4,12 +4,12 @@
 #include "Brushes/SlateRoundedBoxBrush.h"
 #include "Widgets/SLeafWidget.h"
 
-// 맵 이동 때 화면 가운데 원 바깥을 검게 덮는 iris 마스크다(원작의 출발·도착 연출, 설계결정기록 037).
+// 맵 이동 때 화면 가운데 원 바깥을 검게 덮는 원형 전환(circle wipe) 마스크다(원작의 출발·도착 연출, 설계결정기록 037).
 // 반지름은 화면 대각선 절반에 대한 비율이다. 0이면 화면 전체를 덮고, 1 이상이면 아무것도 그리지 않는다.
-class SIrisMask : public SLeafWidget
+class SCircleWipeMask : public SLeafWidget
 {
 public:
-    SLATE_BEGIN_ARGS(SIrisMask) {}
+    SLATE_BEGIN_ARGS(SCircleWipeMask) {}
     SLATE_END_ARGS()
 
     void Construct(const FArguments& InArgs) {}
@@ -25,7 +25,7 @@ private:
 };
 
 // 원작 관찰: 중간 크기까지 빠르게 → 잠깐 멈춤 → 끝까지 빠르게. 닫힘과 열림은 같은 시간표를 반대로 쓴다.
-namespace IrisTransition
+namespace CircleWipe
 {
 constexpr float SnapTime = 0.07f;
 constexpr float HoldEndTime = 0.32f;

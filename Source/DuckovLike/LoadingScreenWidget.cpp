@@ -12,7 +12,7 @@
 #include "Components/TextBlock.h"
 #include "Containers/Ticker.h"
 #include "Framework/Application/SlateApplication.h"
-#include "IrisMask.h"
+#include "CircleWipeMask.h"
 
 namespace LoadingScreen
 {
@@ -46,14 +46,14 @@ void ULoadingScreenWidget::NativeOnInitialized()
     Super::NativeOnInitialized();
     auto* Root = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("LoadingRoot"));
     WidgetTree->RootWidget = Root;
-    // 검은 화면도 iris가 그린다. 반지름 0이면 화면 전체를 덮는다.
-    Iris = SNew(SIrisMask);
-    auto* IrisHost = WidgetTree->ConstructWidget<UNativeWidgetHost>(UNativeWidgetHost::StaticClass(), TEXT("IrisHost"));
-    IrisHost->SetContent(Iris.ToSharedRef());
-    IrisHost->SetVisibility(ESlateVisibility::HitTestInvisible);
-    auto* IrisSlot = Root->AddChildToCanvas(IrisHost);
-    IrisSlot->SetAnchors(FAnchors(0.f, 0.f, 1.f, 1.f));
-    IrisSlot->SetOffsets(FMargin(0.f));
+    // 검은 화면도 원형 마스크가 그린다. 반지름 0이면 화면 전체를 덮는다.
+    Wipe = SNew(SCircleWipeMask);
+    auto* WipeHost = WidgetTree->ConstructWidget<UNativeWidgetHost>(UNativeWidgetHost::StaticClass(), TEXT("WipeHost"));
+    WipeHost->SetContent(Wipe.ToSharedRef());
+    WipeHost->SetVisibility(ESlateVisibility::HitTestInvisible);
+    auto* WipeSlot = Root->AddChildToCanvas(WipeHost);
+    WipeSlot->SetAnchors(FAnchors(0.f, 0.f, 1.f, 1.f));
+    WipeSlot->SetOffsets(FMargin(0.f));
 
     LoadingText = LoadingScreen::MakeText(*WidgetTree, TEXT("LoadingText"), NSLOCTEXT("Loading", "Loading", "로딩 중..."));
     LoadingScreen::PlaceBottomCenter(*Root, LoadingText);
@@ -77,29 +77,29 @@ void ULoadingScreenWidget::NativeOnInitialized()
 
     // 게임 중 커서는 십자선이지만 로딩 화면 위에서는 기본 화살표를 보인다.
     SetCursor(EMouseCursor::Default);
-    Iris->SetRadius(0.f);
+    Wipe->SetRadius(0.f);
     SetPhase(ELoadingScreenPhase::Loading);
 }
 
 void ULoadingScreenWidget::BeginDeparture()
 {
-    Iris->SetRadius(1.f);
+    Wipe->SetRadius(1.f);
     SetPhase(ELoadingScreenPhase::Departing);
-    StartIris();
+    StartWipe();
 }
 
 void ULoadingScreenWidget::BeginArrival()
 {
-    Iris->SetRadius(0.f);
+    Wipe->SetRadius(0.f);
     SetPhase(ELoadingScreenPhase::AwaitingClick);
-    Iris->RegisterActiveTimer(LoadingScreen::BlinkInterval, FWidgetActiveTimerDelegate::CreateUObject(this, &ThisClass::BlinkRing));
+    Wipe->RegisterActiveTimer(LoadingScreen::BlinkInterval, FWidgetActiveTimerDelegate::CreateUObject(this, &ThisClass::BlinkRing));
 }
 
 void ULoadingScreenWidget::Continue()
 {
     if (Phase != ELoadingScreenPhase::AwaitingClick) { return; }
     SetPhase(ELoadingScreenPhase::Revealing);
-    StartIris();
+    StartWipe();
     ContinuedEvent.Broadcast();
 }
 
@@ -120,18 +120,18 @@ void ULoadingScreenWidget::SetPhase(ELoadingScreenPhase NewPhase)
     SetVisibility(Phase == ELoadingScreenPhase::Revealing ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Visible);
 }
 
-void ULoadingScreenWidget::StartIris()
+void ULoadingScreenWidget::StartWipe()
 {
-    IrisStartTime = FSlateApplication::Get().GetCurrentTime();
-    Iris->RegisterActiveTimer(0.f, FWidgetActiveTimerDelegate::CreateUObject(this, &ThisClass::UpdateIris));
+    WipeStartTime = FSlateApplication::Get().GetCurrentTime();
+    Wipe->RegisterActiveTimer(0.f, FWidgetActiveTimerDelegate::CreateUObject(this, &ThisClass::UpdateWipe));
 }
 
-EActiveTimerReturnType ULoadingScreenWidget::UpdateIris(double CurrentTime, float DeltaTime)
+EActiveTimerReturnType ULoadingScreenWidget::UpdateWipe(double CurrentTime, float DeltaTime)
 {
-    const float Elapsed = float(CurrentTime - IrisStartTime);
+    const float Elapsed = float(CurrentTime - WipeStartTime);
     const bool bOpening = Phase == ELoadingScreenPhase::Revealing;
-    Iris->SetRadius(IrisTransition::Evaluate(Elapsed, bOpening));
-    if (Elapsed < IrisTransition::Duration) { return EActiveTimerReturnType::Continue; }
+    Wipe->SetRadius(CircleWipe::Evaluate(Elapsed, bOpening));
+    if (Elapsed < CircleWipe::Duration) { return EActiveTimerReturnType::Continue; }
     if (bOpening)
     {
         // 이 widget의 active timer가 실행되는 중에는 떼지 않는다. 다음 frame에 화면에서 뺀다.

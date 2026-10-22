@@ -4,7 +4,7 @@
 #include "Blueprint/UserWidget.h"
 #include "LoadingScreenWidget.generated.h"
 
-class SIrisMask;
+class SCircleWipeMask;
 class UTextBlock;
 class UWidget;
 
@@ -21,7 +21,7 @@ enum class ELoadingScreenPhase : uint8
 };
 
 // 맵 이동 화면이다. 원작처럼 출발은 원이 오므라들며 덮고, 도착은 클릭을 기다린 뒤 원이 커지며 드러낸다(설계결정기록 037).
-// root layout의 Notice layer에 붙어 HUD와 메뉴까지 함께 덮는다. 애니메이션은 iris가 움직이는 동안만 active timer로 돈다.
+// root layout의 Notice layer에 붙어 HUD와 메뉴까지 함께 덮는다. 애니메이션은 원이 움직이는 동안만 active timer로 돈다.
 UCLASS(meta=(DisableNativeTick))
 class DUCKOVLIKE_API ULoadingScreenWidget : public UUserWidget
 {
@@ -49,13 +49,13 @@ private:
     TObjectPtr<UWidget> ContinuePrompt;
     UPROPERTY(Transient)
     TObjectPtr<UWidget> ContinueRing;
-    TSharedPtr<SIrisMask> Iris;
+    TSharedPtr<SCircleWipeMask> Wipe;
     ELoadingScreenPhase Phase = ELoadingScreenPhase::Loading;
-    double IrisStartTime = 0.0;
+    double WipeStartTime = 0.0;
     FLoadingScreenEvent CoveredEvent;
     FLoadingScreenEvent ContinuedEvent;
     void SetPhase(ELoadingScreenPhase NewPhase);
-    void StartIris();
-    EActiveTimerReturnType UpdateIris(double CurrentTime, float DeltaTime);
+    void StartWipe();
+    EActiveTimerReturnType UpdateWipe(double CurrentTime, float DeltaTime);
     EActiveTimerReturnType BlinkRing(double CurrentTime, float DeltaTime);
 };

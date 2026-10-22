@@ -1,16 +1,16 @@
-#include "IrisMask.h"
+#include "CircleWipeMask.h"
 
 #include "Rendering/DrawElements.h"
 #include "Styling/CoreStyle.h"
 
-void SIrisMask::SetRadius(float InRadius)
+void SCircleWipeMask::SetRadius(float InRadius)
 {
     if (Radius == InRadius) { return; }
     Radius = InRadius;
     Invalidate(EInvalidateWidgetReason::Paint);
 }
 
-int32 SIrisMask::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeometry, const FSlateRect& MyCullingRect,
+int32 SCircleWipeMask::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeometry, const FSlateRect& MyCullingRect,
     FSlateWindowElementList& OutDrawElements, int32 LayerId, const FWidgetStyle& InWidgetStyle, bool bParentEnabled) const
 {
     const FVector2f Size = FVector2f(AllottedGeometry.GetLocalSize());
@@ -37,7 +37,7 @@ int32 SIrisMask::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeomet
     return LayerId + 1;
 }
 
-float IrisTransition::Evaluate(float Elapsed, bool bOpening)
+float CircleWipe::Evaluate(float Elapsed, bool bOpening)
 {
     const float Start = bOpening ? 0.f : 1.f;
     const float End = bOpening ? 1.f : 0.f;
