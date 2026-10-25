@@ -62,6 +62,8 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 - **실패한 연산은 상태를 바꾸지 않는다.** 전체 검증 후 한 번에 커밋한다. 롤백 경로를 만들지 않는다.
 - **Model이 진실이다.** 위치·회전·수량은 `InventoryCore`만 소유한다. View/ViewModel은 원본 상태를 갖지 않는다.
 - **인벤토리 UI는 상시 Tick에 의존하지 않는다.** 이벤트 기반으로 갱신한다.
+- **멤버를 가리는 이름을 쓰지 않는다.** UE 빌드는 C4458(지역 변수·파라미터가 클래스 멤버를 가림)을
+  에러로 처리한다. 상속 멤버(`AController::Pawn`, `UWidget::Slot` 등)와 같은 이름의 지역 변수·파라미터를 만들지 않는다.
 
 ## 작업 흐름 — CLAUDE.md의 작업 분담을 따른다
 
