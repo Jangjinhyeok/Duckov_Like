@@ -2,32 +2,71 @@
 
 **그리드 인벤토리와 캐릭터 커스터마이징을 Model · ViewModel · CommonUI 화면으로 나누고, 동작을 Automation Test와 실측 기록으로 검증하는 싱글플레이 탑다운 루팅·탈출 프로젝트**
 
-[🎥 시연 영상](https://youtu.be/vTejYMb2Zfg) · [기술 문서 목록 (설계결정기록)](docs/architecture/) · [개발 기록 (worklog)](docs/worklog/)
+[🎥 시연 영상](https://youtu.be/vTejYMb2Zfg) · [기술 문서 목록 (설계결정기록)](docs/architecture/) · [개발 기록 (worklog)](docs/worklog/) · [빌드 방법](#source--build)
 
 `UE 5.7` · `C++` · `CommonUI` · `UMG` · `MVVM (FieldNotify)` · `Automation Test` · `Windows` · `GAS: 플러그인만 활성, 미구현`
 
-> ### 🤖 이 프로젝트는 AI를 활용한 프로젝트입니다.
->
-> **AI를 활용해 개발합니다.** 사용자는 목표·범위와 결과 수용을 맡고,
-> AI는 기능 단위로 설계·구현·검증을 수행합니다.
-> AI가 내린 기술 판단과 사용자가 실제 검토·수정한 내용을 구분해 기록합니다.
-> 각 설계결정기록(ADR) 머리의 `판단 주체`·`사용자 검토` 칸에서 결정마다 확인할 수 있습니다.
->
-> 판단 주체는 시기에 따라 다릅니다. M1a까지의 Model 결정(설계결정기록 001·003·004·009~012)은 AI가 선택지를 나열하고
-> 사용자가 최종 결정했습니다. 그 이후의 구조·수치·테스트는 대부분 AI가 위임 범위 안에서 정했고,
-> 사용자가 정한 목표·선택과 사용자 PIE 확인 여부를 각 기록에 적었습니다. 이 README도 그 구분을 따릅니다.
->
-> → [작업 분담 규약](CLAUDE.md) · [설계결정기록](docs/architecture/) · [작업 기록](docs/worklog/)
+> 🤖 **AI를 활용해 개발한 프로젝트입니다.** 목표·범위와 결과 수용은 제가 맡고, 기능 단위의 설계·구현·검증은 주로 AI가 수행했습니다.
+> 결정마다 판단 주체를 기록해 두었습니다. → [AI 활용과 판단 주체](#ai-활용과-판단-주체)
+
+<table>
+<tr>
+<td width="44%" valign="top">
+
+<img src="docs/images/readme/inventory_drag.gif" alt="가방 그리드에서 아이템을 끌어 배치하고 스택을 나누는 화면">
+
+드래그 미리보기(배치 가능·불가), 스택 분할, 장비 slot 장착 (2배속)
+
+</td>
+<td valign="top">
+
+### 제가 직접 내린 설계 결정
+
+**1. 연산은 상태 없는 조정자 하나로 모은다** ([ADR 004](docs/architecture/004-operation-service-atomicity.md))<br>
+처음엔 Container가 상대를 받아 처리하는 구조를 생각했지만, 서로를 알지 않도록 별도 조정자로 바꿨습니다. 관련 Container를 모두 검증한 뒤 한 번에 커밋합니다.<br>
+*대가: Container 타입마다 조정자가 기대하는 계약을 맞춰야 합니다.*
+
+**2. 아이템 Instance는 `USTRUCT` 값 타입으로 둔다** ([ADR 010](docs/architecture/010-item-instance-representation.md))<br>
+인벤토리의 모든 Instance가 GC 추적 대상이 되는 비용을 피하려고 골랐습니다. 값 복사 덕분에 별도 롤백 경로도 필요 없습니다.<br>
+*대가: 포인터를 붙잡아 둘 수 없어 번호로 매번 다시 조회합니다.*
+
+**3. 같은 Container 안 이동은 배열 순서를 바꾸지 않는다** ([M2 worklog](docs/worklog/M2.md))<br>
+AI 측정에서 이동 한 번에 위젯 100개가 다시 만들어지는 원인이 드러났고, 이 순서 계약을 제가 정해 재생성을 없앴습니다. 생성/제거 100/100 → 0/0, median 11.183 → 0.120 ms.<br>
+*한계: 20×20·아이템 100개, Editor PIE 1대 기준입니다. Sort는 여전히 전체를 다시 만듭니다.*
+
+</td>
+</tr>
+</table>
+
+전체 Automation **133 succeeded / 0 failed** (2026-10-19 기록)
 
 ---
 
-## 프로젝트 탐색 가이드
+## 구조
 
-| 순서 | 문서 | 담는 것 |
-| --- | --- | --- |
-| 1 | 포트폴리오 (외부 문서) | 프로젝트 요약과 맡은 역할 |
-| 2 | **README (이 문서)** | What — 개요, 화면, 핵심 기능, 한계 |
-| 3 | [설계결정기록](docs/architecture/) · [작업 기록](docs/worklog/) | How & Why — 결정 근거, 기각한 대안, 판단 주체, 검증 로그 경로 |
+```mermaid
+flowchart LR
+    W1["Widget<br/>드래그 입력"]:::ui --> IVM["UInteractionViewModel<br/>드래그 상태 · 명령"]:::ui
+    IVM -->|"CanMove 미리보기<br/>TryMove 실행"| M["UInventoryModel<br/>원본 상태 소유"]:::core
+    M --> O["FInventoryOperations<br/>전체 검증 → 일괄 커밋"]:::core
+    M -->|"커밋 후<br/>ChangeSet 1회"| CVM["UContainerViewModel<br/>UItemViewModel<br/>사본 없이 ID로 조회"]:::ui
+    CVM -->|"변경 통지"| W2["Widget<br/>화면 갱신"]:::ui
+    classDef ui fill:#dbeafe,stroke:#2563eb,color:#111827
+    classDef core fill:#fef3c7,stroke:#d97706,color:#111827
+```
+
+파란색은 `DuckovLike` 모듈, 노란색은 `InventoryCore` 모듈입니다. 의존 방향은 `Build.cs`로 강제합니다. `InventoryCore`에서 UI 타입을 쓰면 링크 단계에서 빌드가 실패합니다.
+
+## 화면
+
+| 커스터마이징 | 인벤토리 전체 |
+| --- | --- |
+| ![커스터마이징 화면](docs/images/readme/customization.png) | ![인벤토리 화면](docs/images/readme/inventory.png) |
+| 부위 탭 7개, 16색 팔레트, 머리 모양 슬라이더, 실시간 미리보기 | 장비(가방 slot)·가방·창고 그리드 |
+
+![오리 캐릭터 걷기 루프](docs/images/readme/walk.gif)
+
+화면의 캐릭터·UI는 이 프로젝트에서 만든 것이며 원작 화면이나 에셋이 아닙니다.
 
 ---
 
@@ -45,21 +84,6 @@
 구현된 흐름은 타이틀 → 커스터마이징 → 베이스먼트 → 레이드(루팅) → 탈출 → 베이스먼트 창고다.
 상용 게임의 완성이 아니라, 인벤토리와 커스터마이징 시스템을 설계대로 동작함을 검증 가능한 형태로 만드는 것이 목적이다.
 네트워크/Replication, 베이스 건설, 펫·동료, 스킬 트리, 다수의 맵·적·무기는 의도적으로 범위에서 뺐다.
-
----
-
-## 화면
-
-![오리 캐릭터 걷기 루프](docs/images/readme/walk.gif)
-
-걷기 애니메이션 — Blender에서 만든 Idle·Walk를 BlendSpace로 재생하고, 부위 mesh가 body pose를 따른다.
-
-| 인벤토리 | 커스터마이징 |
-| --- | --- |
-| ![인벤토리 화면](docs/images/readme/inventory.png) | ![커스터마이징 화면](docs/images/readme/customization.png) |
-| 장비(가방 slot)·가방·창고 그리드. 드래그로 옮기고, 같은 종류는 스택으로 합친다 | 부위 탭 7개, 16색 팔레트, 머리 모양 슬라이더, 실시간 미리보기 |
-
-화면의 캐릭터·UI는 이 프로젝트에서 만든 것이며 원작 화면이나 에셋이 아니다.
 
 ---
 
@@ -193,6 +217,22 @@ skeletal mesh 테스트가 `-NullRHI`에서 실패하므로 실제 RHI로 돌리
 ```
 
 에디터 시작 맵과 게임 기본 맵은 `L_Title`이다. 타이틀에서 게임 시작을 고르면 커스터마이징 → 베이스먼트로 이어진다.
+
+---
+
+## AI 활용과 판단 주체
+
+이 문서와 설계결정기록의 "사용자"는 저를 가리킵니다.
+
+사용자는 목표·범위와 결과 수용을 맡고, AI는 기능 단위로 설계·구현·검증을 수행합니다.
+AI가 내린 기술 판단과 사용자가 실제 검토·수정한 내용을 구분해 기록합니다.
+각 설계결정기록(ADR) 머리의 `판단 주체`·`사용자 검토` 칸에서 결정마다 확인할 수 있습니다.
+
+판단 주체는 시기에 따라 다릅니다. M1a까지의 Model 결정(설계결정기록 001·003·004·009~012)은 AI가 선택지를 나열하고
+사용자가 최종 결정했습니다. 그 이후의 구조·수치·테스트는 대부분 AI가 위임 범위 안에서 정했고,
+사용자가 정한 목표·선택과 사용자 PIE 확인 여부를 각 기록에 적었습니다. 이 README도 그 구분을 따릅니다.
+
+→ [작업 분담 규약](CLAUDE.md) · [설계결정기록](docs/architecture/) · [작업 기록](docs/worklog/)
 
 ---
 
