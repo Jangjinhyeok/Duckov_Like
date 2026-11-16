@@ -15,6 +15,7 @@ class UInventoryModel;
 class UInventoryScreenWidget;
 class ULoadingScreenWidget;
 class UWidgetComponent;
+struct FInventoryChangeSet;
 
 // 베이스먼트와 레이드 맵의 controller다. 세션 인벤토리를 화면과 월드 오브젝트에 잇는다.
 // 지상 캐릭터가 상호작용 범위에 들어오면 F로 창고 열기·출격·loot 획득·탈출을 한다. O는 조작 설명을 펼친다.
@@ -44,9 +45,15 @@ public:
     UFUNCTION(Exec)
     void ToggleLaserSight();
     // LMB: 무기 slot에 총이 있으면 탄창에서 한 발을 쏘고, 비어 있으면 맨손 근접 공격을 한다.
-    // 잔탄이 없으면 쏘지 않고 HUD에 알린다. 메뉴가 열려 있거나 맵 이동·도착 대기 중이면 무시한다.
+    // 잔탄이 없거나 재장전 중이면 쏘지 않는다. 메뉴가 열려 있거나 맵 이동·도착 대기 중이면 무시한다.
     UFUNCTION(Exec)
     void Attack();
+    // R: 장착한 총을 재장전한다. ReloadDuration이 지나는 순간 가방의 Ammo를 한 번에 소모해 탄창을 채운다.
+    // 그 사이 무기를 해제하거나 바꾸면 취소되고 아무것도 소모하지 않는다. 창고의 탄약은 쓰지 않는다.
+    UFUNCTION(Exec)
+    void Reload();
+    bool IsReloading() const { return ReloadingWeaponId != INDEX_NONE; }
+    static constexpr float ReloadDuration = 1.5f;
     // 범위 안의 대상 중 가장 최근에 들어온 것이다. 없으면 null이다.
     UInteractionRangeComponent* GetInteractionTarget() const;
 protected:
@@ -78,6 +85,10 @@ private:
     FName TravelMap;
     FTimerHandle TravelHandle;
     bool bInRaid = false;
+    // 재장전 중인 무기의 InstanceId다. 재장전 중이 아니면 INDEX_NONE이다.
+    int32 ReloadingWeaponId = INDEX_NONE;
+    FTimerHandle ReloadTimer;
+    FDelegateHandle InventoryChangedHandle;
     UFUNCTION()
     void OnPawnBeginOverlap(AActor* OverlappedActor, AActor* OtherActor);
     UFUNCTION()
@@ -93,6 +104,11 @@ private:
     // 무기 slot에 장착한 항목의 InstanceId다. 비어 있으면 INDEX_NONE이다.
     int32 GetEquippedWeaponId() const;
     void RefreshAimPoint();
+    int32 CountBagAmmo() const;
+    void FinishReload();
+    void CancelReload();
+    void OnInventoryChanged(const FInventoryChangeSet& Change);
+    void RefreshAmmoHud();
     void RefreshHud();
     void DestroyPromptComponent();
     void OnMenuChanged(UCommonActivatableWidget* DisplayedMenu);

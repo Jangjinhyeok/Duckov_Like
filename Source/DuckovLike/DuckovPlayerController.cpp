@@ -42,6 +42,16 @@ FText GetActionName(EInteractionKind Kind)
     return FText::GetEmpty();
 }
 
+// 탄약은 시작 인벤토리·loot와 같은 Definition table의 Ammo 행이다.
+TSoftObjectPtr<UDataTable> GetAmmoTable()
+{
+    return TSoftObjectPtr<UDataTable>(FSoftObjectPath(TEXT("/Game/Inventory/DT_ItemDefinitions.DT_ItemDefinitions")));
+}
+const FName AmmoRow(TEXT("Ammo"));
+
+FText GetOutOfAmmoText() { return NSLOCTEXT("DuckovFlow", "OutOfAmmo", "탄약이 없습니다"); }
+FText GetNoBagAmmoText() { return NSLOCTEXT("DuckovFlow", "NoBagAmmo", "가방에 탄약이 없습니다"); }
+
 FText GetExtractionResultText(EInventoryOperationFailure Result)
 {
     switch (Result)
@@ -84,6 +94,9 @@ void ADuckovPlayerController::BeginPlay()
         Viewport->SetSoftwareCursorWidget(EMouseCursor::Crosshairs, SNew(SAimCrosshair));
     }
     RestoreGameInput();
+    // 탄약 표시는 장착 무기와 가방이 바뀔 때만 갱신한다. 맵을 옮겨도 장착 상태는 세션 Model에 남아 있다.
+    if (Model) { InventoryChangedHandle = Model->OnChanged().AddUObject(this, &ThisClass::OnInventoryChanged); }
+    RefreshAmmoHud();
     // 맵 이동으로 도착했다면 원작처럼 검은 화면에서 클릭을 기다린 뒤 원이 커지며 드러낸다. 그동안 캐릭터는 움직이지 않는다.
     if (Session->ConsumeArrivalPending())
     {
@@ -112,6 +125,7 @@ void ADuckovPlayerController::SetupInputComponent()
     InputComponent->BindKey(EKeys::O, IE_Pressed, this, &ThisClass::ToggleControls);
     InputComponent->BindKey(EKeys::L, IE_Pressed, this, &ThisClass::ToggleLaserSight);
     InputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &ThisClass::Attack);
+    InputComponent->BindKey(EKeys::R, IE_Pressed, this, &ThisClass::Reload);
 }
 
 void ADuckovPlayerController::Attack()
@@ -124,16 +138,100 @@ void ADuckovPlayerController::Attack()
         Attacker->TryMelee();
         return;
     }
+    if (IsReloading()) { return; }
     UGameSessionSubsystem* Session = GetGameInstance()->GetSubsystem<UGameSessionSubsystem>();
     const int32 Rounds = Session->GetMagazineRounds(WeaponId, ADuckovCharacter::RifleMagazineSize);
     if (Rounds <= 0)
     {
-        if (Hud) { Hud->SetMessage(NSLOCTEXT("DuckovFlow", "OutOfAmmo", "탄약이 없습니다")); }
+        if (Hud) { Hud->SetMessage(DuckovFlow::GetOutOfAmmoText()); }
         return;
     }
     // 입력은 이 frame의 조준 갱신보다 먼저 처리되므로 지금 커서로 조준 지점을 먼저 맞춘다.
     RefreshAimPoint();
-    if (Attacker->TryFire()) { Session->SetMagazineRounds(WeaponId, Rounds - 1); }
+    if (Attacker->TryFire())
+    {
+        Session->SetMagazineRounds(WeaponId, Rounds - 1);
+        RefreshAmmoHud();
+    }
+}
+
+void ADuckovPlayerController::Reload()
+{
+    if (!Model || LoadingScreen || IsMenuOpen() || IsReloading()) { return; }
+    const int32 WeaponId = GetEquippedWeaponId();
+    if (WeaponId == INDEX_NONE) { return; }
+    const int32 Full = ADuckovCharacter::RifleMagazineSize;
+    if (GetGameInstance()->GetSubsystem<UGameSessionSubsystem>()->GetMagazineRounds(WeaponId, Full) >= Full) { return; }
+    if (CountBagAmmo() <= 0)
+    {
+        if (Hud) { Hud->SetMessage(DuckovFlow::GetNoBagAmmoText()); }
+        return;
+    }
+    // 재장전을 시작하면 탄약이 없다는 문구만 지운다. 탈출 결과 같은 다른 문구는 남긴다.
+    if (Hud)
+    {
+        Hud->ClearMessageIf(DuckovFlow::GetOutOfAmmoText());
+        Hud->ClearMessageIf(DuckovFlow::GetNoBagAmmoText());
+    }
+    ReloadingWeaponId = WeaponId;
+    GetWorldTimerManager().SetTimer(ReloadTimer, this, &ThisClass::FinishReload, ReloadDuration, false);
+    RefreshAmmoHud();
+}
+
+void ADuckovPlayerController::FinishReload()
+{
+    const int32 WeaponId = ReloadingWeaponId;
+    ReloadingWeaponId = INDEX_NONE;
+    // 재장전 중에 가방 탄약이 줄었을 수 있어 끝나는 순간의 수량으로 정한다. 소모가 실패하면 탄창도 그대로다.
+    UGameSessionSubsystem* Session = GetGameInstance()->GetSubsystem<UGameSessionSubsystem>();
+    const int32 Full = ADuckovCharacter::RifleMagazineSize;
+    const int32 Rounds = Session->GetMagazineRounds(WeaponId, Full);
+    const int32 Loaded = FMath::Min(Full - Rounds, CountBagAmmo());
+    if (Loaded <= 0)
+    {
+        if (Hud) { Hud->SetMessage(DuckovFlow::GetNoBagAmmoText()); }
+    }
+    else if (Model->TryConsume(Model->GetBagContentsContainerId(), DuckovFlow::GetAmmoTable(), DuckovFlow::AmmoRow, Loaded)
+        == EInventoryOperationFailure::None)
+    {
+        Session->SetMagazineRounds(WeaponId, Rounds + Loaded);
+    }
+    else if (Hud)
+    {
+        Hud->SetMessage(NSLOCTEXT("DuckovFlow", "ReloadFailed", "재장전하지 못했습니다"));
+    }
+    RefreshAmmoHud();
+}
+
+void ADuckovPlayerController::CancelReload()
+{
+    GetWorldTimerManager().ClearTimer(ReloadTimer);
+    ReloadingWeaponId = INDEX_NONE;
+}
+
+int32 ADuckovPlayerController::CountBagAmmo() const
+{
+    return Model ? Model->CountItems(Model->GetBagContentsContainerId(), DuckovFlow::GetAmmoTable(), DuckovFlow::AmmoRow) : 0;
+}
+
+void ADuckovPlayerController::OnInventoryChanged(const FInventoryChangeSet& Change)
+{
+    // 재장전 중인 무기가 slot에서 빠지거나 다른 무기로 바뀌면 취소한다. 가방 탄약 변화는 끝나는 순간에 다시 센다.
+    if (IsReloading() && GetEquippedWeaponId() != ReloadingWeaponId) { CancelReload(); }
+    RefreshAmmoHud();
+}
+
+void ADuckovPlayerController::RefreshAmmoHud()
+{
+    if (!Hud) { return; }
+    const int32 WeaponId = GetEquippedWeaponId();
+    if (WeaponId == INDEX_NONE)
+    {
+        Hud->HideAmmo();
+        return;
+    }
+    const int32 Rounds = GetGameInstance()->GetSubsystem<UGameSessionSubsystem>()->GetMagazineRounds(WeaponId, ADuckovCharacter::RifleMagazineSize);
+    Hud->SetAmmo(Rounds, CountBagAmmo(), IsReloading());
 }
 
 int32 ADuckovPlayerController::GetEquippedWeaponId() const
@@ -429,6 +527,9 @@ void ADuckovPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
     if (RootLayout) { RootLayout->GetMenuStack()->OnDisplayedWidgetChanged().RemoveAll(this); }
     GetWorldTimerManager().ClearTimer(RestoreInputHandle);
     GetWorldTimerManager().ClearTimer(TravelHandle);
+    // 맵을 떠나면 끝나지 않은 재장전은 취소된다. 탄약은 끝나는 순간에만 소모하므로 잃지 않는다.
+    CancelReload();
+    if (Model) { Model->OnChanged().Remove(InventoryChangedHandle); }
     // 세션 Model은 다음 맵에서도 남는다. 화면을 비활성화해 이 맵의 ViewModel 구독을 먼저 끊는다.
     if (CustomizationScreen && CustomizationScreen->IsActivated()) { CustomizationScreen->DeactivateWidget(); }
     if (Screen && Screen->IsActivated()) { Screen->DeactivateWidget(); }

@@ -218,6 +218,18 @@ FVector MovedSinceHold(const FBasementScene& Scene)
     return (Scene.Character->GetActorLocation() - Scene.Start) * FVector(1.f, 1.f, 0.f);
 }
 
+UTextBlock* GetHudTextBlock(ADuckovPlayerController* Controller, FName Name)
+{
+    return Field<UTextBlock>(Field<UGameHudWidget>(Controller, TEXT("Hud")), Name);
+}
+
+// 보이지 않으면 빈 문자열이다.
+FString GetAmmoHud(ADuckovPlayerController* Controller)
+{
+    UTextBlock* Ammo = GetHudTextBlock(Controller, TEXT("AmmoText"));
+    return Ammo && Ammo->GetVisibility() != ESlateVisibility::Collapsed ? Ammo->GetText().ToString() : FString();
+}
+
 // 카메라가 고정 yaw이므로 화면 위는 카메라 yaw의 지면 방향이다.
 FVector ScreenUpOnGround(const ADuckovCharacter* Character)
 {
@@ -484,6 +496,140 @@ bool FRifleInput::RunTest(const FString& Parameters)
         TestTrue(TEXT("소총 재장착"),
             Model->TryMove(TEXT("Stash"), TEXT("WeaponSlot"), RifleId, FIntPoint::ZeroValue, false) == EInventoryOperationFailure::None);
         TestEqual(TEXT("재장착해도 빈 탄창 유지"), Session->GetMagazineRounds(RifleId, Full), 0);
+    }, 0.f));
+    ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("PIE 종료"), [] { return !GEditor || !GEditor->PlayWorld; }));
+    return true;
+}
+
+// R 재장전은 시간이 끝나는 순간 가방 Ammo를 한 번에 소모해 탄창을 채운다. 그동안 사격을 막고, 무기를 해제하면 취소한다.
+// 끝나는 순간 가방 탄약이 없으면 아무것도 바꾸지 않는다. 탄약 HUD는 사격·재장전·인벤토리 변경 때 갱신된다.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FReloadFlow, "Duckov.Combat.Reload", Flags)
+bool FReloadFlow::RunTest(const FString& Parameters)
+{
+    if (!TestTrue(TEXT("베이스먼트 map load"), AutomationOpenMap(BasementMap))) { return false; }
+    TSharedRef<FBasementScene> Scene = MakeShared<FBasementScene>();
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("지상 캐릭터 착지"), [Scene]
+    {
+        UWorld* World = GEditor ? GEditor->PlayWorld : nullptr;
+        auto* Controller = World ? Cast<ADuckovPlayerController>(UGameplayStatics::GetPlayerController(World, 0)) : nullptr;
+        auto* Character = Controller ? Cast<ADuckovCharacter>(Controller->GetPawn()) : nullptr;
+        Scene->Controller = Controller;
+        Scene->Character = Character;
+        return Character && Character->GetCharacterMovement()->IsMovingOnGround();
+    }));
+    // 시작 인벤토리: 소총(1)은 창고 (4, 1), 탄약(2) 18발은 창고 (0, 3)에 있다. 가방(4x4)에는 구급상자가 (2, 2)에 있다.
+    constexpr int32 RifleId = 1;
+    constexpr int32 AmmoId = 2;
+    constexpr int32 Full = ADuckovCharacter::RifleMagazineSize;
+    auto Session = [Scene] { return Scene->Controller->GetGameInstance()->GetSubsystem<UGameSessionSubsystem>(); };
+    auto Rounds = [Session] { return Session()->GetMagazineRounds(RifleId, Full); };
+    auto Ammo = [Session](FName ContainerId)
+    {
+        const FItemInstance* Item = Session()->GetInventoryModel()->FindItem(ContainerId, AmmoId);
+        return Item ? Item->Quantity : 0;
+    };
+    auto WaitReload = [this, Scene](const TCHAR* Description)
+    {
+        ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, Description, [Scene]
+        {
+            return IsHoldDone(*Scene, ADuckovPlayerController::ReloadDuration + 0.1);
+        }));
+    };
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene, Session, Rounds]
+    {
+        if (!IsSceneValid(*Scene)) { AddError(TEXT("베이스먼트 scene unavailable")); return; }
+        ADuckovPlayerController* Controller = Scene->Controller.Get();
+        UInventoryModel* Model = Session()->GetInventoryModel();
+        TestEqual(TEXT("무기가 없으면 탄약 HUD 없음"), GetAmmoHud(Controller), FString());
+        TestTrue(TEXT("소총 장착"), Model->TryMove(TEXT("Stash"), TEXT("WeaponSlot"), RifleId, FIntPoint::ZeroValue, false) == EInventoryOperationFailure::None);
+        TestEqual(TEXT("장착하면 잔탄 / 가방 탄약"), GetAmmoHud(Controller), FString(TEXT("20 / 0")));
+        TestTrue(TEXT("탄약을 가방으로"), Model->TryMove(TEXT("Stash"), TEXT("Bag"), AmmoId, FIntPoint::ZeroValue, false) == EInventoryOperationFailure::None);
+        TestEqual(TEXT("가방 변경이 HUD에 반영"), GetAmmoHud(Controller), FString(TEXT("20 / 18")));
+        Controller->Reload();
+        TestFalse(TEXT("가득 찬 탄창은 재장전하지 않음"), Controller->IsReloading());
+
+        Session()->SetMagazineRounds(RifleId, 5);
+        UGameHudWidget* Hud = Field<UGameHudWidget>(Controller, TEXT("Hud"));
+        if (Hud) { Hud->SetMessage(FText::FromString(TEXT("탈출 성공"))); }
+        Controller->Reload();
+        TestTrue(TEXT("재장전 시작"), Controller->IsReloading());
+        UTextBlock* Message = GetHudTextBlock(Controller, TEXT("MessageText"));
+        TestTrue(TEXT("탄약과 무관한 문구는 남김"), Message && Message->GetText().ToString() == TEXT("탈출 성공"));
+        TestEqual(TEXT("재장전 중 표시"), GetAmmoHud(Controller), FString(TEXT("재장전 중  5 / 18")));
+        Controller->Attack();
+        TestEqual(TEXT("재장전 중에는 쏘지 않음"), Rounds(), 5);
+        TestFalse(TEXT("재장전 중 tracer 없음"), Scene->Character->GetTracer()->IsVisible());
+        BeginHold(*Scene);
+    }, 0.f));
+    WaitReload(TEXT("첫 재장전 시간"));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene, Session, Rounds, Ammo]
+    {
+        if (!IsSceneValid(*Scene)) { AddError(TEXT("베이스먼트 scene unavailable")); return; }
+        ADuckovPlayerController* Controller = Scene->Controller.Get();
+        UInventoryModel* Model = Session()->GetInventoryModel();
+        TestFalse(TEXT("재장전 끝"), Controller->IsReloading());
+        TestEqual(TEXT("모자란 15발을 채움"), Rounds(), Full);
+        TestEqual(TEXT("가방 탄약 15발 소모"), Ammo(TEXT("Bag")), 3);
+        TestEqual(TEXT("끝난 뒤 HUD"), GetAmmoHud(Controller), FString(TEXT("20 / 3")));
+
+        // 재장전 중 무기를 해제하면 취소되고 아무것도 소모하지 않는다.
+        Session()->SetMagazineRounds(RifleId, 0);
+        Controller->Reload();
+        TestTrue(TEXT("두 번째 재장전 시작"), Controller->IsReloading());
+        TestTrue(TEXT("재장전 중 소총 해제"), Model->TryMove(TEXT("WeaponSlot"), TEXT("Stash"), RifleId, FIntPoint(4, 1), false) == EInventoryOperationFailure::None);
+        TestFalse(TEXT("해제하면 재장전 취소"), Controller->IsReloading());
+        TestEqual(TEXT("해제하면 탄약 HUD 감춤"), GetAmmoHud(Controller), FString());
+        BeginHold(*Scene);
+    }, 0.f));
+    WaitReload(TEXT("취소된 재장전 시간"));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene, Session, Rounds, Ammo]
+    {
+        if (!IsSceneValid(*Scene)) { AddError(TEXT("베이스먼트 scene unavailable")); return; }
+        ADuckovPlayerController* Controller = Scene->Controller.Get();
+        UInventoryModel* Model = Session()->GetInventoryModel();
+        TestEqual(TEXT("취소된 재장전은 소모 없음"), Ammo(TEXT("Bag")), 3);
+        TestEqual(TEXT("취소된 재장전은 탄창 그대로"), Rounds(), 0);
+
+        // 재장전 중 가방 탄약이 모두 빠지면 끝나는 순간 아무것도 바꾸지 않는다.
+        TestTrue(TEXT("소총 재장착"), Model->TryMove(TEXT("Stash"), TEXT("WeaponSlot"), RifleId, FIntPoint::ZeroValue, false) == EInventoryOperationFailure::None);
+        Controller->Reload();
+        TestTrue(TEXT("세 번째 재장전 시작"), Controller->IsReloading());
+        TestTrue(TEXT("재장전 중 탄약을 창고로"), Model->TryMove(TEXT("Bag"), TEXT("Stash"), AmmoId, FIntPoint(0, 3), false) == EInventoryOperationFailure::None);
+        TestTrue(TEXT("탄약이 빠져도 재장전은 계속"), Controller->IsReloading());
+        BeginHold(*Scene);
+    }, 0.f));
+    WaitReload(TEXT("가방 탄약이 빠진 재장전 시간"));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene, Session, Rounds, Ammo]
+    {
+        if (!IsSceneValid(*Scene)) { AddError(TEXT("베이스먼트 scene unavailable")); return; }
+        ADuckovPlayerController* Controller = Scene->Controller.Get();
+        UInventoryModel* Model = Session()->GetInventoryModel();
+        TestFalse(TEXT("재장전 끝"), Controller->IsReloading());
+        TestEqual(TEXT("탄창 그대로"), Rounds(), 0);
+        TestEqual(TEXT("창고 탄약은 쓰지 않음"), Ammo(TEXT("Stash")), 3);
+        UTextBlock* Message = GetHudTextBlock(Controller, TEXT("MessageText"));
+        TestTrue(TEXT("가방 탄약 없음 알림"), Message && Message->GetText().ToString() == TEXT("가방에 탄약이 없습니다"));
+
+        // 가방 탄약이 모자라면 있는 만큼만 채우고 빈 스택은 없어진다.
+        TestTrue(TEXT("탄약을 다시 가방으로"), Model->TryMove(TEXT("Stash"), TEXT("Bag"), AmmoId, FIntPoint::ZeroValue, false) == EInventoryOperationFailure::None);
+        Controller->Reload();
+        TestTrue(TEXT("네 번째 재장전 시작"), Controller->IsReloading());
+        TestTrue(TEXT("재장전 시작이 탄약 없음 문구를 지움"), Message && Message->GetText().IsEmpty());
+        BeginHold(*Scene);
+    }, 0.f));
+    WaitReload(TEXT("모자란 재장전 시간"));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene, Session, Rounds]
+    {
+        if (!IsSceneValid(*Scene)) { AddError(TEXT("베이스먼트 scene unavailable")); return; }
+        ADuckovPlayerController* Controller = Scene->Controller.Get();
+        TestEqual(TEXT("있는 3발만 채움"), Rounds(), 3);
+        TestNull(TEXT("다 쓴 탄약 스택은 없어짐"), Session()->GetInventoryModel()->FindItem(TEXT("Bag"), AmmoId));
+        TestEqual(TEXT("모자란 재장전 뒤 HUD"), GetAmmoHud(Controller), FString(TEXT("3 / 0")));
+        Controller->Reload();
+        TestFalse(TEXT("가방 탄약이 없으면 시작하지 않음"), Controller->IsReloading());
+        UTextBlock* Message = GetHudTextBlock(Controller, TEXT("MessageText"));
+        TestTrue(TEXT("시작 거부 알림"), Message && Message->GetText().ToString() == TEXT("가방에 탄약이 없습니다"));
     }, 0.f));
     ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
     ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("PIE 종료"), [] { return !GEditor || !GEditor->PlayWorld; }));

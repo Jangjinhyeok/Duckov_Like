@@ -50,6 +50,7 @@ void UGameHudWidget::NativeOnInitialized()
         {NSLOCTEXT("Hud", "Move", "이동"), FText::FromString(TEXT("W A S D"))},
         {NSLOCTEXT("Hud", "Sprint", "달리기"), FText::FromString(TEXT("Shift"))},
         {NSLOCTEXT("Hud", "Attack", "공격"), FText::FromString(TEXT("LMB"))},
+        {NSLOCTEXT("Hud", "Reload", "재장전"), FText::FromString(TEXT("R"))},
         {NSLOCTEXT("Hud", "Interact", "상호작용"), FText::FromString(TEXT("F"))},
         {NSLOCTEXT("Hud", "Inventory", "인벤토리"), FText::FromString(TEXT("I"))},
         {NSLOCTEXT("Hud", "LaserSight", "레이저 사이트(테스트)"), FText::FromString(TEXT("L"))},
@@ -78,6 +79,11 @@ void UGameHudWidget::NativeOnInitialized()
     MessageText->SetColorAndOpacity(FSlateColor(FLinearColor(1.f, 0.85f, 0.4f)));
     Place(Root, MessageText, FAnchors(0.5f, 0.8f), FVector2D(0.5f, 0.f), FVector2D::ZeroVector);
 
+    // 오른쪽 아래: 총을 장착했을 때만 "잔탄 / 가방 탄약".
+    AmmoText = DuckovHudStyle::MakeShadowText(*WidgetTree, TEXT("AmmoText"), FText::GetEmpty(), 20);
+    AmmoText->SetVisibility(ESlateVisibility::Collapsed);
+    Place(Root, AmmoText, FAnchors(1.f, 1.f), FVector2D(1.f, 1.f), FVector2D(-28.f, -28.f));
+
     SetVisibility(ESlateVisibility::HitTestInvisible);
 }
 
@@ -89,6 +95,25 @@ void UGameHudWidget::SetLocation(const FText& Text)
 void UGameHudWidget::SetMessage(const FText& Text)
 {
     if (MessageText) { MessageText->SetText(Text); }
+}
+
+void UGameHudWidget::ClearMessageIf(const FText& Text)
+{
+    if (MessageText && MessageText->GetText().EqualTo(Text)) { MessageText->SetText(FText::GetEmpty()); }
+}
+
+void UGameHudWidget::SetAmmo(int32 Rounds, int32 Carried, bool bReloading)
+{
+    if (!AmmoText) { return; }
+    AmmoText->SetText(bReloading
+        ? FText::Format(NSLOCTEXT("Hud", "AmmoReloading", "재장전 중  {0} / {1}"), Rounds, Carried)
+        : FText::Format(NSLOCTEXT("Hud", "Ammo", "{0} / {1}"), Rounds, Carried));
+    AmmoText->SetVisibility(ESlateVisibility::HitTestInvisible);
+}
+
+void UGameHudWidget::HideAmmo()
+{
+    if (AmmoText) { AmmoText->SetVisibility(ESlateVisibility::Collapsed); }
 }
 
 void UGameHudWidget::ToggleControls()
