@@ -10,6 +10,7 @@
 #include "InteractionPointActor.h"
 #include "InteractionRangeComponent.h"
 #include "InventoryScreenWidget.h"
+#include "TrainingDummyActor.h"
 #include "WorldLootActor.h"
 #include "Animation/AnimSingleNodeInstance.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -125,6 +126,23 @@ AInteractionPointActor* SpawnPoint(UWorld* World, const TCHAR* Label, EInteracti
     return Point;
 }
 
+// 과녁은 시작 위치에서 보이되 창고·출격·탈출 지점과 loot로 가는 길에서 벗어난 곳에 둔다.
+const FVector BasementDummyLocation(-600.f, 450.f, 0.f);
+const FVector RaidDummyLocation(-400.f, -1100.f, 0.f);
+
+void SpawnTrainingDummy(UWorld* World, const FVector& Location)
+{
+    ATrainingDummyActor* Dummy = World->SpawnActor<ATrainingDummyActor>(Location, FRotator::ZeroRotator);
+    Dummy->SetActorLabel(TEXT("TrainingDummy"));
+}
+
+int32 CountTrainingDummies(UWorld* World)
+{
+    int32 Count = 0;
+    for (TActorIterator<ATrainingDummyActor> It(World); It; ++It) { ++Count; }
+    return Count;
+}
+
 void SendKey(FKey Key, bool bDown)
 {
     FSlateApplication& Slate = FSlateApplication::Get();
@@ -201,6 +219,7 @@ bool FCreateBasementAssets::RunTest(const FString& Parameters)
         TEXT("/Engine/BasicShapes/Cube.Cube"), FVector(1.6f, 0.8f, 1.f), true);
     SpawnPoint(World, TEXT("SortiePoint"), EInteractionKind::Sortie, FVector(850.f, 350.f, 2.f),
         TEXT("/Engine/BasicShapes/Cylinder.Cylinder"), FVector(2.f, 2.f, 0.04f), false);
+    SpawnTrainingDummy(World, BasementDummyLocation);
     SpawnLighting(World);
     APlayerStart* Start = World->SpawnActor<APlayerStart>(FVector(0.f, 0.f, 100.f), FRotator::ZeroRotator);
     Start->SetActorLabel(TEXT("PlayerStart"));
@@ -234,6 +253,7 @@ bool FBasementAssets::RunTest(const FString& Parameters)
     TestEqual(TEXT("창고 하나"), Points.FindRef(EInteractionKind::Stash), 1);
     TestEqual(TEXT("출격 지점 하나"), Points.FindRef(EInteractionKind::Sortie), 1);
     TestEqual(TEXT("베이스먼트에는 탈출 지점 없음"), Points.FindRef(EInteractionKind::Extraction), 0);
+    TestEqual(TEXT("과녁 하나"), CountTrainingDummies(World), 1);
     return true;
 }
 
@@ -271,6 +291,7 @@ bool FCreateRaidAssets::RunTest(const FString& Parameters)
     SpawnLoot(TEXT("Loot_Rifle"), TEXT("Rifle"), 1, FVector(500.f, 300.f, 15.f));
     SpawnPoint(World, TEXT("ExtractionPoint"), EInteractionKind::Extraction, FVector(1150.f, 1150.f, 2.f),
         TEXT("/Engine/BasicShapes/Cylinder.Cylinder"), FVector(3.f, 3.f, 0.04f), false);
+    SpawnTrainingDummy(World, RaidDummyLocation);
     SpawnLighting(World);
     APlayerStart* Start = World->SpawnActor<APlayerStart>(FVector(-1200.f, -1200.f, 100.f), FRotator::ZeroRotator);
     Start->SetActorLabel(TEXT("PlayerStart"));
@@ -298,6 +319,28 @@ bool FRaidAssets::RunTest(const FString& Parameters)
     TestEqual(TEXT("탈출 지점 하나"), Points.FindRef(EInteractionKind::Extraction), 1);
     TestEqual(TEXT("레이드에는 창고 없음"), Points.FindRef(EInteractionKind::Stash), 0);
     TestEqual(TEXT("레이드에는 출격 지점 없음"), Points.FindRef(EInteractionKind::Sortie), 0);
+    TestEqual(TEXT("과녁 하나"), CountTrainingDummies(World), 1);
+    return true;
+}
+
+// 이미 만든 베이스먼트·레이드 맵에 과녁을 더하는 명시 실행 경로다. 과녁이 있으면 저장하지 않아 다시 실행해도 같다.
+// 새로 만드는 맵은 위 생성 경로가 같은 위치에 과녁을 둔다.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAddTrainingDummies, "TrainingDummyAssets.AddToMaps", Flags)
+bool FAddTrainingDummies::RunTest(const FString& Parameters)
+{
+    const TPair<const TCHAR*, FVector> Targets[] = { { BasementMap, BasementDummyLocation }, { RaidMap, RaidDummyLocation } };
+    for (const TPair<const TCHAR*, FVector>& Target : Targets)
+    {
+        UWorld* World = UEditorLoadingAndSavingUtils::LoadMap(Target.Key);
+        if (!World) { AddError(FString::Printf(TEXT("map load 실패: %s"), Target.Key)); return false; }
+        if (CountTrainingDummies(World) > 0)
+        {
+            AddInfo(FString::Printf(TEXT("이미 과녁이 있어 저장하지 않습니다: %s"), Target.Key));
+            continue;
+        }
+        SpawnTrainingDummy(World, Target.Value);
+        if (!UEditorLoadingAndSavingUtils::SaveMap(World, Target.Key)) { AddError(FString::Printf(TEXT("map 저장 실패: %s"), Target.Key)); return false; }
+    }
     return true;
 }
 
