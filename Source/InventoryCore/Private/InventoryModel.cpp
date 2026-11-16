@@ -642,3 +642,55 @@ EInventoryOperationFailure UInventoryModel::TryAdd(FName ContainerId, TSoftObjec
         return EInventoryOperationFailure::NoSpace;
     });
 }
+
+int32 UInventoryModel::CountItems(FName ContainerId, const TSoftObjectPtr<UDataTable>& DefinitionTable,
+    FName DefinitionRowName) const
+{
+    const FInventoryContainer* Container = FindContainer(ContainerId);
+    if (!Container) { return 0; }
+    int32 Total = 0;
+    for (const FItemInstance& Item : Container->Items)
+    {
+        if (Item.DefinitionRowName == DefinitionRowName && Item.DefinitionTable == DefinitionTable) { Total += Item.Quantity; }
+    }
+    return Total;
+}
+
+EInventoryOperationFailure UInventoryModel::TryConsume(FName ContainerId, TSoftObjectPtr<UDataTable> DefinitionTable,
+    FName DefinitionRowName, int32 Quantity)
+{
+    return Apply(ContainerId, ContainerId, [=](FInventoryContainer& Container, FInventoryContainer&)
+    {
+        if (Quantity <= 0) { return EInventoryOperationFailure::InvalidQuantity; }
+        TArray<int32> Matches;
+        for (int32 Index = 0; Index < Container.Items.Num(); ++Index)
+        {
+            const FItemInstance& Item = Container.Items[Index];
+            if (Item.DefinitionRowName == DefinitionRowName && Item.DefinitionTable == DefinitionTable) { Matches.Add(Index); }
+        }
+        // 스택을 채우는 순서(위 행, 왼쪽 칸부터)의 반대로 쓴다. 위쪽 스택이 가득 찬 채로 남는다.
+        Matches.Sort([&Container](int32 Left, int32 Right)
+        {
+            const FIntPoint& A = Container.Items[Left].AnchorCell;
+            const FIntPoint& B = Container.Items[Right].AnchorCell;
+            return A.Y != B.Y ? A.Y > B.Y : A.X > B.X;
+        });
+        FInventoryContainer Planned = Container;
+        TSet<int32> Emptied;
+        int32 Remaining = Quantity;
+        for (const int32 Index : Matches)
+        {
+            FItemInstance& Item = Planned.Items[Index];
+            const int32 Taken = FMath::Min(Remaining, Item.Quantity);
+            Item.Quantity -= Taken;
+            Remaining -= Taken;
+            if (Item.Quantity == 0) { Emptied.Add(Item.InstanceId); }
+            if (Remaining == 0) { break; }
+        }
+        if (Remaining > 0) { return EInventoryOperationFailure::InvalidQuantity; }
+        Planned.Items.RemoveAll([&Emptied](const FItemInstance& Item) { return Emptied.Contains(Item.InstanceId); });
+        FInventoryPlacement::RebuildOccupancyCache(Planned);
+        Container = MoveTemp(Planned);
+        return EInventoryOperationFailure::None;
+    });
+}

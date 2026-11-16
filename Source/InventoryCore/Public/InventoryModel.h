@@ -53,6 +53,12 @@ public:
     EInventoryOperationFailure TryResize(FName ContainerId, FIntPoint Size);
     EInventoryOperationFailure TryAdd(FName ContainerId, TSoftObjectPtr<UDataTable> DefinitionTable,
         FName DefinitionRowName, int32 Quantity);
+    // 컨테이너 안에서 같은 정의(table과 row)를 가진 항목의 수량 합계다. 컨테이너가 없으면 0이다.
+    int32 CountItems(FName ContainerId, const TSoftObjectPtr<UDataTable>& DefinitionTable, FName DefinitionRowName) const;
+    // 같은 정의의 항목들에서 Quantity만큼 원자적으로 뺀다. 아래 행, 오른쪽 칸의 항목부터 쓰고 0이 된 항목은 없앤다.
+    // Quantity가 0 이하이거나 합계보다 크면 InvalidQuantity이고 아무것도 바꾸지 않는다. 가방·장비 slot은 InvalidContainer다.
+    EInventoryOperationFailure TryConsume(FName ContainerId, TSoftObjectPtr<UDataTable> DefinitionTable,
+        FName DefinitionRowName, int32 Quantity);
 
     // 저장된 slot 항목과 contents 크기를 검증한다. binding은 save v1에 추가하지 않는다.
     EInventoryOperationFailure BindBagSlot(FName SlotId, FName BagId, FName ExchangeContainerId);
