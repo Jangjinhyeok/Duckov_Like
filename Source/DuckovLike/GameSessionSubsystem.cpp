@@ -69,6 +69,12 @@ TOptional<EInventoryOperationFailure> UGameSessionSubsystem::ConsumeExtractionRe
     return Result;
 }
 
+int32 UGameSessionSubsystem::GetMagazineRounds(int32 WeaponInstanceId, int32 FullRounds) const
+{
+    const int32* Rounds = MagazineRounds.Find(WeaponInstanceId);
+    return Rounds ? *Rounds : FullRounds;
+}
+
 bool UGameSessionSubsystem::ConsumeArrivalPending()
 {
     const bool bPending = bArrivalPending;

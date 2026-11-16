@@ -25,6 +25,10 @@ public:
     // 맵에서 바로 시작한 PIE에는 남아 있지 않으므로 대기 화면 없이 시작한다.
     void SetArrivalPending() { bArrivalPending = true; }
     bool ConsumeArrivalPending();
+    // 무기 InstanceId별 탄창 잔탄이다. 저장 레코드에 넣지 않아 세션 메모리에만 있다(저장 포맷 v1 유지).
+    // 처음 묻는 무기는 FullRounds(가득 찬 탄창)로 시작한다. 맵을 옮기거나 해제했다 다시 장착해도 유지된다.
+    int32 GetMagazineRounds(int32 WeaponInstanceId, int32 FullRounds) const;
+    void SetMagazineRounds(int32 WeaponInstanceId, int32 Rounds) { MagazineRounds.Add(WeaponInstanceId, Rounds); }
 private:
     UPROPERTY(Transient)
     TObjectPtr<UCustomizationModel> CustomizationModel;
@@ -32,4 +36,5 @@ private:
     TObjectPtr<UInventoryModel> InventoryModel;
     TOptional<EInventoryOperationFailure> PendingExtractionResult;
     bool bArrivalPending = false;
+    TMap<int32, int32> MagazineRounds;
 };

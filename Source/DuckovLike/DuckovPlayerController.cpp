@@ -16,6 +16,7 @@
 #include "InputCoreTypes.h"
 #include "InteractionPromptWidget.h"
 #include "InteractionRangeComponent.h"
+#include "InventoryContainer.h"
 #include "InventoryModel.h"
 #include "InventoryScreenWidget.h"
 #include "Kismet/GameplayStatics.h"
@@ -115,8 +116,31 @@ void ADuckovPlayerController::SetupInputComponent()
 
 void ADuckovPlayerController::Attack()
 {
-    if (LoadingScreen || IsMenuOpen()) { return; }
-    if (ADuckovCharacter* Attacker = Cast<ADuckovCharacter>(GetPawn())) { Attacker->TryMelee(); }
+    ADuckovCharacter* Attacker = Cast<ADuckovCharacter>(GetPawn());
+    if (!Attacker || LoadingScreen || IsMenuOpen()) { return; }
+    const int32 WeaponId = GetEquippedWeaponId();
+    if (WeaponId == INDEX_NONE)
+    {
+        Attacker->TryMelee();
+        return;
+    }
+    UGameSessionSubsystem* Session = GetGameInstance()->GetSubsystem<UGameSessionSubsystem>();
+    const int32 Rounds = Session->GetMagazineRounds(WeaponId, ADuckovCharacter::RifleMagazineSize);
+    if (Rounds <= 0)
+    {
+        if (Hud) { Hud->SetMessage(NSLOCTEXT("DuckovFlow", "OutOfAmmo", "탄약이 없습니다")); }
+        return;
+    }
+    // 입력은 이 frame의 조준 갱신보다 먼저 처리되므로 지금 커서로 조준 지점을 먼저 맞춘다.
+    RefreshAimPoint();
+    if (Attacker->TryFire()) { Session->SetMagazineRounds(WeaponId, Rounds - 1); }
+}
+
+int32 ADuckovPlayerController::GetEquippedWeaponId() const
+{
+    // slot에는 무기 종류 항목만 하나 들어간다(장비 slot 등록 규칙). 조회 포인터는 이 호출 안에서만 쓴다.
+    const FInventoryContainer* Weapons = Model ? Model->FindContainer(TEXT("WeaponSlot")) : nullptr;
+    return Weapons && Weapons->Items.Num() > 0 ? Weapons->Items[0].InstanceId : INDEX_NONE;
 }
 
 void ADuckovPlayerController::OnPossess(APawn* InPawn)
@@ -287,6 +311,11 @@ void ADuckovPlayerController::OpenCustomization()
 void ADuckovPlayerController::PlayerTick(float DeltaTime)
 {
     Super::PlayerTick(DeltaTime);
+    RefreshAimPoint();
+}
+
+void ADuckovPlayerController::RefreshAimPoint()
+{
     // 메뉴나 로딩 화면이 있는 동안 커서는 UI를 가리키므로 조준을 바꾸지 않는다. 커서가 viewport 밖이면 마지막 조준을 유지한다.
     ADuckovCharacter* Aimer = Cast<ADuckovCharacter>(GetPawn());
     FVector2D Mouse;

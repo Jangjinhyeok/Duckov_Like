@@ -34,5 +34,13 @@ struct FPlayWorld
     }
 };
 
+// 겹쳐도 그 자리에 놓는다. 판정 거리를 정확히 맞추려고 위치를 밀어내지 않는다.
+template <typename T>
+T* SpawnAt(UWorld* World, const FVector& Location)
+{
+    FActorSpawnParameters Params;
+    Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+    return World->SpawnActor<T>(Location, FRotator::ZeroRotator, Params);
+}
 }
 #endif

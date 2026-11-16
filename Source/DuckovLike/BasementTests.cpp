@@ -5,16 +5,19 @@
 #include "CustomizationAppearanceComponent.h"
 #include "CustomizationModel.h"
 #include "DuckovCharacter.h"
+#include "GameHudWidget.h"
 #include "GameSessionSubsystem.h"
 #include "DuckovPlayerController.h"
 #include "InteractionPointActor.h"
 #include "InteractionRangeComponent.h"
+#include "InventoryModel.h"
 #include "InventoryScreenWidget.h"
 #include "TrainingDummyActor.h"
 #include "WorldLootActor.h"
 #include "Animation/AnimSingleNodeInstance.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/TextBlock.h"
 #include "Editor.h"
 #include "Engine/DirectionalLight.h"
 #include "Engine/SkyLight.h"
@@ -427,6 +430,63 @@ bool FMeleeInput::RunTest(const FString& Parameters)
     {
         FSlateApplication::Get().SetHandleDeviceInputWhenApplicationNotActive(Scene->bOriginalInactiveInput);
     }, 0.f));
+    return true;
+}
+
+// 무기 slot에 총을 장착하면 LMB가 근접 대신 사격이 되고 탄창에서 한 발씩 빠진다. 잔탄이 없으면 쏘지 않고 알린다.
+// 실제 마우스 위치가 쏘는 방향을 정하므로 과녁 적중은 Duckov.Combat.Rifle이 맡고, 여기서는 controller의 분기와 탄창을 본다.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRifleInput, "Duckov.Combat.RifleInput", Flags)
+bool FRifleInput::RunTest(const FString& Parameters)
+{
+    if (!TestTrue(TEXT("베이스먼트 map load"), AutomationOpenMap(BasementMap))) { return false; }
+    TSharedRef<FBasementScene> Scene = MakeShared<FBasementScene>();
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("지상 캐릭터 착지"), [Scene]
+    {
+        UWorld* World = GEditor ? GEditor->PlayWorld : nullptr;
+        auto* Controller = World ? Cast<ADuckovPlayerController>(UGameplayStatics::GetPlayerController(World, 0)) : nullptr;
+        auto* Character = Controller ? Cast<ADuckovCharacter>(Controller->GetPawn()) : nullptr;
+        Scene->Controller = Controller;
+        Scene->Character = Character;
+        return Character && Character->GetCharacterMovement()->IsMovingOnGround();
+    }));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        if (!IsSceneValid(*Scene)) { AddError(TEXT("베이스먼트 scene unavailable")); return; }
+        ADuckovPlayerController* Controller = Scene->Controller.Get();
+        ADuckovCharacter* Shooter = Scene->Character.Get();
+        UGameSessionSubsystem* Session = Controller->GetGameInstance()->GetSubsystem<UGameSessionSubsystem>();
+        UInventoryModel* Model = Session->GetInventoryModel();
+        constexpr int32 RifleId = 1;
+        constexpr int32 Full = ADuckovCharacter::RifleMagazineSize;
+        // 시작 인벤토리의 소총은 창고 (4, 1)에 있다.
+        if (!TestTrue(TEXT("소총을 무기 slot에 장착"),
+            Model->TryMove(TEXT("Stash"), TEXT("WeaponSlot"), RifleId, FIntPoint::ZeroValue, false) == EInventoryOperationFailure::None)) { return; }
+        TestEqual(TEXT("처음 장착한 총은 가득 찬 탄창"), Session->GetMagazineRounds(RifleId, Full), Full);
+
+        Controller->Attack();
+        TestTrue(TEXT("장착하면 사격"), Shooter->GetTracer()->IsVisible());
+        TestFalse(TEXT("근접 공격은 나가지 않음"), Shooter->GetMeleeSwing()->IsVisible());
+        TestEqual(TEXT("한 발 소모"), Session->GetMagazineRounds(RifleId, Full), Full - 1);
+
+        // 탄창이 비면 쏘지 않고 이유를 알린다. 이 분기는 사격 간격과 무관하게 먼저 걸린다.
+        Session->SetMagazineRounds(RifleId, 0);
+        Controller->Attack();
+        TestEqual(TEXT("빈 탄창은 그대로"), Session->GetMagazineRounds(RifleId, Full), 0);
+        UTextBlock* Message = Field<UTextBlock>(Field<UGameHudWidget>(Controller, TEXT("Hud")), TEXT("MessageText"));
+        TestTrue(TEXT("탄약 없음 알림"), Message && Message->GetText().ToString() == TEXT("탄약이 없습니다"));
+
+        // 해제하면 다시 맨손 근접 공격이다.
+        if (!TestTrue(TEXT("소총 해제"),
+            Model->TryMove(TEXT("WeaponSlot"), TEXT("Stash"), RifleId, FIntPoint(4, 1), false) == EInventoryOperationFailure::None)) { return; }
+        Controller->Attack();
+        TestTrue(TEXT("해제하면 근접 공격"), Shooter->GetMeleeSwing()->IsVisible());
+        // 잔탄은 무기 InstanceId에 붙어 있어 다시 장착해도 그대로다.
+        TestTrue(TEXT("소총 재장착"),
+            Model->TryMove(TEXT("Stash"), TEXT("WeaponSlot"), RifleId, FIntPoint::ZeroValue, false) == EInventoryOperationFailure::None);
+        TestEqual(TEXT("재장착해도 빈 탄창 유지"), Session->GetMagazineRounds(RifleId, Full), 0);
+    }, 0.f));
+    ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("PIE 종료"), [] { return !GEditor || !GEditor->PlayWorld; }));
     return true;
 }
 

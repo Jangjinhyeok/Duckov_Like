@@ -37,6 +37,8 @@ constexpr float AimLineWidth = 1.5f;
 constexpr float AimDotSize = 5.f;
 const FLinearColor AimColor(1.f, 0.85f, 0.1f);
 const FLinearColor MeleeSwingColor(0.95f, 0.95f, 0.85f);
+constexpr float TracerWidth = 3.f;
+const FLinearColor TracerColor(1.f, 0.95f, 0.6f);
 
 UStaticMeshComponent* CreateAimMesh(ADuckovCharacter* Owner, const TCHAR* Name, UStaticMesh* Mesh)
 {
@@ -89,6 +91,7 @@ ADuckovCharacter::ADuckovCharacter()
     static ConstructorHelpers::FObjectFinder<UStaticMesh> Sphere(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
     AimLine = DuckovCharacterSetup::CreateAimMesh(this, TEXT("AimLine"), Cylinder.Object);
     AimDot = DuckovCharacterSetup::CreateAimMesh(this, TEXT("AimDot"), Sphere.Object);
+    Tracer = DuckovCharacterSetup::CreateAimMesh(this, TEXT("Tracer"), Cylinder.Object);
     // 판정 구의 수평 단면(캐릭터 중심 높이)과 같은 크기의 얇은 원판을 발밑 2 cm 위에 둔다. 캐릭터와 함께 돌아 항상 앞쪽에 있다.
     // 구라서 바닥 높이의 단면은 더 작다. 캐릭터 중심 높이에 닿는 대상(과녁)에는 원판 범위가 판정과 같다.
     MeleeSwing = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("MeleeSwing"));
@@ -137,6 +140,9 @@ void ADuckovCharacter::BeginPlay()
         UMaterialInstanceDynamic* SwingMaterial = UMaterialInstanceDynamic::Create(Material, this);
         SwingMaterial->SetVectorParameterValue(TEXT("Color"), DuckovCharacterSetup::MeleeSwingColor);
         MeleeSwing->SetMaterial(0, SwingMaterial);
+        UMaterialInstanceDynamic* TracerMaterial = UMaterialInstanceDynamic::Create(Material, this);
+        TracerMaterial->SetVectorParameterValue(TEXT("Color"), DuckovCharacterSetup::TracerColor);
+        Tracer->SetMaterial(0, TracerMaterial);
     }
     UAnimationAsset* Locomotion = LoadObject<UAnimationAsset>(nullptr, LocomotionAnimationPath);
     if (!Locomotion) { UE_LOG(LogTemp, Warning, TEXT("걷기 애니메이션 없음: %s. reference pose로 표시합니다"), LocomotionAnimationPath); }
@@ -243,9 +249,41 @@ void ADuckovCharacter::HideMeleeSwing()
     MeleeSwing->SetVisibility(false);
 }
 
+bool ADuckovCharacter::TryFire()
+{
+    UWorld* World = GetWorld();
+    if (!World || World->GetTimeSeconds() < NextFireTime) { return false; }
+    NextFireTime = World->GetTimeSeconds() + RifleInterval;
+    // 회전은 매 frame Tick이 맞추므로 입력 시점에는 한 frame 전 방향이다. 쏘기 전에 지금 조준 지점으로 돌린다.
+    UpdateAim();
+    const FVector Direction = GetActorForwardVector();
+    const FVector Start = GetActorLocation() + Direction * GetCapsuleComponent()->GetScaledCapsuleRadius();
+    FVector End = Start + Direction * RifleRange;
+    // 보이는 것을 막는 채널로 쏘아 벽·상자에서 멈춘다. 처음 막은 것이 ability system을 가졌을 때만 피해가 들어간다.
+    FHitResult Hit;
+    if (World->LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, FCollisionQueryParams(SCENE_QUERY_STAT(DuckovFire), false, this)))
+    {
+        End = Hit.ImpactPoint;
+        if (AActor* Target = Hit.GetActor()) { DuckovDamage::Apply(Target, RifleDamage, this); }
+    }
+    // Cylinder는 높이 100 cm, 지름 100 cm이고 Z축 방향이다.
+    const float Length = FVector::Dist(Start, End);
+    Tracer->SetWorldLocationAndRotation((Start + End) * 0.5f, FRotationMatrix::MakeFromZ(Direction).Rotator());
+    Tracer->SetWorldScale3D(FVector(DuckovCharacterSetup::TracerWidth / 100.f, DuckovCharacterSetup::TracerWidth / 100.f, Length / 100.f));
+    Tracer->SetVisibility(true);
+    GetWorldTimerManager().SetTimer(TracerTimer, this, &ThisClass::HideTracer, TracerDuration, false);
+    return true;
+}
+
+void ADuckovCharacter::HideTracer()
+{
+    Tracer->SetVisibility(false);
+}
+
 void ADuckovCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
     GetWorldTimerManager().ClearTimer(MeleeSwingTimer);
+    GetWorldTimerManager().ClearTimer(TracerTimer);
     if (CustomizationModel) { CustomizationModel->OnChanged().Remove(CustomizationHandle); }
     CustomizationModel = nullptr;
     Super::EndPlay(EndPlayReason);

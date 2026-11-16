@@ -17,8 +17,8 @@ struct FInputActionValue;
 // 지상 플레이 캐릭터다. 화면 기준 WASD 이동과 달리기, 고정 각도 탑다운 카메라를 갖는다.
 // 원작처럼 이동 방향과 무관하게 조준 지점(마우스 커서)을 바라보고 카메라를 그쪽으로 앞당긴다.
 // 조준 지점까지의 선은 레이저 사이트를 켰을 때만 보인다(원작은 총기에 레이저 사이트를 달아야 보인다).
-// 맨손 근접 공격은 바라보는 방향으로 나간다. 피해는 대상의 ability system이 처리한다.
-// 외형은 세션의 커스터마이징 Model에서 확정된 Profile을 따른다. 위치·이동·공격 간격 외의 게임 상태는 소유하지 않는다.
+// 맨손 근접 공격과 총 사격은 바라보는 방향으로 나간다. 피해는 대상의 ability system이 처리한다.
+// 외형은 세션의 커스터마이징 Model에서 확정된 Profile을 따른다. 위치·이동·공격 간격 외의 게임 상태는 소유하지 않는다(탄창 잔탄도 세션이 갖는다).
 UCLASS()
 class DUCKOVLIKE_API ADuckovCharacter : public ACharacter
 {
@@ -55,6 +55,15 @@ public:
     static constexpr float MeleeReach = 70.f;
     static constexpr float MeleeRadius = 50.f;
     static constexpr float MeleeSwingDuration = 0.12f;
+    // 장착한 총의 사격이다. 조준 지점 쪽으로 몸 가장자리에서 hitscan을 쏴 처음 막는 것에 피해를 준다. 벽에 막힌다.
+    // 잔탄을 확인하고 소모하는 것은 호출자다. 사격 간격이 지나지 않았으면 아무것도 하지 않고 false다.
+    bool TryFire();
+    UStaticMeshComponent* GetTracer() const { return Tracer; }
+    static constexpr float RifleDamage = 20.f;
+    static constexpr float RifleInterval = 0.15f;
+    static constexpr float RifleRange = 3000.f;
+    static constexpr int32 RifleMagazineSize = 20;
+    static constexpr float TracerDuration = 0.05f;
 protected:
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -80,6 +89,11 @@ private:
     TObjectPtr<UStaticMeshComponent> MeleeSwing;
     FTimerHandle MeleeSwingTimer;
     double NextMeleeTime = 0.0;
+    // 총알이 날아간 선이다. 몸 가장자리에서 맞은 지점(없으면 사거리 끝)까지 잠깐 보인다.
+    UPROPERTY(VisibleAnywhere)
+    TObjectPtr<UStaticMeshComponent> Tracer;
+    FTimerHandle TracerTimer;
+    double NextFireTime = 0.0;
     FVector AimPoint = FVector::ZeroVector;
     bool bHasAimPoint = false;
     bool bLaserSightEnabled = false;
@@ -99,4 +113,5 @@ private:
     void StopSprint();
     void UpdateAim();
     void HideMeleeSwing();
+    void HideTracer();
 };

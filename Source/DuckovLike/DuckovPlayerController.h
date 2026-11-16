@@ -43,7 +43,8 @@ public:
     // 테스트용: L로 빙의한 캐릭터의 레이저 사이트 선을 켜고 끈다. 레이저 사이트 장비가 생기면 장착 상태로 대체한다.
     UFUNCTION(Exec)
     void ToggleLaserSight();
-    // LMB: 빙의한 캐릭터가 맨손 근접 공격을 한다. 메뉴가 열려 있거나 맵 이동·도착 대기 중이면 무시한다.
+    // LMB: 무기 slot에 총이 있으면 탄창에서 한 발을 쏘고, 비어 있으면 맨손 근접 공격을 한다.
+    // 잔탄이 없으면 쏘지 않고 HUD에 알린다. 메뉴가 열려 있거나 맵 이동·도착 대기 중이면 무시한다.
     UFUNCTION(Exec)
     void Attack();
     // 범위 안의 대상 중 가장 최근에 들어온 것이다. 없으면 null이다.
@@ -89,6 +90,9 @@ private:
     void TravelAfterDeparture();
     void OnArrivalContinued();
     bool IsMenuOpen() const;
+    // 무기 slot에 장착한 항목의 InstanceId다. 비어 있으면 INDEX_NONE이다.
+    int32 GetEquippedWeaponId() const;
+    void RefreshAimPoint();
     void RefreshHud();
     void DestroyPromptComponent();
     void OnMenuChanged(UCommonActivatableWidget* DisplayedMenu);

@@ -11,14 +11,7 @@ namespace MeleeAttackTests
 namespace
 {
 constexpr EAutomationTestFlags Flags = EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter;
-
-template <typename T>
-T* SpawnAt(UWorld* World, const FVector& Location)
-{
-    FActorSpawnParameters Params;
-    Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-    return World->SpawnActor<T>(Location, FRotator::ZeroRotator, Params);
-}
+using CombatTestSupport::SpawnAt;
 }
 
 // 맨손 근접 공격의 판정 범위·간격·표시다. 입력 경로는 Duckov.Combat.MeleeInput이 PIE에서 확인한다.
