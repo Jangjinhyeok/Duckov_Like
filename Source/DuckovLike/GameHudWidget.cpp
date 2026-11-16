@@ -49,6 +49,7 @@ void UGameHudWidget::NativeOnInitialized()
     const TPair<FText, FText> Keys[] = {
         {NSLOCTEXT("Hud", "Move", "이동"), FText::FromString(TEXT("W A S D"))},
         {NSLOCTEXT("Hud", "Sprint", "달리기"), FText::FromString(TEXT("Shift"))},
+        {NSLOCTEXT("Hud", "Attack", "공격"), FText::FromString(TEXT("LMB"))},
         {NSLOCTEXT("Hud", "Interact", "상호작용"), FText::FromString(TEXT("F"))},
         {NSLOCTEXT("Hud", "Inventory", "인벤토리"), FText::FromString(TEXT("I"))},
         {NSLOCTEXT("Hud", "LaserSight", "레이저 사이트(테스트)"), FText::FromString(TEXT("L"))},

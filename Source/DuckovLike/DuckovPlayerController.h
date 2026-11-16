@@ -43,6 +43,9 @@ public:
     // 테스트용: L로 빙의한 캐릭터의 레이저 사이트 선을 켜고 끈다. 레이저 사이트 장비가 생기면 장착 상태로 대체한다.
     UFUNCTION(Exec)
     void ToggleLaserSight();
+    // LMB: 빙의한 캐릭터가 맨손 근접 공격을 한다. 메뉴가 열려 있거나 맵 이동·도착 대기 중이면 무시한다.
+    UFUNCTION(Exec)
+    void Attack();
     // 범위 안의 대상 중 가장 최근에 들어온 것이다. 없으면 null이다.
     UInteractionRangeComponent* GetInteractionTarget() const;
 protected:

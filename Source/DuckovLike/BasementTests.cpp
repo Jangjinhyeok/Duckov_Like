@@ -151,6 +151,33 @@ void SendKey(FKey Key, bool bDown)
     else { Slate.ProcessKeyUpEvent(Event); }
 }
 
+// 마우스 버튼은 key 이벤트가 아니라 pointer 이벤트로 viewport에 들어간다. game viewport 경로로 눌렀다 뗀다.
+// 경로를 직접 지정해 Slate hit-test는 거치지 않는다. viewport → InputKey → controller binding 구간만 증명한다.
+bool ClickGameViewport(FKey Button)
+{
+    FSlateApplication& Slate = FSlateApplication::Get();
+    const TSharedPtr<SViewport> Viewport = GEngine->GameViewport ? GEngine->GameViewport->GetGameViewportWidget() : nullptr;
+    FWidgetPath Path;
+    if (!Viewport.IsValid() || !Slate.FindPathToWidget(Viewport.ToSharedRef(), Path)) { return false; }
+    // 위젯 탐색 경로에 없는 pointer 슬롯을 routing용 생성자로 채운다.
+    TArray<FWidgetAndPointer> WidgetsAndPointers;
+    for (int32 Index = 0; Index < Path.Widgets.Num(); ++Index)
+    {
+        WidgetsAndPointers.Emplace(Path.Widgets[Index], TOptional<FVirtualPointerPosition>());
+    }
+    Path = FWidgetPath(MakeArrayView(WidgetsAndPointers));
+    const FGeometry& Geometry = Path.Widgets.Last().Geometry;
+    const FVector2D Position = Geometry.GetAbsolutePosition() + Geometry.GetAbsoluteSize() * 0.5f;
+    TSet<FKey> Pressed;
+    Pressed.Add(Button);
+    const int32 UserIndex = Slate.GetUserIndexForMouse();
+    Slate.RoutePointerDownEvent(Path, FPointerEvent(UserIndex, FSlateApplication::CursorPointerIndex, Position, Position,
+        Pressed, Button, 0.f, FModifierKeysState()));
+    Slate.RoutePointerUpEvent(Path, FPointerEvent(UserIndex, FSlateApplication::CursorPointerIndex, Position, Position,
+        TSet<FKey>(), Button, 0.f, FModifierKeysState()));
+    return true;
+}
+
 bool IsViewportFocused()
 {
     return GEngine->GameViewport && GEngine->GameViewport->GetGameViewportWidget().IsValid()
@@ -320,6 +347,86 @@ bool FRaidAssets::RunTest(const FString& Parameters)
     TestEqual(TEXT("레이드에는 창고 없음"), Points.FindRef(EInteractionKind::Stash), 0);
     TestEqual(TEXT("레이드에는 출격 지점 없음"), Points.FindRef(EInteractionKind::Sortie), 0);
     TestEqual(TEXT("과녁 하나"), CountTrainingDummies(World), 1);
+    return true;
+}
+
+// 실제 베이스먼트에서 LMB 입력이 근접 공격으로 이어지고, 메뉴가 열린 동안은 막히며, 맵에 놓인 과녁이 맞는지 본다.
+// 실제 마우스 위치가 매 frame 바라보는 방향을 정하므로, 과녁을 맞히는 단계는 방향을 정한 같은 frame에 공격한다.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMeleeInput, "Duckov.Combat.MeleeInput", Flags)
+bool FMeleeInput::RunTest(const FString& Parameters)
+{
+    if (!TestTrue(TEXT("Slate initialized"), FSlateApplication::IsInitialized())) { return false; }
+    if (!TestTrue(TEXT("베이스먼트 map load"), AutomationOpenMap(BasementMap))) { return false; }
+    TSharedRef<FBasementScene> Scene = MakeShared<FBasementScene>();
+    Scene->bOriginalInactiveInput = FSlateApplication::Get().GetHandleDeviceInputWhenApplicationNotActive();
+    FSlateApplication::Get().SetHandleDeviceInputWhenApplicationNotActive(true);
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("지상 캐릭터 착지"), [Scene]
+    {
+        UWorld* World = GEditor ? GEditor->PlayWorld : nullptr;
+        auto* Controller = World ? Cast<ADuckovPlayerController>(UGameplayStatics::GetPlayerController(World, 0)) : nullptr;
+        auto* Character = Controller ? Cast<ADuckovCharacter>(Controller->GetPawn()) : nullptr;
+        Scene->Controller = Controller;
+        Scene->Character = Character;
+        return Character && Character->GetCharacterMovement()->IsMovingOnGround();
+    }));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([] { FSlateApplication::Get().SetAllUserFocusToGameViewport(); }, 0.f));
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("viewport focus"), [] { return IsViewportFocused(); }));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        if (!IsSceneValid(*Scene)) { AddError(TEXT("베이스먼트 scene unavailable")); return; }
+        TestFalse(TEXT("공격 전에는 판정 원 숨김"), Scene->Character->GetMeleeSwing()->IsVisible());
+        TestTrue(TEXT("game viewport 클릭"), ClickGameViewport(EKeys::LeftMouseButton));
+    }, 0.f));
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("LMB로 근접 공격"), [Scene]
+    {
+        return !IsSceneValid(*Scene) || Scene->Character->GetMeleeSwing()->IsVisible();
+    }));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        if (!IsSceneValid(*Scene)) { AddError(TEXT("베이스먼트 scene unavailable")); return; }
+        Scene->Controller->ToggleInventory();
+    }, 0.f));
+    // 메뉴 입력으로 바뀌고 앞 공격의 판정 원과 간격이 모두 끝날 때까지 기다린다.
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("인벤토리 Menu 입력과 공격 간격"), [Scene]
+    {
+        if (!IsSceneValid(*Scene)) { return true; }
+        if (Scene->HoldStarted == 0.0 && GetInputMode(Scene->Controller.Get()) == ECommonInputMode::Menu) { BeginHold(*Scene); }
+        return Scene->HoldStarted != 0.0 && IsHoldDone(*Scene, ADuckovCharacter::MeleeInterval + 0.1);
+    }));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        if (!IsSceneValid(*Scene)) { AddError(TEXT("베이스먼트 scene unavailable")); return; }
+        TestFalse(TEXT("판정 원이 다시 숨음"), Scene->Character->GetMeleeSwing()->IsVisible());
+        // 메뉴가 keyboard focus를 가지므로 키 대신 LMB가 부르는 함수를 직접 불러 controller의 차단을 본다.
+        Scene->Controller->Attack();
+        TestFalse(TEXT("메뉴가 열린 동안 공격 차단"), Scene->Character->GetMeleeSwing()->IsVisible());
+        Scene->Controller->ToggleInventory();
+    }, 0.f));
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("인벤토리 닫은 뒤 Game 입력"), [Scene]
+    {
+        return !IsSceneValid(*Scene) || GetInputMode(Scene->Controller.Get()) == ECommonInputMode::Game;
+    }));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        if (!IsSceneValid(*Scene)) { AddError(TEXT("베이스먼트 scene unavailable")); return; }
+        ADuckovCharacter* Character = Scene->Character.Get();
+        TActorIterator<ATrainingDummyActor> It(Character->GetWorld());
+        ATrainingDummyActor* Dummy = It ? *It : nullptr;
+        if (!TestNotNull(TEXT("맵에 놓인 과녁"), Dummy)) { return; }
+        // 과녁 100 cm 앞(-X)에 세우고 과녁을 바라보게 한 뒤 같은 frame에 공격한다.
+        const FVector Target = Dummy->GetActorLocation();
+        Character->SetActorLocation(FVector(Target.X - 100.f, Target.Y, Character->GetActorLocation().Z), false, nullptr, ETeleportType::TeleportPhysics);
+        Character->SetActorRotation(FRotator::ZeroRotator);
+        const float Before = Dummy->GetHealth();
+        TestTrue(TEXT("과녁 앞에서 공격"), Character->TryMelee());
+        TestEqual(TEXT("맵의 과녁이 피해를 받음"), Dummy->GetHealth(), Before - ADuckovCharacter::MeleeDamage);
+    }, 0.f));
+    ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("PIE 종료"), [] { return !GEditor || !GEditor->PlayWorld; }));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([Scene]
+    {
+        FSlateApplication::Get().SetHandleDeviceInputWhenApplicationNotActive(Scene->bOriginalInactiveInput);
+    }, 0.f));
     return true;
 }
 

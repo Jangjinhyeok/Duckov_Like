@@ -110,6 +110,13 @@ void ADuckovPlayerController::SetupInputComponent()
     InputComponent->BindKey(EKeys::F, IE_Pressed, this, &ThisClass::Interact);
     InputComponent->BindKey(EKeys::O, IE_Pressed, this, &ThisClass::ToggleControls);
     InputComponent->BindKey(EKeys::L, IE_Pressed, this, &ThisClass::ToggleLaserSight);
+    InputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &ThisClass::Attack);
+}
+
+void ADuckovPlayerController::Attack()
+{
+    if (LoadingScreen || IsMenuOpen()) { return; }
+    if (ADuckovCharacter* Attacker = Cast<ADuckovCharacter>(GetPawn())) { Attacker->TryMelee(); }
 }
 
 void ADuckovPlayerController::OnPossess(APawn* InPawn)

@@ -6,6 +6,7 @@
 #include "Components/CapsuleComponent.h"
 #include "CustomizationAppearanceComponent.h"
 #include "CustomizationModel.h"
+#include "DamageEffect.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "Engine/GameInstance.h"
@@ -17,7 +18,9 @@
 #include "InputAction.h"
 #include "InputMappingContext.h"
 #include "InputModifiers.h"
+#include "Engine/OverlapResult.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "TimerManager.h"
 #include "UObject/ConstructorHelpers.h"
 
 namespace DuckovCharacterSetup
@@ -33,6 +36,7 @@ constexpr float CameraFieldOfView = 45.f;
 constexpr float AimLineWidth = 1.5f;
 constexpr float AimDotSize = 5.f;
 const FLinearColor AimColor(1.f, 0.85f, 0.1f);
+const FLinearColor MeleeSwingColor(0.95f, 0.95f, 0.85f);
 
 UStaticMeshComponent* CreateAimMesh(ADuckovCharacter* Owner, const TCHAR* Name, UStaticMesh* Mesh)
 {
@@ -85,6 +89,17 @@ ADuckovCharacter::ADuckovCharacter()
     static ConstructorHelpers::FObjectFinder<UStaticMesh> Sphere(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
     AimLine = DuckovCharacterSetup::CreateAimMesh(this, TEXT("AimLine"), Cylinder.Object);
     AimDot = DuckovCharacterSetup::CreateAimMesh(this, TEXT("AimDot"), Sphere.Object);
+    // 판정 구의 수평 단면(캐릭터 중심 높이)과 같은 크기의 얇은 원판을 발밑 2 cm 위에 둔다. 캐릭터와 함께 돌아 항상 앞쪽에 있다.
+    // 구라서 바닥 높이의 단면은 더 작다. 캐릭터 중심 높이에 닿는 대상(과녁)에는 원판 범위가 판정과 같다.
+    MeleeSwing = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("MeleeSwing"));
+    MeleeSwing->SetupAttachment(RootComponent);
+    MeleeSwing->SetStaticMesh(Cylinder.Object);
+    MeleeSwing->SetRelativeLocation(FVector(MeleeReach, 0.f, 2.f - DuckovCharacterSetup::CapsuleHalfHeight));
+    MeleeSwing->SetRelativeScale3D(FVector(MeleeRadius * 2.f / 100.f, MeleeRadius * 2.f / 100.f, 0.01f));
+    MeleeSwing->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    MeleeSwing->SetGenerateOverlapEvents(false);
+    MeleeSwing->SetCastShadow(false);
+    MeleeSwing->SetVisibility(false);
     CreateInput();
 }
 
@@ -119,6 +134,9 @@ void ADuckovCharacter::BeginPlay()
         AimMaterial->SetVectorParameterValue(TEXT("Color"), DuckovCharacterSetup::AimColor);
         AimLine->SetMaterial(0, AimMaterial);
         AimDot->SetMaterial(0, AimMaterial);
+        UMaterialInstanceDynamic* SwingMaterial = UMaterialInstanceDynamic::Create(Material, this);
+        SwingMaterial->SetVectorParameterValue(TEXT("Color"), DuckovCharacterSetup::MeleeSwingColor);
+        MeleeSwing->SetMaterial(0, SwingMaterial);
     }
     UAnimationAsset* Locomotion = LoadObject<UAnimationAsset>(nullptr, LocomotionAnimationPath);
     if (!Locomotion) { UE_LOG(LogTemp, Warning, TEXT("걷기 애니메이션 없음: %s. reference pose로 표시합니다"), LocomotionAnimationPath); }
@@ -194,8 +212,40 @@ void ADuckovCharacter::UpdateAim()
     AimDot->SetVisibility(true);
 }
 
+bool ADuckovCharacter::TryMelee()
+{
+    UWorld* World = GetWorld();
+    if (!World || World->GetTimeSeconds() < NextMeleeTime) { return false; }
+    NextMeleeTime = World->GetTimeSeconds() + MeleeInterval;
+    // 맞을 수 있는 것은 움직이는 물체와 pawn이다. 같은 actor의 component가 여럿 겹쳐도 피해는 한 번이다.
+    FCollisionObjectQueryParams Objects;
+    Objects.AddObjectTypesToQuery(ECC_WorldDynamic);
+    Objects.AddObjectTypesToQuery(ECC_Pawn);
+    TArray<FOverlapResult> Overlaps;
+    World->OverlapMultiByObjectType(Overlaps, GetActorLocation() + GetActorForwardVector() * MeleeReach, FQuat::Identity, Objects,
+        FCollisionShape::MakeSphere(MeleeRadius), FCollisionQueryParams(SCENE_QUERY_STAT(DuckovMelee), false, this));
+    TSet<AActor*> Struck;
+    for (const FOverlapResult& Overlap : Overlaps)
+    {
+        AActor* Target = Overlap.GetActor();
+        if (!Target) { continue; }
+        bool bAlreadyStruck = false;
+        Struck.Add(Target, &bAlreadyStruck);
+        if (!bAlreadyStruck) { DuckovDamage::Apply(Target, MeleeDamage, this); }
+    }
+    MeleeSwing->SetVisibility(true);
+    GetWorldTimerManager().SetTimer(MeleeSwingTimer, this, &ThisClass::HideMeleeSwing, MeleeSwingDuration, false);
+    return true;
+}
+
+void ADuckovCharacter::HideMeleeSwing()
+{
+    MeleeSwing->SetVisibility(false);
+}
+
 void ADuckovCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+    GetWorldTimerManager().ClearTimer(MeleeSwingTimer);
     if (CustomizationModel) { CustomizationModel->OnChanged().Remove(CustomizationHandle); }
     CustomizationModel = nullptr;
     Super::EndPlay(EndPlayReason);

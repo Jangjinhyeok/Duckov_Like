@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Engine/TimerHandle.h"
 #include "GameFramework/Character.h"
 #include "DuckovCharacter.generated.h"
 
@@ -16,7 +17,8 @@ struct FInputActionValue;
 // 지상 플레이 캐릭터다. 화면 기준 WASD 이동과 달리기, 고정 각도 탑다운 카메라를 갖는다.
 // 원작처럼 이동 방향과 무관하게 조준 지점(마우스 커서)을 바라보고 카메라를 그쪽으로 앞당긴다.
 // 조준 지점까지의 선은 레이저 사이트를 켰을 때만 보인다(원작은 총기에 레이저 사이트를 달아야 보인다).
-// 외형은 세션의 커스터마이징 Model에서 확정된 Profile을 따른다. 위치·이동 외의 게임 상태는 소유하지 않는다.
+// 맨손 근접 공격은 바라보는 방향으로 나간다. 피해는 대상의 ability system이 처리한다.
+// 외형은 세션의 커스터마이징 Model에서 확정된 Profile을 따른다. 위치·이동·공격 간격 외의 게임 상태는 소유하지 않는다.
 UCLASS()
 class DUCKOVLIKE_API ADuckovCharacter : public ACharacter
 {
@@ -43,6 +45,16 @@ public:
     // 실제 앞당김은 r/(1-r)배로 수렴한다. 0.15면 커서를 화면 끝에 둘 때 캐릭터가 창 너비의 약 7% 밀린다(원작 관찰).
     static constexpr float LookAheadRatio = 0.15f;
     static constexpr float MaxLookAhead = 300.f;
+    // 맨손 근접 공격이다. 바라보는 방향 앞의 원 안에 있는 ability system 대상마다 피해를 한 번 준다.
+    // 공격 간격이 지나지 않았으면 아무것도 하지 않고 false다. 벽 너머도 원 안이면 맞는다.
+    bool TryMelee();
+    UStaticMeshComponent* GetMeleeSwing() const { return MeleeSwing; }
+    static constexpr float MeleeDamage = 15.f;
+    static constexpr float MeleeInterval = 0.4f;
+    // 판정 원의 중심은 캐릭터 중심에서 앞으로 MeleeReach, 반지름은 MeleeRadius(cm)다. 몸 가장자리 앞 약 90 cm까지 닿는다.
+    static constexpr float MeleeReach = 70.f;
+    static constexpr float MeleeRadius = 50.f;
+    static constexpr float MeleeSwingDuration = 0.12f;
 protected:
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -63,6 +75,11 @@ private:
     TObjectPtr<UStaticMeshComponent> AimLine;
     UPROPERTY(VisibleAnywhere)
     TObjectPtr<UStaticMeshComponent> AimDot;
+    // 근접 공격 판정 원을 발밑에 잠깐 보여 준다. 공격 애니메이션이 없어 휘두른 범위를 이것으로 알린다.
+    UPROPERTY(VisibleAnywhere)
+    TObjectPtr<UStaticMeshComponent> MeleeSwing;
+    FTimerHandle MeleeSwingTimer;
+    double NextMeleeTime = 0.0;
     FVector AimPoint = FVector::ZeroVector;
     bool bHasAimPoint = false;
     bool bLaserSightEnabled = false;
@@ -81,4 +98,5 @@ private:
     void StartSprint();
     void StopSprint();
     void UpdateAim();
+    void HideMeleeSwing();
 };
