@@ -35,7 +35,8 @@ MESHES = {
     "SK_CustomizationFootBoot": (base.DEST + "/M_PrototypeEye", set()),
 }
 # 이름 -> (길이 초, frame 수). author_animation.py의 30 fps 루프와 같다. 총 쥔 동작은 기본 동작과 길이가 같다.
-ANIMATIONS = {"A_DuckIdle": (2.0, 60), "A_DuckWalk": (16 / 30, 16), "A_DuckIdleRifle": (2.0, 60), "A_DuckWalkRifle": (16 / 30, 16)}
+ANIMATIONS = {"A_DuckIdle": (2.0, 60), "A_DuckWalk": (16 / 30, 16), "A_DuckIdleRifle": (2.0, 60), "A_DuckWalkRifle": (16 / 30, 16),
+              "A_DuckMeleeSwing": (10 / 30, 10)}
 BONES = {"root", "body", "head", "wing_l", "wing_r", "foot_l", "foot_r"}
 
 
@@ -167,10 +168,11 @@ def main():
         item["first_frame_horizontal_gap_cm"] = horizontal_gap(anim, skeleton)
         item["first_frame_rotation_gap_deg"] = rotation_gap_degrees(anim, skeleton)
         # 총 쥔 동작은 날개를 bone head 중심으로만 돌리므로 bone 위치 비교는 기본 동작과 같은 기준이다.
-        idle = name.startswith("A_DuckIdle")
+        # 휘두르기는 rest에서 시작하므로 Idle과 같은 기준이다.
+        idle = name.startswith("A_DuckIdle") or name == "A_DuckMeleeSwing"
         assert item["first_frame_horizontal_gap_cm"] < (1.0 if idle else 10.0), (name, item)
         assert item["first_frame_rotation_gap_deg"] < (3.0 if idle else 15.0), (name, item)
-        if not idle:
+        if name.startswith("A_DuckWalk"):
             # phase 0: 왼발이 6 cm 들리고 오른발은 땅에 있다. 축 변환 뒤에도 위(+Z)가 유지되는지 본다.
             lift = component_z(anim, 0.0, "foot_l") - component_z(anim, 0.0, "foot_r")
             assert abs(lift - 6.0) < 0.1, lift

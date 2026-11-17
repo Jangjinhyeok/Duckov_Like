@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 import bpy
-from mathutils import Euler, Matrix, Vector
+from mathutils import Euler, Matrix, Quaternion, Vector
 
 sys.dont_write_bytecode = True
 
@@ -41,7 +41,10 @@ WALK = ("A_DuckWalk", 16)
 # 총을 장착했을 때의 같은 길이 루프다. 몸·머리·발은 기본 동작과 같고 날개만 앞으로 모아 총을 쥔다.
 IDLE_RIFLE = ("A_DuckIdleRifle", 60)
 WALK_RIFLE = ("A_DuckWalkRifle", 16)
-ACTIONS = (IDLE, WALK, IDLE_RIFLE, WALK_RIFLE)
+# 근접 무기를 한 번 휘두르는 동작이다(반복하지 않음). 몸을 비틀며 오른날개를 뒤 위에서 앞으로 크게 휘두른다.
+MELEE_SWING = ("A_DuckMeleeSwing", 10)
+ONE_SHOTS = (MELEE_SWING,)
+ACTIONS = (IDLE, WALK, IDLE_RIFLE, WALK_RIFLE, MELEE_SWING)
 # 날개 mesh(Round)는 어깨에서 거의 아래로 늘어져 있다(끝 x ±31.5, z 25). bone 방향(옆으로 14, 아래 6)보다 mesh 방향을 기준으로 돌린다.
 WING_HANG = {"wing_l": (9.5, 2.0, -22.0), "wing_r": (-9.5, 2.0, -22.0)}
 # 총을 쥔 자세에서 날개 끝이 향하는 점(cm, rest 기준)이다. 오른날개는 손잡이, 왼날개는 총몸 앞쪽을 받친다.
@@ -146,6 +149,55 @@ def walk_pose(phase):
     return pose
 
 
+# 미리보기 render에만 쓰는 방망이다(wing_r bone을 따름). 날개 끝 손잡이에서 앞 아래로 뻗는다. rest 기준 cm, 앞은 -Y.
+# 게임의 방망이(DuckovCharacter.cpp MeleeParts)는 UE 축(x = -y, y = -x)으로 같은 값을 쓴다. 원본에는 저장하지 않는다.
+BAT_GRIP = (-30.0, -3.0, 28.0)
+BAT_DIRECTION = (0.0, -0.94, -0.33)
+# 이름 -> (손잡이에서 중심까지 거리, 길이, 지름) cm
+BAT_PARTS = {"PreviewBatHandle": (7.0, 14.0, 3.0), "PreviewBatBarrel": (27.0, 26.0, 6.0)}
+# 휘두르기 key: (진행 0~1, 오른날개 끝 방향(어깨 기준), 몸 비틀기 Z rad). 음수 Z는 오른어깨를 뒤로 뺀다.
+SWING_KEYS = (
+    (0.0, None, 0.0),
+    (0.3, (-4.0, 10.0, 25.0), -0.35),
+    (0.55, (8.0, -14.0, 0.0), 0.4),
+    (0.75, (14.0, -6.0, -8.0), 0.5),
+    (1.0, None, 0.0),
+)
+
+
+def wing_turn(name, direction):
+    """늘어진 날개 방향을 어깨에서 direction 쪽으로 돌리는 최소 회전이다. None이면 rest다."""
+    if direction is None:
+        return Quaternion()
+    return Vector(WING_HANG[name]).normalized().rotation_difference(Vector(direction).normalized())
+
+
+def melee_swing_pose(phase):
+    # make_action은 반복 동작처럼 0~2π phase를 준다. 한 번 재생 동작은 0~1 진행으로 바꿔 key 사이를 부드럽게 잇는다.
+    t = phase / (2 * math.pi)
+    for (t0, d0, z0), (t1, d1, z1) in zip(SWING_KEYS, SWING_KEYS[1:]):
+        if t <= t1 + 1e-9:
+            u = (t - t0) / (t1 - t0)
+            u = u * u * (3 - 2 * u)
+            break
+    turn = wing_turn("wing_r", d0).slerp(wing_turn("wing_r", d1), u)
+    twist = z0 + (z1 - z0) * u
+    return {
+        # 비틀며 치는 순간 몸을 살짝 앞으로 숙이고, 머리는 비틀기를 절반 되돌려 정면을 본다.
+        "body": ((0.1 * math.sin(math.pi * t), 0, twist), (0, 0, 0)),
+        "head": ((0, 0, -0.5 * twist), (0, 0, 0)),
+        "wing_r": (tuple(turn.to_euler("XYZ")), (0, 0, 0)),
+    }
+
+
+def add_swing_action(armature):
+    if MELEE_SWING[0] in bpy.data.actions:
+        raise RuntimeError("휘두르기 action이 이미 있습니다. export/verify/render 모드를 사용하세요.")
+    current = armature.animation_data.action
+    make_action(armature, *MELEE_SWING, melee_swing_pose)
+    use_action(armature, current)
+
+
 def hold_wings():
     # 늘어진 날개 방향을 어깨(bone head)에서 목표 점 방향으로 돌리는 최소 회전이다. 날개는 body 자식이라 몸 동작을 그대로 따른다.
     pose = {}
@@ -224,6 +276,7 @@ def create():
     walk = make_action(armature, *WALK, walk_pose)
     use_action(armature, walk)
     add_rifle_actions(armature)
+    add_swing_action(armature)
     bpy.context.preferences.filepaths.save_version = 0
     bpy.ops.wm.save_as_mainfile(filepath=str(DERIVED), check_existing=False)
 
@@ -416,17 +469,20 @@ def render_frames():
         "Side": ((260, 0, 50), (0, 0, 42)),
     }
     gun = add_preview_gun(armature)
+    bat = add_preview_bat(armature)
     frames = {}
     for name, length in ACTIONS:
         use_action(armature, bpy.data.actions[name])
         for obj in gun:
             obj.hide_render = name not in (IDLE_RIFLE[0], WALK_RIFLE[0])
+        for obj in bat:
+            obj.hide_render = name in (IDLE_RIFLE[0], WALK_RIFLE[0])
         for view, (location, target) in views.items():
             camera.location = location
             camera.rotation_euler = (Vector(target) - Vector(location)).to_track_quat("-Z", "Y").to_euler()
             paths = []
-            # 마지막 frame은 첫 frame과 같아 GIF에서는 뺀다.
-            for frame in range(length):
+            # 반복 동작의 마지막 frame은 첫 frame과 같아 GIF에서는 뺀다. 한 번 재생 동작은 끝 frame까지 그린다.
+            for frame in range(length + (1 if (name, length) in ONE_SHOTS else 0)):
                 scene.frame_set(frame)
                 path = GATE / "frames" / f"{name}_{view}_{frame:03d}.png"
                 scene.render.filepath = str(path)
@@ -460,18 +516,43 @@ def add_preview_gun(armature):
     return parts
 
 
+def add_preview_bat(armature):
+    """방망이를 rest pose 위치에 놓고 wing_r bone에 붙인다. 저장하지 않는 render 전용이다."""
+    material = bpy.data.materials.new("PreviewBat")
+    material.diffuse_color = (0.55, 0.35, 0.18, 1)
+    armature.data.pose_position = "REST"
+    bpy.context.view_layer.update()
+    grip, direction = Vector(BAT_GRIP), Vector(BAT_DIRECTION).normalized()
+    turn = Vector((0, 0, 1)).rotation_difference(direction).to_matrix().to_4x4()
+    parts = []
+    for name, (offset, length, diameter) in BAT_PARTS.items():
+        bpy.ops.mesh.primitive_cylinder_add(radius=0.5, depth=1)
+        obj = bpy.context.object
+        obj.name = name
+        obj.data.materials.append(material)
+        world = Matrix.Translation(grip + direction * offset) @ turn @ Matrix.Diagonal((diameter, diameter, length, 1))
+        obj.parent = armature
+        obj.parent_type = "BONE"
+        obj.parent_bone = "wing_r"
+        bpy.context.view_layer.update()
+        obj.matrix_world = world
+        parts.append(obj)
+    armature.data.pose_position = "POSE"
+    return parts
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=("create", "add-rifle", "export", "export-animations", "verify", "render"))
+    parser.add_argument("mode", choices=("create", "add-rifle", "add-swing", "export", "export-animations", "verify", "render"))
     args = parser.parse_args(sys.argv[sys.argv.index("--") + 1:])
     GATE.mkdir(parents=True, exist_ok=True)
     parts_hash = hashlib.sha256(PARTS.read_bytes()).hexdigest()
     if args.mode == "create":
         create()
     bpy.ops.wm.open_mainfile(filepath=str(DERIVED))
-    if args.mode == "add-rifle":
-        # 이미 만든 파생 원본에 총 쥔 action 두 개만 더해 저장한다. 기존 action·mesh·bone은 바꾸지 않는다.
-        add_rifle_actions(rig())
+    if args.mode in ("add-rifle", "add-swing"):
+        # 이미 만든 파생 원본에 action만 더해 저장한다. 기존 action·mesh·bone은 바꾸지 않는다.
+        (add_rifle_actions if args.mode == "add-rifle" else add_swing_action)(rig())
         bpy.context.preferences.filepaths.save_version = 0
         bpy.ops.wm.save_as_mainfile(filepath=str(DERIVED), check_existing=False)
     result = verify()
