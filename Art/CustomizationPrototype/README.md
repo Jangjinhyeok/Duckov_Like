@@ -203,6 +203,10 @@ UE render/ref bone transforms·최종 Build/Automation·독립 검토·사용자
   바뀐 Skeleton·body·발 3개와 새 AnimSequence 2개만 저장소 Content로 옮겼다. `animations` 인자를 주면 애니메이션만 다시 import하고,
   첫 frame의 날개·발 수평 위치와 root·body 방향이 reference pose와 다르면 실패한다. body import의 `Not all the deformers are stored in this BindPose` 경고 1건은 이전과 같다.
   `BS_DuckLocomotion`은 본 프로젝트의 `CharacterAnimationAssets.Create`가 만든다. 게임 연결 구조는 `docs/architecture/034-player-locomotion-animation.md`.
+- 총을 쥔 동작(2026-11-17): `add-rifle`은 저장된 원본에 `A_DuckIdleRifle`/`A_DuckWalkRifle`만 더해 저장한다(이미 있으면 거부, `create`도 함께 만든다).
+  몸·머리·발은 기본 동작과 같고 날개만 `HOLD_TARGET` 쪽으로 돈다. `render`는 이 두 동작에 미리보기 전용 총 모형(`GUN_PARTS`, body bone에 붙음, 저장 안 함)을 그린다.
+  게임의 총 모형 조각은 같은 값을 UE 축으로 옮겨 쓴다. pilot import는 `animations` 인자로 네 동작을 import하고 새 두 개만 옮겼으며,
+  `BS_DuckLocomotionRifle`은 `CharacterAnimationAssets.Create`가 없는 BlendSpace만 만든다. 구조는 `docs/architecture/039-rifle-hold-and-ammo-visibility.md`.
 
 ```powershell
 & $blenderExe --background --factory-startup --offline-mode --python-exit-code 1 --python Art/CustomizationPrototype/author_animation.py -- create
