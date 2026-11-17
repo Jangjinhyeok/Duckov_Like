@@ -207,6 +207,9 @@ UE render/ref bone transforms·최종 Build/Automation·독립 검토·사용자
   몸·머리·발은 기본 동작과 같고 날개만 `HOLD_TARGET` 쪽으로 돈다. `render`는 이 두 동작에 미리보기 전용 총 모형(`GUN_PARTS`, body bone에 붙음, 저장 안 함)을 그린다.
   게임의 총 모형 조각은 같은 값을 UE 축으로 옮겨 쓴다. pilot import는 `animations` 인자로 네 동작을 import하고 새 두 개만 옮겼으며,
   `BS_DuckLocomotionRifle`은 `CharacterAnimationAssets.Create`가 없는 BlendSpace만 만든다. 구조는 `docs/architecture/039-rifle-hold-and-ammo-visibility.md`.
+- 휘두르기(2026-11-17): `add-swing`은 저장된 원본에 `A_DuckMeleeSwing`(10 frame, 한 번 재생)만 더해 저장한다(이미 있으면 거부, `create`도 함께 만든다).
+  `SWING_KEYS`의 오른날개 방향과 몸 비틀기를 key 사이 smoothstep으로 잇고 rest에서 시작해 rest로 끝난다. `render`는 미리보기 전용 방망이(`BAT_*`, wing_r에 붙음)를 그린다.
+  게임의 방망이 조각은 같은 값을 UE 축으로 옮겨 쓴다. FBX 왕복 검사는 bone head 위치만 비교하므로 자기 회전만 바뀐 날개는 따로 확인해야 한다. 구조는 `docs/architecture/040-melee-weapon-and-swing.md`.
 
 ```powershell
 & $blenderExe --background --factory-startup --offline-mode --python-exit-code 1 --python Art/CustomizationPrototype/author_animation.py -- create
