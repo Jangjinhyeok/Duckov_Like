@@ -5,6 +5,7 @@
 #include "TimerManager.h"
 #include "DuckovPlayerController.generated.h"
 
+class SAimCrosshair;
 class UCommonActivatableWidget;
 class UCustomizationModel;
 class UCustomizationScreenWidget;
@@ -54,6 +55,8 @@ public:
     void Reload();
     bool IsReloading() const { return ReloadingWeaponId != INDEX_NONE; }
     static constexpr float ReloadDuration = 1.5f;
+    // 커서 자리의 십자선이다. 장착한 총의 탄약 상태와 재장전 진행을 함께 그린다. 게임 입력을 시작하기 전에는 null이다.
+    TSharedPtr<SAimCrosshair> GetAimCrosshair() const { return AimCrosshair; }
     // 범위 안의 대상 중 가장 최근에 들어온 것이다. 없으면 null이다.
     UInteractionRangeComponent* GetInteractionTarget() const;
 protected:
@@ -89,6 +92,7 @@ private:
     int32 ReloadingWeaponId = INDEX_NONE;
     FTimerHandle ReloadTimer;
     FDelegateHandle InventoryChangedHandle;
+    TSharedPtr<SAimCrosshair> AimCrosshair;
     UFUNCTION()
     void OnPawnBeginOverlap(AActor* OverlappedActor, AActor* OtherActor);
     UFUNCTION()

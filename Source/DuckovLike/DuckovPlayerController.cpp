@@ -91,7 +91,8 @@ void ADuckovPlayerController::BeginPlay()
     CurrentMouseCursor = EMouseCursor::Crosshairs;
     if (UGameViewportClient* Viewport = GetWorld()->GetGameViewport())
     {
-        Viewport->SetSoftwareCursorWidget(EMouseCursor::Crosshairs, SNew(SAimCrosshair));
+        AimCrosshair = SNew(SAimCrosshair);
+        Viewport->SetSoftwareCursorWidget(EMouseCursor::Crosshairs, AimCrosshair);
     }
     RestoreGameInput();
     // 탄약 표시는 장착 무기와 가방이 바뀔 때만 갱신한다. 맵을 옮겨도 장착 상태는 세션 Model에 남아 있다.
@@ -225,15 +226,20 @@ void ADuckovPlayerController::OnInventoryChanged(const FInventoryChangeSet& Chan
 
 void ADuckovPlayerController::RefreshAmmoHud()
 {
-    if (!Hud) { return; }
     const int32 WeaponId = GetEquippedWeaponId();
     if (WeaponId == INDEX_NONE)
     {
-        Hud->HideAmmo();
+        if (Hud) { Hud->HideAmmo(); }
+        if (AimCrosshair) { AimCrosshair->SetAmmoState(EAimAmmoState::None); }
         return;
     }
-    const int32 Rounds = GetGameInstance()->GetSubsystem<UGameSessionSubsystem>()->GetMagazineRounds(WeaponId, ADuckovCharacter::RifleMagazineSize);
-    Hud->SetAmmo(Rounds, CountBagAmmo(), IsReloading());
+    const int32 Full = ADuckovCharacter::RifleMagazineSize;
+    const int32 Rounds = GetGameInstance()->GetSubsystem<UGameSessionSubsystem>()->GetMagazineRounds(WeaponId, Full);
+    const int32 Carried = CountBagAmmo();
+    // 시선이 머무는 십자선과 오른쪽 아래 HUD가 같은 상태를 보인다.
+    const EAimAmmoState State = ClassifyAmmo(Rounds, Carried, Full, IsReloading());
+    if (Hud) { Hud->SetAmmo(Rounds, Carried, State); }
+    if (AimCrosshair) { AimCrosshair->SetAmmoState(State, ReloadDuration); }
 }
 
 void ADuckovPlayerController::RefreshPawnWeapon()
@@ -538,6 +544,7 @@ void ADuckovPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
     GetWorldTimerManager().ClearTimer(TravelHandle);
     // 맵을 떠나면 끝나지 않은 재장전은 취소된다. 탄약은 끝나는 순간에만 소모하므로 잃지 않는다.
     CancelReload();
+    AimCrosshair.Reset();
     if (Model) { Model->OnChanged().Remove(InventoryChangedHandle); }
     // 세션 Model은 다음 맵에서도 남는다. 화면을 비활성화해 이 맵의 ViewModel 구독을 먼저 끊는다.
     if (CustomizationScreen && CustomizationScreen->IsActivated()) { CustomizationScreen->DeactivateWidget(); }

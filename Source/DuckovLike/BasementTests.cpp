@@ -1,8 +1,10 @@
 #include "Misc/AutomationTest.h"
 
 #if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
+#include "AimCrosshair.h"
 #include "Algo/AllOf.h"
 #include "BasementGameMode.h"
+#include "CombatTestSupport.h"
 #include "CustomizationAppearanceComponent.h"
 #include "CustomizationModel.h"
 #include "DuckovCharacter.h"
@@ -16,6 +18,7 @@
 #include "TrainingDummyActor.h"
 #include "WorldLootActor.h"
 #include "Animation/AnimSingleNodeInstance.h"
+#include "Components/Border.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/TextBlock.h"
@@ -224,11 +227,35 @@ UTextBlock* GetHudTextBlock(ADuckovPlayerController* Controller, FName Name)
     return Field<UTextBlock>(Field<UGameHudWidget>(Controller, TEXT("Hud")), Name);
 }
 
-// 보이지 않으면 빈 문자열이다.
+// 오른쪽 아래 탄약 HUD를 "상태  잔탄 / 가방" 한 줄로 읽는다. 상태 문구가 없으면 "잔탄 / 가방"이고 보이지 않으면 빈 문자열이다.
 FString GetAmmoHud(ADuckovPlayerController* Controller)
 {
-    UTextBlock* Ammo = GetHudTextBlock(Controller, TEXT("AmmoText"));
-    return Ammo && Ammo->GetVisibility() != ESlateVisibility::Collapsed ? Ammo->GetText().ToString() : FString();
+    UBorder* Panel = Field<UBorder>(Field<UGameHudWidget>(Controller, TEXT("Hud")), TEXT("AmmoPanel"));
+    UTextBlock* Status = GetHudTextBlock(Controller, TEXT("AmmoStatusText"));
+    UTextBlock* Rounds = GetHudTextBlock(Controller, TEXT("AmmoRoundsText"));
+    UTextBlock* Carried = GetHudTextBlock(Controller, TEXT("AmmoCarriedText"));
+    if (!Panel || !Status || !Rounds || !Carried || Panel->GetVisibility() == ESlateVisibility::Collapsed) { return FString(); }
+    const FString Numbers = Rounds->GetText().ToString() + TEXT(" ") + Carried->GetText().ToString();
+    return Status->GetVisibility() == ESlateVisibility::Collapsed ? Numbers : Status->GetText().ToString() + TEXT("  ") + Numbers;
+}
+
+// PIE game viewport를 사람이 볼 검증용 PNG로 남긴다(HUD 포함, 커서 위젯 제외).
+void CaptureGameViewport(FAutomationTestBase& Test, ADuckovPlayerController* Controller, const TCHAR* Name)
+{
+    UGameViewportClient* Client = Controller->GetWorld()->GetGameViewport();
+    TSharedPtr<SViewport> Widget = Client ? Client->GetGameViewportWidget() : nullptr;
+    TArray<FColor> Pixels;
+    FIntVector Size = FIntVector::ZeroValue;
+    if (Widget && FSlateApplication::Get().TakeScreenshot(Widget.ToSharedRef(), Pixels, Size))
+    {
+        CombatTestSupport::SaveEvidencePng(Test, Pixels, FIntPoint(Size.X, Size.Y), Name);
+    }
+}
+
+EAimAmmoState GetAimState(ADuckovPlayerController* Controller)
+{
+    const TSharedPtr<SAimCrosshair> Crosshair = Controller->GetAimCrosshair();
+    return Crosshair ? Crosshair->GetAmmoState() : EAimAmmoState::None;
 }
 
 // 캐릭터가 총 모형을 보이고 총을 쥔 동작을 재생하는지다. 해제 상태면 모형을 숨기고 기본 동작이다.
@@ -519,6 +546,11 @@ bool FRifleInput::RunTest(const FString& Parameters)
             Model->TryMove(TEXT("Stash"), TEXT("WeaponSlot"), RifleId, FIntPoint::ZeroValue, false) == EInventoryOperationFailure::None);
         TestEqual(TEXT("재장착해도 빈 탄창 유지"), Session->GetMagazineRounds(RifleId, Full), 0);
     }, 0.f));
+    // 총을 쥔 동작으로 바뀐 몇 frame 뒤의 화면을 남긴다. 판정은 위 상태 검사가 맡는다.
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        if (IsSceneValid(*Scene)) { CaptureGameViewport(*this, Scene->Controller.Get(), TEXT("RifleInput_Holding")); }
+    }, 0.5f));
     ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
     ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("PIE 종료"), [] { return !GEditor || !GEditor->PlayWorld; }));
     return true;
@@ -564,8 +596,10 @@ bool FReloadFlow::RunTest(const FString& Parameters)
         ADuckovPlayerController* Controller = Scene->Controller.Get();
         UInventoryModel* Model = Session()->GetInventoryModel();
         TestEqual(TEXT("무기가 없으면 탄약 HUD 없음"), GetAmmoHud(Controller), FString());
+        TestTrue(TEXT("무기가 없으면 십자선에 탄약 상태 없음"), GetAimState(Controller) == EAimAmmoState::None);
         TestTrue(TEXT("소총 장착"), Model->TryMove(TEXT("Stash"), TEXT("WeaponSlot"), RifleId, FIntPoint::ZeroValue, false) == EInventoryOperationFailure::None);
         TestEqual(TEXT("장착하면 잔탄 / 가방 탄약"), GetAmmoHud(Controller), FString(TEXT("20 / 0")));
+        TestTrue(TEXT("가득 찬 탄창은 십자선 기본"), GetAimState(Controller) == EAimAmmoState::Ready);
         TestTrue(TEXT("탄약을 가방으로"), Model->TryMove(TEXT("Stash"), TEXT("Bag"), AmmoId, FIntPoint::ZeroValue, false) == EInventoryOperationFailure::None);
         TestEqual(TEXT("가방 변경이 HUD에 반영"), GetAmmoHud(Controller), FString(TEXT("20 / 18")));
         Controller->Reload();
@@ -579,6 +613,7 @@ bool FReloadFlow::RunTest(const FString& Parameters)
         UTextBlock* Message = GetHudTextBlock(Controller, TEXT("MessageText"));
         TestTrue(TEXT("탄약과 무관한 문구는 남김"), Message && Message->GetText().ToString() == TEXT("탈출 성공"));
         TestEqual(TEXT("재장전 중 표시"), GetAmmoHud(Controller), FString(TEXT("재장전 중  5 / 18")));
+        TestTrue(TEXT("재장전 중 십자선 링"), GetAimState(Controller) == EAimAmmoState::Reloading);
         Controller->Attack();
         TestEqual(TEXT("재장전 중에는 쏘지 않음"), Rounds(), 5);
         TestFalse(TEXT("재장전 중 tracer 없음"), Scene->Character->GetTracer()->IsVisible());
@@ -594,6 +629,7 @@ bool FReloadFlow::RunTest(const FString& Parameters)
         TestEqual(TEXT("모자란 15발을 채움"), Rounds(), Full);
         TestEqual(TEXT("가방 탄약 15발 소모"), Ammo(TEXT("Bag")), 3);
         TestEqual(TEXT("끝난 뒤 HUD"), GetAmmoHud(Controller), FString(TEXT("20 / 3")));
+        TestTrue(TEXT("끝나면 십자선 링 없음"), GetAimState(Controller) == EAimAmmoState::Ready);
 
         // 재장전 중 무기를 해제하면 취소되고 아무것도 소모하지 않는다.
         Session()->SetMagazineRounds(RifleId, 0);
@@ -602,6 +638,7 @@ bool FReloadFlow::RunTest(const FString& Parameters)
         TestTrue(TEXT("재장전 중 소총 해제"), Model->TryMove(TEXT("WeaponSlot"), TEXT("Stash"), RifleId, FIntPoint(4, 1), false) == EInventoryOperationFailure::None);
         TestFalse(TEXT("해제하면 재장전 취소"), Controller->IsReloading());
         TestEqual(TEXT("해제하면 탄약 HUD 감춤"), GetAmmoHud(Controller), FString());
+        TestTrue(TEXT("해제하면 십자선 링 없음"), GetAimState(Controller) == EAimAmmoState::None);
         BeginHold(*Scene);
     }, 0.f));
     WaitReload(TEXT("취소된 재장전 시간"));
@@ -632,9 +669,13 @@ bool FReloadFlow::RunTest(const FString& Parameters)
         TestEqual(TEXT("창고 탄약은 쓰지 않음"), Ammo(TEXT("Stash")), 3);
         UTextBlock* Message = GetHudTextBlock(Controller, TEXT("MessageText"));
         TestTrue(TEXT("가방 탄약 없음 알림"), Message && Message->GetText().ToString() == TEXT("가방에 탄약이 없습니다"));
+        TestEqual(TEXT("탄창·가방이 비면 HUD 탄약 없음"), GetAmmoHud(Controller), FString(TEXT("탄약 없음  0 / 0")));
+        TestTrue(TEXT("탄창·가방이 비면 십자선 탄약 없음"), GetAimState(Controller) == EAimAmmoState::NoAmmo);
 
         // 가방 탄약이 모자라면 있는 만큼만 채우고 빈 스택은 없어진다.
         TestTrue(TEXT("탄약을 다시 가방으로"), Model->TryMove(TEXT("Stash"), TEXT("Bag"), AmmoId, FIntPoint::ZeroValue, false) == EInventoryOperationFailure::None);
+        TestEqual(TEXT("빈 탄창에 가방 탄약이 있으면 R 안내"), GetAmmoHud(Controller), FString(TEXT("R 재장전  0 / 3")));
+        TestTrue(TEXT("빈 탄창에 가방 탄약이 있으면 십자선 R 안내"), GetAimState(Controller) == EAimAmmoState::Empty);
         Controller->Reload();
         TestTrue(TEXT("네 번째 재장전 시작"), Controller->IsReloading());
         TestTrue(TEXT("재장전 시작이 탄약 없음 문구를 지움"), Message && Message->GetText().IsEmpty());
@@ -647,7 +688,8 @@ bool FReloadFlow::RunTest(const FString& Parameters)
         ADuckovPlayerController* Controller = Scene->Controller.Get();
         TestEqual(TEXT("있는 3발만 채움"), Rounds(), 3);
         TestNull(TEXT("다 쓴 탄약 스택은 없어짐"), Session()->GetInventoryModel()->FindItem(TEXT("Bag"), AmmoId));
-        TestEqual(TEXT("모자란 재장전 뒤 HUD"), GetAmmoHud(Controller), FString(TEXT("3 / 0")));
+        TestEqual(TEXT("모자란 재장전 뒤 HUD"), GetAmmoHud(Controller), FString(TEXT("탄약 부족  3 / 0")));
+        TestTrue(TEXT("적은 잔탄은 십자선 주황"), GetAimState(Controller) == EAimAmmoState::Low);
         Controller->Reload();
         TestFalse(TEXT("가방 탄약이 없으면 시작하지 않음"), Controller->IsReloading());
         UTextBlock* Message = GetHudTextBlock(Controller, TEXT("MessageText"));

@@ -24,6 +24,11 @@ UHorizontalBox* MakeKeyRow(UWidgetTree& Tree, const FText& Label, const FText& K
     return Row;
 }
 
+// 탄약 상태의 강조색이다. 십자선과 같은 주황·빨강을 쓴다.
+const FLinearColor AmmoLowColor(1.f, 0.7f, 0.15f);
+const FLinearColor AmmoEmptyColor(1.f, 0.25f, 0.2f);
+const FLinearColor AmmoCarriedColor(0.8f, 0.8f, 0.8f);
+
 UCanvasPanelSlot* Place(UCanvasPanel* Root, UWidget* Widget, FAnchors Anchors, FVector2D Alignment, FVector2D Position)
 {
     UCanvasPanelSlot* CanvasSlot = Root->AddChildToCanvas(Widget);
@@ -79,10 +84,24 @@ void UGameHudWidget::NativeOnInitialized()
     MessageText->SetColorAndOpacity(FSlateColor(FLinearColor(1.f, 0.85f, 0.4f)));
     Place(Root, MessageText, FAnchors(0.5f, 0.8f), FVector2D(0.5f, 0.f), FVector2D::ZeroVector);
 
-    // 오른쪽 아래: 총을 장착했을 때만 "잔탄 / 가방 탄약".
-    AmmoText = DuckovHudStyle::MakeShadowText(*WidgetTree, TEXT("AmmoText"), FText::GetEmpty(), 20);
-    AmmoText->SetVisibility(ESlateVisibility::Collapsed);
-    Place(Root, AmmoText, FAnchors(1.f, 1.f), FVector2D(1.f, 1.f), FVector2D(-28.f, -28.f));
+    // 오른쪽 아래: 총을 장착했을 때만 어두운 판 위에 상태 문구와 "잔탄 / 가방 탄약". 잔탄은 한눈에 보이도록 크게 쓴다.
+    AmmoPanel = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("AmmoPanel"));
+    AmmoPanel->SetBrush(FSlateRoundedBoxBrush(FLinearColor(0.f, 0.f, 0.f, 0.55f), 12.f));
+    AmmoPanel->SetPadding(FMargin(16.f, 8.f));
+    UVerticalBox* AmmoColumn = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("AmmoColumn"));
+    AmmoStatusText = DuckovHudStyle::MakeShadowText(*WidgetTree, TEXT("AmmoStatusText"), FText::GetEmpty(), 14);
+    AmmoColumn->AddChildToVerticalBox(AmmoStatusText)->SetHorizontalAlignment(HAlign_Right);
+    UHorizontalBox* AmmoRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("AmmoRow"));
+    AmmoRoundsText = DuckovHudStyle::MakeShadowText(*WidgetTree, TEXT("AmmoRoundsText"), FText::GetEmpty(), 30);
+    AmmoRow->AddChildToHorizontalBox(AmmoRoundsText)->SetVerticalAlignment(VAlign_Bottom);
+    AmmoCarriedText = DuckovHudStyle::MakeShadowText(*WidgetTree, TEXT("AmmoCarriedText"), FText::GetEmpty(), 16);
+    UHorizontalBoxSlot* CarriedSlot = AmmoRow->AddChildToHorizontalBox(AmmoCarriedText);
+    CarriedSlot->SetVerticalAlignment(VAlign_Bottom);
+    CarriedSlot->SetPadding(FMargin(6.f, 0.f, 0.f, 5.f));
+    AmmoColumn->AddChildToVerticalBox(AmmoRow)->SetHorizontalAlignment(HAlign_Right);
+    AmmoPanel->SetContent(AmmoColumn);
+    AmmoPanel->SetVisibility(ESlateVisibility::Collapsed);
+    Place(Root, AmmoPanel, FAnchors(1.f, 1.f), FVector2D(1.f, 1.f), FVector2D(-28.f, -28.f));
 
     SetVisibility(ESlateVisibility::HitTestInvisible);
 }
@@ -102,18 +121,44 @@ void UGameHudWidget::ClearMessageIf(const FText& Text)
     if (MessageText && MessageText->GetText().EqualTo(Text)) { MessageText->SetText(FText::GetEmpty()); }
 }
 
-void UGameHudWidget::SetAmmo(int32 Rounds, int32 Carried, bool bReloading)
+void UGameHudWidget::SetAmmo(int32 Rounds, int32 Carried, EAimAmmoState State)
 {
-    if (!AmmoText) { return; }
-    AmmoText->SetText(bReloading
-        ? FText::Format(NSLOCTEXT("Hud", "AmmoReloading", "재장전 중  {0} / {1}"), Rounds, Carried)
-        : FText::Format(NSLOCTEXT("Hud", "Ammo", "{0} / {1}"), Rounds, Carried));
-    AmmoText->SetVisibility(ESlateVisibility::HitTestInvisible);
+    if (!AmmoPanel) { return; }
+    FText Status;
+    FLinearColor Accent = FLinearColor::White;
+    switch (State)
+    {
+    case EAimAmmoState::Reloading:
+        Status = NSLOCTEXT("Hud", "AmmoReloading", "재장전 중");
+        break;
+    case EAimAmmoState::Low:
+        Status = NSLOCTEXT("Hud", "AmmoLow", "탄약 부족");
+        Accent = AmmoLowColor;
+        break;
+    case EAimAmmoState::Empty:
+        Status = NSLOCTEXT("Hud", "AmmoEmpty", "R 재장전");
+        Accent = AmmoEmptyColor;
+        break;
+    case EAimAmmoState::NoAmmo:
+        Status = NSLOCTEXT("Hud", "AmmoNone", "탄약 없음");
+        Accent = AmmoEmptyColor;
+        break;
+    default:
+        break;
+    }
+    AmmoStatusText->SetText(Status);
+    AmmoStatusText->SetColorAndOpacity(FSlateColor(Accent));
+    AmmoStatusText->SetVisibility(Status.IsEmpty() ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
+    AmmoRoundsText->SetText(FText::AsNumber(Rounds));
+    AmmoRoundsText->SetColorAndOpacity(FSlateColor(Accent));
+    AmmoCarriedText->SetText(FText::Format(NSLOCTEXT("Hud", "AmmoCarried", "/ {0}"), Carried));
+    AmmoCarriedText->SetColorAndOpacity(FSlateColor(Carried > 0 ? AmmoCarriedColor : AmmoEmptyColor));
+    AmmoPanel->SetVisibility(ESlateVisibility::HitTestInvisible);
 }
 
 void UGameHudWidget::HideAmmo()
 {
-    if (AmmoText) { AmmoText->SetVisibility(ESlateVisibility::Collapsed); }
+    if (AmmoPanel) { AmmoPanel->SetVisibility(ESlateVisibility::Collapsed); }
 }
 
 void UGameHudWidget::ToggleControls()
