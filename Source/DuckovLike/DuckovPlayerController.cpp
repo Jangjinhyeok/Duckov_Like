@@ -97,6 +97,7 @@ void ADuckovPlayerController::BeginPlay()
     // 탄약 표시는 장착 무기와 가방이 바뀔 때만 갱신한다. 맵을 옮겨도 장착 상태는 세션 Model에 남아 있다.
     if (Model) { InventoryChangedHandle = Model->OnChanged().AddUObject(this, &ThisClass::OnInventoryChanged); }
     RefreshAmmoHud();
+    RefreshPawnWeapon();
     // 맵 이동으로 도착했다면 원작처럼 검은 화면에서 클릭을 기다린 뒤 원이 커지며 드러낸다. 그동안 캐릭터는 움직이지 않는다.
     if (Session->ConsumeArrivalPending())
     {
@@ -219,6 +220,7 @@ void ADuckovPlayerController::OnInventoryChanged(const FInventoryChangeSet& Chan
     // 재장전 중인 무기가 slot에서 빠지거나 다른 무기로 바뀌면 취소한다. 가방 탄약 변화는 끝나는 순간에 다시 센다.
     if (IsReloading() && GetEquippedWeaponId() != ReloadingWeaponId) { CancelReload(); }
     RefreshAmmoHud();
+    RefreshPawnWeapon();
 }
 
 void ADuckovPlayerController::RefreshAmmoHud()
@@ -232,6 +234,11 @@ void ADuckovPlayerController::RefreshAmmoHud()
     }
     const int32 Rounds = GetGameInstance()->GetSubsystem<UGameSessionSubsystem>()->GetMagazineRounds(WeaponId, ADuckovCharacter::RifleMagazineSize);
     Hud->SetAmmo(Rounds, CountBagAmmo(), IsReloading());
+}
+
+void ADuckovPlayerController::RefreshPawnWeapon()
+{
+    if (ADuckovCharacter* Holder = Cast<ADuckovCharacter>(GetPawn())) { Holder->SetWeaponEquipped(GetEquippedWeaponId() != INDEX_NONE); }
 }
 
 int32 ADuckovPlayerController::GetEquippedWeaponId() const
@@ -248,6 +255,8 @@ void ADuckovPlayerController::OnPossess(APawn* InPawn)
     // 상호작용 대상은 pawn의 overlap 이벤트로만 바뀐다. 거리를 매 프레임 확인하지 않는다.
     InPawn->OnActorBeginOverlap.AddUniqueDynamic(this, &ThisClass::OnPawnBeginOverlap);
     InPawn->OnActorEndOverlap.AddUniqueDynamic(this, &ThisClass::OnPawnEndOverlap);
+    // BeginPlay보다 늦게 빙의해도 장착한 총이 보이게 한다. Model이 아직 없으면 BeginPlay가 알린다.
+    RefreshPawnWeapon();
     // 원작처럼 프롬프트는 물체 위치에 붙는다. 하나만 만들어 대상에 옮겨 붙이고, 대상이 없으면 숨긴다.
     // 화면 위치 투영은 엔진의 screen layer가 맡고, Automatic tick mode는 widget이 보일 때만 component를 tick한다.
     if (IsLocalController() && !PromptComponent)

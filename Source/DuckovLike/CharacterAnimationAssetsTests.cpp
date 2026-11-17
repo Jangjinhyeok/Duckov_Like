@@ -18,9 +18,21 @@
 namespace CharacterAnimationAssetsTests
 {
 constexpr auto Flags = EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter;
-const TCHAR* BlendSpacePackage = TEXT("/Game/Character/BS_DuckLocomotion");
 const TCHAR* IdlePath = TEXT("/Game/Character/A_DuckIdle.A_DuckIdle");
 const TCHAR* WalkPath = TEXT("/Game/Character/A_DuckWalk.A_DuckWalk");
+const TCHAR* IdleRiflePath = TEXT("/Game/Character/A_DuckIdleRifle.A_DuckIdleRifle");
+const TCHAR* WalkRiflePath = TEXT("/Game/Character/A_DuckWalkRifle.A_DuckWalkRifle");
+// 기본 동작과 총을 쥔 동작은 축·sample 배치가 같고 쓰는 AnimSequence만 다르다.
+struct FLocomotionSpec
+{
+    const TCHAR* BlendSpacePath;
+    const TCHAR* Idle;
+    const TCHAR* Walk;
+};
+const FLocomotionSpec Locomotions[] = {
+    {ADuckovCharacter::LocomotionAnimationPath, IdlePath, WalkPath},
+    {ADuckovCharacter::RifleLocomotionAnimationPath, IdleRiflePath, WalkRiflePath},
+};
 const TCHAR* SpeedAxis = TEXT("Speed");
 // 속도 변화를 부드럽게 따라가는 시간이다. 걷기 시작·정지가 한 frame에 튀지 않는다.
 constexpr float InputSmoothingSeconds = 0.15f;
@@ -74,24 +86,15 @@ TMap<FName, float> WeightsAt(const UBlendSpace* Space, float Speed)
     }
     return Result;
 }
-}
 
-// 명시적으로 한 번 실행하는 생성 경로다. 이미 있으면 덮어쓰지 않는다.
-// unity build에서 다른 테스트의 Flags와 겹치지 않도록 namespace를 함수 안에서만 연다.
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCreateCharacterAnimationAssets, "CharacterAnimationAssets.Create", CharacterAnimationAssetsTests::Flags)
-bool FCreateCharacterAnimationAssets::RunTest(const FString& Parameters)
+// 기본 동작 BlendSpace와 같은 축·sample 배치로 하나를 만들어 저장한다.
+bool CreateLocomotion(FAutomationTestBase& Test, const FString& PackageName, const TCHAR* IdleAsset, const TCHAR* WalkAsset)
 {
-    using namespace CharacterAnimationAssetsTests;
-    if (FPackageName::DoesPackageExist(BlendSpacePackage))
-    {
-        AddError(TEXT("기존 BlendSpace를 덮어쓰지 않습니다."));
-        return false;
-    }
-    UAnimSequence* Idle = LoadObject<UAnimSequence>(nullptr, IdlePath);
-    UAnimSequence* Walk = LoadObject<UAnimSequence>(nullptr, WalkPath);
-    if (!TestNotNull(TEXT("Idle"), Idle) || !TestNotNull(TEXT("Walk"), Walk)) { return false; }
-    UPackage* Package = CreatePackage(BlendSpacePackage);
-    UBlendSpace1D* Space = NewObject<UBlendSpace1D>(Package, FName(FPackageName::GetShortName(BlendSpacePackage)), RF_Public | RF_Standalone);
+    UAnimSequence* Idle = LoadObject<UAnimSequence>(nullptr, IdleAsset);
+    UAnimSequence* Walk = LoadObject<UAnimSequence>(nullptr, WalkAsset);
+    if (!Test.TestNotNull(TEXT("Idle"), Idle) || !Test.TestNotNull(TEXT("Walk"), Walk)) { return false; }
+    UPackage* Package = CreatePackage(*PackageName);
+    UBlendSpace1D* Space = NewObject<UBlendSpace1D>(Package, FName(FPackageName::GetShortName(PackageName)), RF_Public | RF_Standalone);
     Space->SetSkeleton(Idle->GetSkeleton());
     FBlendParameter& Speed = SpeedParameter(Space);
     Speed.DisplayName = SpeedAxis;
@@ -103,11 +106,33 @@ bool FCreateCharacterAnimationAssets::RunTest(const FString& Parameters)
     Space->AddSample(Idle, FVector::ZeroVector);
     Space->AddSample(Walk, FVector(ADuckovCharacter::WalkSpeed, 0.0f, 0.0f));
     const int32 Sprint = Space->AddSample(Walk, FVector(ADuckovCharacter::SprintSpeed, 0.0f, 0.0f));
-    if (!TestEqual(TEXT("sample 3개 추가"), Space->GetBlendSamples().Num(), 3)) { return false; }
+    if (!Test.TestEqual(TEXT("sample 3개 추가"), Space->GetBlendSamples().Num(), 3)) { return false; }
     Samples(Space)[Sprint].RateScale = SprintRateScale;
     Space->ValidateSampleData();
     Space->ResampleData();
-    return TestTrue(TEXT("BlendSpace 저장"), SaveAsset(Space));
+    return Test.TestTrue(*FString::Printf(TEXT("%s 저장"), *PackageName), SaveAsset(Space));
+}
+}
+
+// 명시적으로 한 번 실행하는 생성 경로다. 없는 BlendSpace만 만들고 이미 있는 것은 덮어쓰지 않는다.
+// unity build에서 다른 테스트의 Flags와 겹치지 않도록 namespace를 함수 안에서만 연다.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCreateCharacterAnimationAssets, "CharacterAnimationAssets.Create", CharacterAnimationAssetsTests::Flags)
+bool FCreateCharacterAnimationAssets::RunTest(const FString& Parameters)
+{
+    using namespace CharacterAnimationAssetsTests;
+    int32 Created = 0;
+    for (const FLocomotionSpec& Spec : Locomotions)
+    {
+        const FString PackageName = FPackageName::ObjectPathToPackageName(FString(Spec.BlendSpacePath));
+        if (FPackageName::DoesPackageExist(PackageName))
+        {
+            AddInfo(FString::Printf(TEXT("%s는 이미 있어 덮어쓰지 않습니다."), *PackageName));
+            continue;
+        }
+        if (!CreateLocomotion(*this, PackageName, Spec.Idle, Spec.Walk)) { return false; }
+        ++Created;
+    }
+    return TestTrue(TEXT("새로 만든 BlendSpace가 있음"), Created > 0);
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FVerifyCharacterAnimationAssets, "CharacterAnimationAssets.Verify", CharacterAnimationAssetsTests::Flags)
@@ -149,46 +174,84 @@ bool FVerifyCharacterAnimationAssets::RunTest(const FString& Parameters)
             }
         }
     }
-    // 30 fps 제자리 루프. 마지막 frame이 첫 frame과 같아 이음매 없이 반복된다.
-    const UAnimSequence* Idle = LoadObject<UAnimSequence>(nullptr, IdlePath);
-    const UAnimSequence* Walk = LoadObject<UAnimSequence>(nullptr, WalkPath);
-    if (!TestNotNull(TEXT("Idle"), Idle) || !TestNotNull(TEXT("Walk"), Walk)) { return false; }
-    for (const UAnimSequence* Anim : {Idle, Walk})
+    // 기본 동작과 총을 쥔 동작은 같은 축·sample 배치의 BlendSpace다.
+    for (const FLocomotionSpec& Spec : Locomotions)
     {
-        TestTrue(*FString::Printf(TEXT("%s: 공통 Skeleton·30 fps·root motion 없음"), *Anim->GetName()), Anim->GetSkeleton() == Skeleton
-            && Anim->GetSamplingFrameRate() == FFrameRate(30, 1) && !Anim->bEnableRootMotion);
+        // 30 fps 제자리 루프. 마지막 frame이 첫 frame과 같아 이음매 없이 반복된다.
+        const UAnimSequence* Idle = LoadObject<UAnimSequence>(nullptr, Spec.Idle);
+        const UAnimSequence* Walk = LoadObject<UAnimSequence>(nullptr, Spec.Walk);
+        if (!TestNotNull(Spec.Idle, Idle) || !TestNotNull(Spec.Walk, Walk)) { return false; }
+        for (const UAnimSequence* Anim : {Idle, Walk})
+        {
+            TestTrue(*FString::Printf(TEXT("%s: 공통 Skeleton·30 fps·root motion 없음"), *Anim->GetName()), Anim->GetSkeleton() == Skeleton
+                && Anim->GetSamplingFrameRate() == FFrameRate(30, 1) && !Anim->bEnableRootMotion);
+        }
+        // Idle 첫 frame은 reference pose와 같은 방향이다. FBX import가 root를 90° 돌려 외형 전체가 옆을 본 회귀를 막는다.
+        for (const TCHAR* Name : {TEXT("root"), TEXT("body")})
+        {
+            const int32 Index = Bones.FindBoneIndex(Name);
+            FTransform First;
+            Idle->GetBoneTransform(First, FSkeletonPoseBoneIndex(Index), FAnimExtractContext(0.0), false);
+            TestTrue(*FString::Printf(TEXT("%s 첫 frame %s 방향이 reference pose와 같음"), *Idle->GetName(), Name), Index != INDEX_NONE
+                && First.GetRotation().AngularDistance(Bones.GetRefBonePose()[Index].GetRotation()) < FMath::DegreesToRadians(1.0));
+        }
+        TestTrue(*FString::Printf(TEXT("%s 2초"), *Idle->GetName()), FMath::IsNearlyEqual(Idle->GetPlayLength(), 2.0, 1e-3));
+        TestTrue(*FString::Printf(TEXT("%s 16 frame"), *Walk->GetName()), FMath::IsNearlyEqual(Walk->GetPlayLength(), 16.0 / 30.0, 1e-3));
+        // BlendSpace: 0=Idle, 걷기 속도=Walk, 달리기 속도=Walk를 빠르게.
+        UBlendSpace1D* Space = LoadObject<UBlendSpace1D>(nullptr, Spec.BlendSpacePath);
+        if (!TestNotNull(Spec.BlendSpacePath, Space)) { return false; }
+        const FString Prefix = Space->GetName();
+        const FBlendParameter& Speed = Space->GetBlendParameter(0);
+        TestTrue(*(Prefix + TEXT(": Speed 축 0..달리기 속도")), Speed.DisplayName == SpeedAxis && Speed.Min == 0.0f && Speed.Max == ADuckovCharacter::SprintSpeed);
+        TestTrue(*(Prefix + TEXT(": 공통 Skeleton·반복")), Space->GetSkeleton() == Skeleton && Space->bLoop);
+        TestEqual(*(Prefix + TEXT(": 입력 smoothing")), Space->InterpolationParam[0].InterpolationTime, InputSmoothingSeconds);
+        const TArray<FBlendSample>& Data = Space->GetBlendSamples();
+        if (!TestEqual(*(Prefix + TEXT(": sample 수")), Data.Num(), 3)) { return false; }
+        TestTrue(*(Prefix + TEXT(": Idle@0")), Data[0].Animation == Idle && Data[0].SampleValue.X == 0.0f && Data[0].RateScale == 1.0f);
+        TestTrue(*(Prefix + TEXT(": Walk@걷기")), Data[1].Animation == Walk && Data[1].SampleValue.X == ADuckovCharacter::WalkSpeed && Data[1].RateScale == 1.0f);
+        TestTrue(*(Prefix + TEXT(": Walk@달리기")), Data[2].Animation == Walk && Data[2].SampleValue.X == ADuckovCharacter::SprintSpeed
+            && FMath::IsNearlyEqual(Data[2].RateScale, SprintRateScale));
+        const TMap<FName, float> Still = WeightsAt(Space, 0.0f);
+        const TMap<FName, float> Half = WeightsAt(Space, ADuckovCharacter::WalkSpeed * 0.5f);
+        const TMap<FName, float> Running = WeightsAt(Space, ADuckovCharacter::SprintSpeed);
+        TestTrue(*(Prefix + TEXT(": 정지는 Idle만")), Still.Num() == 1 && FMath::IsNearlyEqual(Still.FindRef(Idle->GetFName()), 1.0f));
+        TestTrue(*(Prefix + TEXT(": 걷기 절반 속도는 Idle·Walk 반반")), FMath::IsNearlyEqual(Half.FindRef(Idle->GetFName()), 0.5f, 1e-3f)
+            && FMath::IsNearlyEqual(Half.FindRef(Walk->GetFName()), 0.5f, 1e-3f));
+        TestTrue(*(Prefix + TEXT(": 달리기는 Walk만")), Running.Num() == 1 && FMath::IsNearlyEqual(Running.FindRef(Walk->GetFName()), 1.0f));
     }
-    // Idle 첫 frame은 reference pose와 같은 방향이다. FBX import가 root를 90° 돌려 외형 전체가 옆을 본 회귀를 막는다.
-    for (const TCHAR* Name : {TEXT("root"), TEXT("body")})
+    // 총을 쥔 동작은 날개만 다르다. 몸·머리·발은 기본 동작과 같아 총을 들고 바꿔도 걸음이 어긋나지 않는다.
+    const TPair<const TCHAR*, const TCHAR*> Pairs[] = {{IdlePath, IdleRiflePath}, {WalkPath, WalkRiflePath}};
+    for (const TPair<const TCHAR*, const TCHAR*>& Pair : Pairs)
     {
-        const int32 Index = Bones.FindBoneIndex(Name);
-        FTransform First;
-        Idle->GetBoneTransform(First, FSkeletonPoseBoneIndex(Index), FAnimExtractContext(0.0), false);
-        TestTrue(*FString::Printf(TEXT("Idle 첫 frame %s 방향이 reference pose와 같음"), Name), Index != INDEX_NONE
-            && First.GetRotation().AngularDistance(Bones.GetRefBonePose()[Index].GetRotation()) < FMath::DegreesToRadians(1.0));
+        const UAnimSequence* Base = LoadObject<UAnimSequence>(nullptr, Pair.Key);
+        const UAnimSequence* Rifle = LoadObject<UAnimSequence>(nullptr, Pair.Value);
+        if (!Base || !Rifle) { continue; }
+        for (int32 Index = 0; Index < Bones.GetNum(); ++Index)
+        {
+            const FName Name = Bones.GetBoneName(Index);
+            const bool bWing = Name == TEXT("wing_l") || Name == TEXT("wing_r");
+            double MaxAngle = 0.0;
+            double MaxOffset = 0.0;
+            for (const double Time : {0.0, Base->GetPlayLength() * 0.25, Base->GetPlayLength() * 0.5})
+            {
+                FTransform A, B;
+                Base->GetBoneTransform(A, FSkeletonPoseBoneIndex(Index), FAnimExtractContext(Time), false);
+                Rifle->GetBoneTransform(B, FSkeletonPoseBoneIndex(Index), FAnimExtractContext(Time), false);
+                MaxAngle = FMath::Max(MaxAngle, static_cast<double>(A.GetRotation().AngularDistance(B.GetRotation())));
+                MaxOffset = FMath::Max(MaxOffset, FVector::Dist(A.GetLocation(), B.GetLocation()));
+            }
+            if (bWing)
+            {
+                // 늘어진 날개를 앞으로 들어 올렸으므로 기본 동작과 크게 다르다.
+                TestTrue(*FString::Printf(TEXT("%s: %s를 앞으로 듦"), *Rifle->GetName(), *Name.ToString()), MaxAngle > FMath::DegreesToRadians(45.0));
+            }
+            else
+            {
+                TestTrue(*FString::Printf(TEXT("%s: %s는 기본 동작과 같음"), *Rifle->GetName(), *Name.ToString()),
+                    MaxAngle < FMath::DegreesToRadians(0.1) && MaxOffset < 0.01);
+            }
+        }
     }
-    TestTrue(TEXT("Idle 2초"), FMath::IsNearlyEqual(Idle->GetPlayLength(), 2.0, 1e-3));
-    TestTrue(TEXT("Walk 16 frame"), FMath::IsNearlyEqual(Walk->GetPlayLength(), 16.0 / 30.0, 1e-3));
-    // BlendSpace: 0=Idle, 걷기 속도=Walk, 달리기 속도=Walk를 빠르게.
-    UBlendSpace1D* Space = LoadObject<UBlendSpace1D>(nullptr, ADuckovCharacter::LocomotionAnimationPath);
-    if (!TestNotNull(TEXT("BlendSpace"), Space)) { return false; }
-    const FBlendParameter& Speed = Space->GetBlendParameter(0);
-    TestTrue(TEXT("Speed 축 0..달리기 속도"), Speed.DisplayName == SpeedAxis && Speed.Min == 0.0f && Speed.Max == ADuckovCharacter::SprintSpeed);
-    TestTrue(TEXT("공통 Skeleton·반복"), Space->GetSkeleton() == Skeleton && Space->bLoop);
-    TestEqual(TEXT("입력 smoothing"), Space->InterpolationParam[0].InterpolationTime, InputSmoothingSeconds);
-    const TArray<FBlendSample>& Data = Space->GetBlendSamples();
-    if (!TestEqual(TEXT("sample 수"), Data.Num(), 3)) { return false; }
-    TestTrue(TEXT("Idle@0"), Data[0].Animation == Idle && Data[0].SampleValue.X == 0.0f && Data[0].RateScale == 1.0f);
-    TestTrue(TEXT("Walk@걷기"), Data[1].Animation == Walk && Data[1].SampleValue.X == ADuckovCharacter::WalkSpeed && Data[1].RateScale == 1.0f);
-    TestTrue(TEXT("Walk@달리기"), Data[2].Animation == Walk && Data[2].SampleValue.X == ADuckovCharacter::SprintSpeed
-        && FMath::IsNearlyEqual(Data[2].RateScale, SprintRateScale));
-    const TMap<FName, float> Still = WeightsAt(Space, 0.0f);
-    const TMap<FName, float> Half = WeightsAt(Space, ADuckovCharacter::WalkSpeed * 0.5f);
-    const TMap<FName, float> Running = WeightsAt(Space, ADuckovCharacter::SprintSpeed);
-    TestTrue(TEXT("정지는 Idle만"), Still.Num() == 1 && FMath::IsNearlyEqual(Still.FindRef(Idle->GetFName()), 1.0f));
-    TestTrue(TEXT("걷기 절반 속도는 Idle·Walk 반반"), FMath::IsNearlyEqual(Half.FindRef(Idle->GetFName()), 0.5f, 1e-3f)
-        && FMath::IsNearlyEqual(Half.FindRef(Walk->GetFName()), 0.5f, 1e-3f));
-    TestTrue(TEXT("달리기는 Walk만"), Running.Num() == 1 && FMath::IsNearlyEqual(Running.FindRef(Walk->GetFName()), 1.0f));
     return true;
 }
 #endif

@@ -1,6 +1,7 @@
 #include "Misc/AutomationTest.h"
 
 #if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
+#include "Algo/AllOf.h"
 #include "BasementGameMode.h"
 #include "CustomizationAppearanceComponent.h"
 #include "CustomizationModel.h"
@@ -228,6 +229,24 @@ FString GetAmmoHud(ADuckovPlayerController* Controller)
 {
     UTextBlock* Ammo = GetHudTextBlock(Controller, TEXT("AmmoText"));
     return Ammo && Ammo->GetVisibility() != ESlateVisibility::Collapsed ? Ammo->GetText().ToString() : FString();
+}
+
+// 캐릭터가 총 모형을 보이고 총을 쥔 동작을 재생하는지다. 해제 상태면 모형을 숨기고 기본 동작이다.
+bool IsHoldingRifle(ADuckovCharacter* Holder, bool bExpected)
+{
+    USkeletalMeshComponent* Body = Holder->GetAppearance()->GetDisplayedBody();
+    const UAnimSingleNodeInstance* Instance = Body ? Body->GetSingleNodeInstance() : nullptr;
+    const FString Expected = bExpected ? ADuckovCharacter::RifleLocomotionAnimationPath : ADuckovCharacter::LocomotionAnimationPath;
+    // 화면에 그려지는 것은 조각들이므로 조각마다 본다. 부모만 숨겨진 채 조각이 보이던 회귀를 막는다.
+    const TArray<TObjectPtr<USceneComponent>>& Pieces = Holder->GetWeaponModel()->GetAttachChildren();
+    const bool bPiecesMatch = Pieces.Num() == 4 && Algo::AllOf(Pieces, [bExpected](const USceneComponent* Piece)
+    {
+        const UPrimitiveComponent* Primitive = Cast<UPrimitiveComponent>(Piece);
+        return Primitive && Primitive->ShouldRender() == bExpected;
+    });
+    return Holder->IsWeaponEquipped() == bExpected && Holder->GetWeaponModel()->IsVisible() == bExpected && bPiecesMatch
+        && Holder->GetWeaponModel()->GetAttachParent() == Body && Instance && Instance->IsPlaying()
+        && Instance->GetAnimationAsset() && Instance->GetAnimationAsset()->GetPathName() == Expected;
 }
 
 // 카메라가 고정 yaw이므로 화면 위는 카메라 yaw의 지면 방향이다.
@@ -471,9 +490,11 @@ bool FRifleInput::RunTest(const FString& Parameters)
         constexpr int32 RifleId = 1;
         constexpr int32 Full = ADuckovCharacter::RifleMagazineSize;
         // 시작 인벤토리의 소총은 창고 (4, 1)에 있다.
+        TestTrue(TEXT("맨손이면 총 모형 없이 기본 동작"), IsHoldingRifle(Shooter, false));
         if (!TestTrue(TEXT("소총을 무기 slot에 장착"),
             Model->TryMove(TEXT("Stash"), TEXT("WeaponSlot"), RifleId, FIntPoint::ZeroValue, false) == EInventoryOperationFailure::None)) { return; }
         TestEqual(TEXT("처음 장착한 총은 가득 찬 탄창"), Session->GetMagazineRounds(RifleId, Full), Full);
+        TestTrue(TEXT("장착하면 총 모형과 총을 쥔 동작"), IsHoldingRifle(Shooter, true));
 
         Controller->Attack();
         TestTrue(TEXT("장착하면 사격"), Shooter->GetTracer()->IsVisible());
@@ -492,6 +513,7 @@ bool FRifleInput::RunTest(const FString& Parameters)
             Model->TryMove(TEXT("WeaponSlot"), TEXT("Stash"), RifleId, FIntPoint(4, 1), false) == EInventoryOperationFailure::None)) { return; }
         Controller->Attack();
         TestTrue(TEXT("해제하면 근접 공격"), Shooter->GetMeleeSwing()->IsVisible());
+        TestTrue(TEXT("해제하면 총 모형을 숨기고 기본 동작"), IsHoldingRifle(Shooter, false));
         // 잔탄은 무기 InstanceId에 붙어 있어 다시 장착해도 그대로다.
         TestTrue(TEXT("소총 재장착"),
             Model->TryMove(TEXT("Stash"), TEXT("WeaponSlot"), RifleId, FIntPoint::ZeroValue, false) == EInventoryOperationFailure::None);

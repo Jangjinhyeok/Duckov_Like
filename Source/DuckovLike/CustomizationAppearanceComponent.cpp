@@ -509,6 +509,29 @@ FCustomizationFailureDetail UCustomizationAppearanceComponent::Prepare(const FCu
     return FDetail();
 }
 
+bool UCustomizationAppearanceComponent::SwitchBodyAnimation(UAnimationAsset* Animation)
+{
+    if (!Animation) { return false; }
+    // 애니메이션 없는 body(미리보기)는 tick 설정부터 달라 재생만 바꿀 수 없다. 그때는 다음 TryApply가 새로 준비한다.
+    const bool bPlaying = BodyAnimation && DisplayedBody && DisplayedBody->GetSingleNodeInstance();
+    if (bPlaying)
+    {
+        const USkeletalMesh* Mesh = DisplayedBody->GetSkeletalMeshAsset();
+        if (!Mesh || Animation->GetSkeleton() != Mesh->GetSkeleton()) { return false; }
+    }
+    BodyAnimation = Animation;
+    if (bPlaying)
+    {
+        // asset을 바꾸면 재생 위치가 0으로 돌아간다. 같은 길이의 동작끼리 바꾸므로 걷던 걸음의 위치를 이어 간다.
+        const float Position = DisplayedBody->GetSingleNodeInstance()->GetCurrentTime();
+        DisplayedBody->PlayAnimation(Animation, true);
+        UAnimSingleNodeInstance* Instance = DisplayedBody->GetSingleNodeInstance();
+        Instance->SetBlendSpacePosition(FVector(BodyAnimationInput, 0.0f, 0.0f));
+        Instance->SetPosition(Position, false);
+    }
+    return true;
+}
+
 void UCustomizationAppearanceComponent::SetBodyAnimationInput(float Value)
 {
     BodyAnimationInput = Value;

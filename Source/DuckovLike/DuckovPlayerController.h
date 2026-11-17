@@ -109,6 +109,8 @@ private:
     void CancelReload();
     void OnInventoryChanged(const FInventoryChangeSet& Change);
     void RefreshAmmoHud();
+    // 빙의한 캐릭터에 총 장착 여부를 알린다(총 모형과 총을 쥔 동작).
+    void RefreshPawnWeapon();
     void RefreshHud();
     void DestroyPromptComponent();
     void OnMenuChanged(UCommonActivatableWidget* DisplayedMenu);

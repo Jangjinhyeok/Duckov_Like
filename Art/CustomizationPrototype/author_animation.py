@@ -38,6 +38,22 @@ FPS = 30
 # 이름 -> 루프 길이(frame). 마지막 frame은 첫 frame과 같은 pose라 UE에서 이음매 없이 반복된다.
 IDLE = ("A_DuckIdle", 60)
 WALK = ("A_DuckWalk", 16)
+# 총을 장착했을 때의 같은 길이 루프다. 몸·머리·발은 기본 동작과 같고 날개만 앞으로 모아 총을 쥔다.
+IDLE_RIFLE = ("A_DuckIdleRifle", 60)
+WALK_RIFLE = ("A_DuckWalkRifle", 16)
+ACTIONS = (IDLE, WALK, IDLE_RIFLE, WALK_RIFLE)
+# 날개 mesh(Round)는 어깨에서 거의 아래로 늘어져 있다(끝 x ±31.5, z 25). bone 방향(옆으로 14, 아래 6)보다 mesh 방향을 기준으로 돌린다.
+WING_HANG = {"wing_l": (9.5, 2.0, -22.0), "wing_r": (-9.5, 2.0, -22.0)}
+# 총을 쥔 자세에서 날개 끝이 향하는 점(cm, rest 기준)이다. 오른날개는 손잡이, 왼날개는 총몸 앞쪽을 받친다.
+HOLD_TARGET = {"wing_l": (3.0, -30.0, 42.0), "wing_r": (-7.0, -22.0, 40.0)}
+# 미리보기 render에만 쓰는 총 모형이다(body bone을 따름). 이름 -> (중심, 크기) cm, rest 기준이며 앞은 -Y다.
+# 게임의 총 모형(DuckovCharacter.cpp WeaponParts)은 UE 축(x=-y, y=-x)으로 같은 값을 쓴다. 원본에는 저장하지 않는다.
+GUN_PARTS = {
+    "PreviewGunStock": ((-3.0, -12.0, 41.0), (5.0, 10.0, 8.0)),
+    "PreviewGunBody": ((-3.0, -30.0, 43.0), (6.0, 26.0, 9.0)),
+    "PreviewGunMagazine": ((-3.0, -33.0, 35.0), (4.0, 6.0, 10.0)),
+    "PreviewGunBarrel": ((-3.0, -57.0, 45.0), (3.0, 28.0, 3.0)),
+}
 # 애니메이션 FBX만 armature를 Z축으로 이만큼 돌려 내보낸다. UE 5.7의 FBX 애니메이션 import는 mesh import(Force Front X)와 달리
 # 애니메이션 전체를 reference pose보다 yaw +90° 돌려 놓았다(armature만 내보내도, mesh를 함께 내보내도 같았다). 2026-10-18.
 # 원본 action은 그대로 두고 export용 복사본의 root bone 키에만 넣는다. armature object를 돌리면 UE가 버려 효과가 없었다.
@@ -130,6 +146,37 @@ def walk_pose(phase):
     return pose
 
 
+def hold_wings():
+    # 늘어진 날개 방향을 어깨(bone head)에서 목표 점 방향으로 돌리는 최소 회전이다. 날개는 body 자식이라 몸 동작을 그대로 따른다.
+    pose = {}
+    for name, hang in WING_HANG.items():
+        head = Vector(next(bone[2] for bone in existing.BONES if bone[0] == name))
+        turn = Vector(hang).normalized().rotation_difference((Vector(HOLD_TARGET[name]) - head).normalized())
+        pose[name] = (tuple(turn.to_euler("XYZ")), (0, 0, 0))
+    return pose
+
+
+def idle_rifle_pose(phase):
+    pose = idle_pose(phase)
+    pose.update(hold_wings())
+    return pose
+
+
+def walk_rifle_pose(phase):
+    pose = walk_pose(phase)
+    pose.update(hold_wings())
+    return pose
+
+
+def add_rifle_actions(armature):
+    if IDLE_RIFLE[0] in bpy.data.actions or WALK_RIFLE[0] in bpy.data.actions:
+        raise RuntimeError("총 쥔 action이 이미 있습니다. export/verify/render 모드를 사용하세요.")
+    current = armature.animation_data.action
+    make_action(armature, *IDLE_RIFLE, idle_rifle_pose)
+    make_action(armature, *WALK_RIFLE, walk_rifle_pose)
+    use_action(armature, current)
+
+
 def make_action(armature, name, length, pose_at):
     action = bpy.data.actions.new(name)
     action.use_fake_user = True
@@ -176,6 +223,7 @@ def create():
     make_action(armature, *IDLE, idle_pose)
     walk = make_action(armature, *WALK, walk_pose)
     use_action(armature, walk)
+    add_rifle_actions(armature)
     bpy.context.preferences.filepaths.save_version = 0
     bpy.ops.wm.save_as_mainfile(filepath=str(DERIVED), check_existing=False)
 
@@ -217,7 +265,7 @@ def verify():
     assert bpy.context.scene.render.fps == FPS
     original = armature.animation_data.action
     feet_meshes = [obj.name for obj in bpy.data.objects if obj.type == "MESH" and obj.name in FEET]
-    for name, length in (IDLE, WALK):
+    for name, length in ACTIONS:
         action = bpy.data.actions[name]
         assert tuple(action.frame_range) == (0, length), name
         use_action(armature, action)
@@ -294,7 +342,7 @@ def export_armature(target):
 
 def export():
     meshes = export_mesh((BODY,) + FEET)
-    animations = [export_animation(name) for name, _ in (IDLE, WALK)]
+    animations = [export_animation(name) for name, _ in ACTIONS]
     return {"meshes": meshes, "animations": animations}
 
 
@@ -303,14 +351,14 @@ def roundtrip():
     expected = {}
     armature = rig()
     turn = Matrix.Rotation(ANIMATION_EXPORT_YAW, 4, "Z")
-    for name, length in (IDLE, WALK):
+    for name, length in ACTIONS:
         use_action(armature, bpy.data.actions[name])
         expected[name] = {}
         for frame in (0, length // 4, length // 2):
             bpy.context.scene.frame_set(frame)
             expected[name][frame] = {bone: turn @ head for bone, head in bone_heads(armature).items()}
     results = {}
-    for name, length in (IDLE, WALK):
+    for name, length in ACTIONS:
         bpy.ops.wm.read_factory_settings(use_empty=True)
         scene = bpy.context.scene
         scene.unit_settings.system = "METRIC"
@@ -367,9 +415,12 @@ def render_frames():
         # 발 동작이 잘 보이는 옆 시점이다(캐릭터는 -Y로 걷는다).
         "Side": ((260, 0, 50), (0, 0, 42)),
     }
+    gun = add_preview_gun(armature)
     frames = {}
-    for name, length in (IDLE, WALK):
+    for name, length in ACTIONS:
         use_action(armature, bpy.data.actions[name])
+        for obj in gun:
+            obj.hide_render = name not in (IDLE_RIFLE[0], WALK_RIFLE[0])
         for view, (location, target) in views.items():
             camera.location = location
             camera.rotation_euler = (Vector(target) - Vector(location)).to_track_quat("-Z", "Y").to_euler()
@@ -385,22 +436,51 @@ def render_frames():
     return frames
 
 
+def add_preview_gun(armature):
+    """총 모형을 rest pose 위치에 놓고 body bone에 붙인다. 저장하지 않는 render 전용이다."""
+    material = bpy.data.materials.new("PreviewGun")
+    material.diffuse_color = (0.16, 0.16, 0.18, 1)
+    armature.data.pose_position = "REST"
+    bpy.context.view_layer.update()
+    parts = []
+    for name, (center, size) in GUN_PARTS.items():
+        bpy.ops.mesh.primitive_cube_add(size=1)
+        obj = bpy.context.object
+        obj.name = name
+        obj.data.materials.append(material)
+        # matrix_world는 다음 depsgraph 갱신 전까지 scale을 반영하지 않으므로 직접 만든다.
+        world = Matrix.LocRotScale(Vector(center), None, Vector(size))
+        obj.parent = armature
+        obj.parent_type = "BONE"
+        obj.parent_bone = "body"
+        bpy.context.view_layer.update()
+        obj.matrix_world = world
+        parts.append(obj)
+    armature.data.pose_position = "POSE"
+    return parts
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=("create", "export", "export-animations", "verify", "render"))
+    parser.add_argument("mode", choices=("create", "add-rifle", "export", "export-animations", "verify", "render"))
     args = parser.parse_args(sys.argv[sys.argv.index("--") + 1:])
     GATE.mkdir(parents=True, exist_ok=True)
     parts_hash = hashlib.sha256(PARTS.read_bytes()).hexdigest()
     if args.mode == "create":
         create()
     bpy.ops.wm.open_mainfile(filepath=str(DERIVED))
+    if args.mode == "add-rifle":
+        # 이미 만든 파생 원본에 총 쥔 action 두 개만 더해 저장한다. 기존 action·mesh·bone은 바꾸지 않는다.
+        add_rifle_actions(rig())
+        bpy.context.preferences.filepaths.save_version = 0
+        bpy.ops.wm.save_as_mainfile(filepath=str(DERIVED), check_existing=False)
     result = verify()
     if args.mode in ("create", "export"):
         result["export"] = export()
         result["roundtrip"] = roundtrip()
     if args.mode == "export-animations":
         # mesh FBX는 그대로 두고 애니메이션 FBX만 다시 낸다.
-        result["export"] = {"animations": [export_animation(name) for name, _ in (IDLE, WALK)]}
+        result["export"] = {"animations": [export_animation(name) for name, _ in ACTIONS]}
         result["roundtrip"] = roundtrip()
     if args.mode == "render":
         result["frames"] = render_frames()

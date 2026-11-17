@@ -5,6 +5,7 @@
 #include "GameFramework/Character.h"
 #include "DuckovCharacter.generated.h"
 
+class UAnimationAsset;
 class UCameraComponent;
 class UCustomizationAppearanceComponent;
 class UCustomizationModel;
@@ -18,6 +19,7 @@ struct FInputActionValue;
 // 원작처럼 이동 방향과 무관하게 조준 지점(마우스 커서)을 바라보고 카메라를 그쪽으로 앞당긴다.
 // 조준 지점까지의 선은 레이저 사이트를 켰을 때만 보인다(원작은 총기에 레이저 사이트를 달아야 보인다).
 // 맨손 근접 공격과 총 사격은 바라보는 방향으로 나간다. 피해는 대상의 ability system이 처리한다.
+// 총을 장착하면 가슴 앞에 총 모형이 보이고 날개로 총을 쥔 Idle·Walk를 재생한다. 장착 여부는 controller가 알려 준다.
 // 외형은 세션의 커스터마이징 Model에서 확정된 Profile을 따른다. 위치·이동·공격 간격 외의 게임 상태는 소유하지 않는다(탄창 잔탄도 세션이 갖는다).
 UCLASS()
 class DUCKOVLIKE_API ADuckovCharacter : public ACharacter
@@ -31,6 +33,12 @@ public:
     static constexpr float SprintSpeed = 600.f;
     // 수평 속도(cm/s)를 입력으로 받는 Idle·Walk BlendSpace다(CharacterAnimationAssets.Create).
     static constexpr const TCHAR* LocomotionAnimationPath = TEXT("/Game/Character/BS_DuckLocomotion.BS_DuckLocomotion");
+    // 같은 축의 총을 쥔 Idle·Walk BlendSpace다. 날개만 다르고 몸·발 동작은 같다.
+    static constexpr const TCHAR* RifleLocomotionAnimationPath = TEXT("/Game/Character/BS_DuckLocomotionRifle.BS_DuckLocomotionRifle");
+    // 총을 장착하면 총 모형을 보이고 총을 쥔 동작으로 바꾼다. 해제하면 되돌린다. 같은 값이면 아무것도 하지 않는다.
+    void SetWeaponEquipped(bool bEquipped);
+    bool IsWeaponEquipped() const { return bWeaponEquipped; }
+    USceneComponent* GetWeaponModel() const { return WeaponModel; }
     virtual void Tick(float DeltaSeconds) override;
     // 바라보고 조준할 월드 지점이다. controller가 마우스 커서에서 정한다. 높이는 쓰지 않는다.
     void SetAimPoint(const FVector& WorldPoint);
@@ -94,6 +102,14 @@ private:
     TObjectPtr<UStaticMeshComponent> Tracer;
     FTimerHandle TracerTimer;
     double NextFireTime = 0.0;
+    // 장착한 총의 모형이다. 기본 도형 조각들을 자식으로 갖고 body의 body bone을 따라 움직인다.
+    UPROPERTY(VisibleAnywhere)
+    TObjectPtr<USceneComponent> WeaponModel;
+    bool bWeaponEquipped = false;
+    UPROPERTY(Transient)
+    TObjectPtr<UAnimationAsset> Locomotion;
+    UPROPERTY(Transient)
+    TObjectPtr<UAnimationAsset> RifleLocomotion;
     FVector AimPoint = FVector::ZeroVector;
     bool bHasAimPoint = false;
     bool bLaserSightEnabled = false;
@@ -108,6 +124,7 @@ private:
     FDelegateHandle CustomizationHandle;
     void CreateInput();
     void ApplyConfirmedAppearance();
+    void AttachWeaponModel();
     void Move(const FInputActionValue& Value);
     void StartSprint();
     void StopSprint();

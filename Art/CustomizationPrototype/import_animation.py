@@ -34,8 +34,8 @@ MESHES = {
     "SK_CustomizationFootWebbed": (base.DEST + "/M_PrototypeBeak", set()),
     "SK_CustomizationFootBoot": (base.DEST + "/M_PrototypeEye", set()),
 }
-# 이름 -> (길이 초, frame 수). author_animation.py의 30 fps 루프와 같다.
-ANIMATIONS = {"A_DuckIdle": (2.0, 60), "A_DuckWalk": (16 / 30, 16)}
+# 이름 -> (길이 초, frame 수). author_animation.py의 30 fps 루프와 같다. 총 쥔 동작은 기본 동작과 길이가 같다.
+ANIMATIONS = {"A_DuckIdle": (2.0, 60), "A_DuckWalk": (16 / 30, 16), "A_DuckIdleRifle": (2.0, 60), "A_DuckWalkRifle": (16 / 30, 16)}
 BONES = {"root", "body", "head", "wing_l", "wing_r", "foot_l", "foot_r"}
 
 
@@ -166,9 +166,11 @@ def main():
         # Idle 첫 frame은 거의 reference pose이고 Walk는 발 보폭(±9 cm)만큼 앞뒤로 벌어진다. 90° 회전이면 20 cm를 넘는다.
         item["first_frame_horizontal_gap_cm"] = horizontal_gap(anim, skeleton)
         item["first_frame_rotation_gap_deg"] = rotation_gap_degrees(anim, skeleton)
-        assert item["first_frame_horizontal_gap_cm"] < (1.0 if name == "A_DuckIdle" else 10.0), (name, item)
-        assert item["first_frame_rotation_gap_deg"] < (3.0 if name == "A_DuckIdle" else 15.0), (name, item)
-        if name == "A_DuckWalk":
+        # 총 쥔 동작은 날개를 bone head 중심으로만 돌리므로 bone 위치 비교는 기본 동작과 같은 기준이다.
+        idle = name.startswith("A_DuckIdle")
+        assert item["first_frame_horizontal_gap_cm"] < (1.0 if idle else 10.0), (name, item)
+        assert item["first_frame_rotation_gap_deg"] < (3.0 if idle else 15.0), (name, item)
+        if not idle:
             # phase 0: 왼발이 6 cm 들리고 오른발은 땅에 있다. 축 변환 뒤에도 위(+Z)가 유지되는지 본다.
             lift = component_z(anim, 0.0, "foot_l") - component_z(anim, 0.0, "foot_r")
             assert abs(lift - 6.0) < 0.1, lift
