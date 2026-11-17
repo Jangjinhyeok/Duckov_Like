@@ -258,22 +258,41 @@ EAimAmmoState GetAimState(ADuckovPlayerController* Controller)
     return Crosshair ? Crosshair->GetAmmoState() : EAimAmmoState::None;
 }
 
-// 캐릭터가 총 모형을 보이고 총을 쥔 동작을 재생하는지다. 해제 상태면 모형을 숨기고 기본 동작이다.
-bool IsHoldingRifle(ADuckovCharacter* Holder, bool bExpected)
+// 손에 든 모형이 body에 붙어 있고 조각이 모두 bVisible대로 그려지는지다.
+// 화면에 그려지는 것은 조각들이므로 조각마다 본다. 부모만 숨겨진 채 조각이 보이던 회귀를 막는다.
+bool IsModelShown(const USceneComponent* Model, const USkeletalMeshComponent* Body, int32 PieceCount, bool bVisible)
+{
+    const TArray<TObjectPtr<USceneComponent>>& Pieces = Model->GetAttachChildren();
+    return Model->GetAttachParent() == Body && Model->IsVisible() == bVisible && Pieces.Num() == PieceCount
+        && Algo::AllOf(Pieces, [bVisible](const USceneComponent* Piece)
+        {
+            const UPrimitiveComponent* Primitive = Cast<UPrimitiveComponent>(Piece);
+            return Primitive && Primitive->ShouldRender() == bVisible;
+        });
+}
+
+// body가 재생 중인 동작 asset의 경로다.
+FString GetBodyAnimationPath(ADuckovCharacter* Holder)
 {
     USkeletalMeshComponent* Body = Holder->GetAppearance()->GetDisplayedBody();
     const UAnimSingleNodeInstance* Instance = Body ? Body->GetSingleNodeInstance() : nullptr;
+    return Instance && Instance->IsPlaying() && Instance->GetAnimationAsset() ? Instance->GetAnimationAsset()->GetPathName() : FString();
+}
+
+// 캐릭터가 총 모형을 보이고 총을 쥔 동작을 재생하는지다. 해제 상태면 모형을 숨기고 기본 동작이다.
+bool IsHoldingRifle(ADuckovCharacter* Holder, bool bExpected)
+{
     const FString Expected = bExpected ? ADuckovCharacter::RifleLocomotionAnimationPath : ADuckovCharacter::LocomotionAnimationPath;
-    // 화면에 그려지는 것은 조각들이므로 조각마다 본다. 부모만 숨겨진 채 조각이 보이던 회귀를 막는다.
-    const TArray<TObjectPtr<USceneComponent>>& Pieces = Holder->GetWeaponModel()->GetAttachChildren();
-    const bool bPiecesMatch = Pieces.Num() == 4 && Algo::AllOf(Pieces, [bExpected](const USceneComponent* Piece)
-    {
-        const UPrimitiveComponent* Primitive = Cast<UPrimitiveComponent>(Piece);
-        return Primitive && Primitive->ShouldRender() == bExpected;
-    });
-    return Holder->IsWeaponEquipped() == bExpected && Holder->GetWeaponModel()->IsVisible() == bExpected && bPiecesMatch
-        && Holder->GetWeaponModel()->GetAttachParent() == Body && Instance && Instance->IsPlaying()
-        && Instance->GetAnimationAsset() && Instance->GetAnimationAsset()->GetPathName() == Expected;
+    return (Holder->GetEquippedWeapon() == EDuckovWeaponKind::Rifle) == bExpected
+        && IsModelShown(Holder->GetWeaponModel(), Holder->GetAppearance()->GetDisplayedBody(), 4, bExpected)
+        && GetBodyAnimationPath(Holder) == Expected;
+}
+
+// 캐릭터가 방망이 모형을 보이는지다. 근접 무기는 기본 이동 동작을 그대로 쓴다.
+bool IsHoldingMelee(ADuckovCharacter* Holder, bool bExpected)
+{
+    return (Holder->GetEquippedWeapon() == EDuckovWeaponKind::Melee) == bExpected
+        && IsModelShown(Holder->GetMeleeModel(), Holder->GetAppearance()->GetDisplayedBody(), 2, bExpected);
 }
 
 // 카메라가 고정 yaw이므로 화면 위는 카메라 yaw의 지면 방향이다.
@@ -411,7 +430,8 @@ bool FRaidAssets::RunTest(const FString& Parameters)
     return true;
 }
 
-// 실제 베이스먼트에서 LMB 입력이 근접 공격으로 이어지고, 메뉴가 열린 동안은 막히며, 맵에 놓인 과녁이 맞는지 본다.
+// 실제 베이스먼트에서 맨손 LMB는 공격하지 않고, 방망이를 장착하면 LMB가 휘두르기와 근접 공격으로 이어지며,
+// 메뉴가 열린 동안은 막히고 맵에 놓인 과녁이 맞는지 본다.
 // 실제 마우스 위치가 매 frame 바라보는 방향을 정하므로, 과녁을 맞히는 단계는 방향을 정한 같은 frame에 공격한다.
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMeleeInput, "Duckov.Combat.MeleeInput", Flags)
 bool FMeleeInput::RunTest(const FString& Parameters)
@@ -432,11 +452,38 @@ bool FMeleeInput::RunTest(const FString& Parameters)
     }));
     ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([] { FSlateApplication::Get().SetAllUserFocusToGameViewport(); }, 0.f));
     ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("viewport focus"), [] { return IsViewportFocused(); }));
+    // 시작 인벤토리의 방망이(7)는 창고 (4, 3)에 있고 무기 slot은 비어 있다.
+    constexpr int32 BatId = 7;
     ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
     {
         if (!IsSceneValid(*Scene)) { AddError(TEXT("베이스먼트 scene unavailable")); return; }
         TestFalse(TEXT("공격 전에는 판정 원 숨김"), Scene->Character->GetMeleeSwing()->IsVisible());
-        TestTrue(TEXT("game viewport 클릭"), ClickGameViewport(EKeys::LeftMouseButton));
+        TestTrue(TEXT("맨손이면 방망이 모형 없음"), IsHoldingMelee(Scene->Character.Get(), false));
+        TestTrue(TEXT("맨손으로 game viewport 클릭"), ClickGameViewport(EKeys::LeftMouseButton));
+        BeginHold(*Scene);
+    }, 0.f));
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("맨손 클릭 뒤 대기"), [Scene]
+    {
+        return !IsSceneValid(*Scene) || IsHoldDone(*Scene, 0.3);
+    }));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        if (!IsSceneValid(*Scene)) { AddError(TEXT("베이스먼트 scene unavailable")); return; }
+        ADuckovCharacter* Character = Scene->Character.Get();
+        TestFalse(TEXT("맨손 LMB는 공격하지 않음"), Character->GetMeleeSwing()->IsVisible());
+        TestFalse(TEXT("맨손 LMB는 휘두르지 않음"), Character->IsSwingPlaying());
+        // 판정 원은 0.12초만 보이므로 클릭 뒤 확인만으로는 약하다. LMB가 부르는 함수를 직접 불러 같은 frame에 확인한다.
+        Scene->Controller->Attack();
+        TestFalse(TEXT("맨손 Attack은 판정 원을 띄우지 않음"), Character->GetMeleeSwing()->IsVisible());
+        TestFalse(TEXT("맨손 Attack은 휘두르지 않음"), Character->IsSwingPlaying());
+        UInventoryModel* Model = Scene->Controller->GetGameInstance()->GetSubsystem<UGameSessionSubsystem>()->GetInventoryModel();
+        if (!TestNotNull(TEXT("세션 인벤토리"), Model)) { return; }
+        if (!TestTrue(TEXT("방망이를 무기 slot에 장착"),
+            Model->TryMove(TEXT("Stash"), TEXT("WeaponSlot"), BatId, FIntPoint::ZeroValue, false) == EInventoryOperationFailure::None)) { return; }
+        TestTrue(TEXT("장착하면 방망이 모형"), IsHoldingMelee(Character, true));
+        TestTrue(TEXT("방망이는 총 모형 없이 기본 동작"), IsHoldingRifle(Character, false));
+        TestEqual(TEXT("근접 무기는 탄약 HUD 없음"), GetAmmoHud(Scene->Controller.Get()), FString());
+        TestTrue(TEXT("방망이로 game viewport 클릭"), ClickGameViewport(EKeys::LeftMouseButton));
     }, 0.f));
     ADD_LATENT_AUTOMATION_COMMAND(FWaitFor(*this, TEXT("LMB로 근접 공격"), [Scene]
     {
@@ -445,6 +492,19 @@ bool FMeleeInput::RunTest(const FString& Parameters)
     ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
     {
         if (!IsSceneValid(*Scene)) { AddError(TEXT("베이스먼트 scene unavailable")); return; }
+        TestTrue(TEXT("근접 공격과 함께 휘두르기 재생"), Scene->Character->IsSwingPlaying());
+        TestEqual(TEXT("body가 휘두르기를 재생"), GetBodyAnimationPath(Scene->Character.Get()), FString(ADuckovCharacter::MeleeSwingAnimationPath));
+    }, 0.f));
+    // 휘두르는 도중의 화면을 사람이 볼 수 있게 남긴다. 판정은 위 상태 검사가 맡는다.
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        if (IsSceneValid(*Scene)) { CaptureGameViewport(*this, Scene->Controller.Get(), TEXT("MeleeInput_Swing")); }
+    }, 0.12f));
+    ADD_LATENT_AUTOMATION_COMMAND(FDelayedFunctionLatentCommand([this, Scene]
+    {
+        if (!IsSceneValid(*Scene)) { AddError(TEXT("베이스먼트 scene unavailable")); return; }
+        // 아래 대기는 메뉴 입력으로 바뀐 순간부터 센다. 맨손 클릭 단계의 시작 시각을 지운다.
+        Scene->HoldStarted = 0.0;
         Scene->Controller->ToggleInventory();
     }, 0.f));
     // 메뉴 입력으로 바뀌고 앞 공격의 판정 원과 간격이 모두 끝날 때까지 기다린다.
@@ -458,6 +518,8 @@ bool FMeleeInput::RunTest(const FString& Parameters)
     {
         if (!IsSceneValid(*Scene)) { AddError(TEXT("베이스먼트 scene unavailable")); return; }
         TestFalse(TEXT("판정 원이 다시 숨음"), Scene->Character->GetMeleeSwing()->IsVisible());
+        TestFalse(TEXT("휘두르기가 끝남"), Scene->Character->IsSwingPlaying());
+        TestEqual(TEXT("휘두른 뒤 기본 동작으로 돌아감"), GetBodyAnimationPath(Scene->Character.Get()), FString(ADuckovCharacter::LocomotionAnimationPath));
         // 메뉴가 keyboard focus를 가지므로 키 대신 LMB가 부르는 함수를 직접 불러 controller의 차단을 본다.
         Scene->Controller->Attack();
         TestFalse(TEXT("메뉴가 열린 동안 공격 차단"), Scene->Character->GetMeleeSwing()->IsVisible());
@@ -535,11 +597,11 @@ bool FRifleInput::RunTest(const FString& Parameters)
         UTextBlock* Message = Field<UTextBlock>(Field<UGameHudWidget>(Controller, TEXT("Hud")), TEXT("MessageText"));
         TestTrue(TEXT("탄약 없음 알림"), Message && Message->GetText().ToString() == TEXT("탄약이 없습니다"));
 
-        // 해제하면 다시 맨손 근접 공격이다.
+        // 해제하면 맨손이라 공격하지 않는다.
         if (!TestTrue(TEXT("소총 해제"),
             Model->TryMove(TEXT("WeaponSlot"), TEXT("Stash"), RifleId, FIntPoint(4, 1), false) == EInventoryOperationFailure::None)) { return; }
         Controller->Attack();
-        TestTrue(TEXT("해제하면 근접 공격"), Shooter->GetMeleeSwing()->IsVisible());
+        TestFalse(TEXT("해제하면 공격하지 않음"), Shooter->GetMeleeSwing()->IsVisible());
         TestTrue(TEXT("해제하면 총 모형을 숨기고 기본 동작"), IsHoldingRifle(Shooter, false));
         // 잔탄은 무기 InstanceId에 붙어 있어 다시 장착해도 그대로다.
         TestTrue(TEXT("소총 재장착"),

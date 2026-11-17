@@ -59,6 +59,60 @@ const FWeaponPart WeaponParts[] = {
 // 몸통 bone이다. 숨쉬기·뒤뚱걸음의 몸 움직임을 총이 그대로 따른다.
 const FName WeaponBone(TEXT("body"));
 const FLinearColor WeaponColor(0.18f, 0.18f, 0.2f);
+// 방망이는 오른날개 끝 손잡이에서 앞 아래로 뻗는 원기둥 두 개다. author_animation.py의 BAT_GRIP·BAT_DIRECTION·BAT_PARTS를
+// UE 축으로 옮긴 값이다(cm, mesh 원점 기준, reference pose). 기본 Cylinder는 높이·지름 100 cm이고 Z축 방향이다.
+const FVector MeleeGrip(3.f, 30.f, 28.f);
+const FVector MeleeDirection(0.94f, 0.f, -0.33f);
+struct FMeleePart
+{
+    const TCHAR* Name;
+    float Offset;
+    float Length;
+    float Diameter;
+};
+const FMeleePart MeleeParts[] = {
+    {TEXT("MeleeHandle"), 7.f, 14.f, 3.f},
+    {TEXT("MeleeBarrel"), 27.f, 26.f, 6.f},
+};
+// 오른날개 bone이다. 걸을 때의 날개 흔들림과 휘두르기를 방망이가 그대로 따른다.
+const FName MeleeBone(TEXT("wing_r"));
+const FLinearColor MeleeColor(0.55f, 0.35f, 0.18f);
+
+// 손에 드는 모형의 조각이다. 충돌이 없고 처음에는 숨겨 둔다.
+// SetupAttachment는 등록 때 자식 목록을 채우므로 생성자에서는 부모의 숨김이 조각에 전달되지 않는다. 조각마다 숨긴다.
+UStaticMeshComponent* CreateModelPiece(ADuckovCharacter* Owner, const TCHAR* Name, USceneComponent* Parent, UStaticMesh* Mesh)
+{
+    UStaticMeshComponent* Piece = Owner->CreateDefaultSubobject<UStaticMeshComponent>(Name);
+    Piece->SetupAttachment(Parent);
+    Piece->SetStaticMesh(Mesh);
+    Piece->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    Piece->SetGenerateOverlapEvents(false);
+    Piece->SetVisibility(false);
+    return Piece;
+}
+
+// 모형 조각들에 같은 색 material을 준다.
+void PaintModel(USceneComponent* Model, UMaterialInterface* Material, const FLinearColor& Color, UObject* Outer)
+{
+    UMaterialInstanceDynamic* Instance = UMaterialInstanceDynamic::Create(Material, Outer);
+    Instance->SetVectorParameterValue(TEXT("Color"), Color);
+    for (USceneComponent* Child : Model->GetAttachChildren())
+    {
+        if (UStaticMeshComponent* Piece = Cast<UStaticMeshComponent>(Child)) { Piece->SetMaterial(0, Instance); }
+    }
+}
+
+// 조각 위치는 mesh 원점 기준이므로, reference pose의 bone 변환을 되돌려 bone에 붙인다.
+// 그러면 reference pose에서 제자리이고 애니메이션 중에는 그 bone과 함께 움직인다.
+void AttachToBone(USceneComponent* Model, USkeletalMeshComponent* Body, FName Bone)
+{
+    const USkeletalMesh* BodyMesh = Body ? Body->GetSkeletalMeshAsset() : nullptr;
+    const int32 BoneIndex = BodyMesh ? BodyMesh->GetRefSkeleton().FindBoneIndex(Bone) : INDEX_NONE;
+    if (BoneIndex == INDEX_NONE) { return; }
+    const FTransform BoneInMesh = FAnimationRuntime::GetComponentSpaceTransformRefPose(BodyMesh->GetRefSkeleton(), BoneIndex);
+    Model->AttachToComponent(Body, FAttachmentTransformRules::KeepRelativeTransform, Bone);
+    Model->SetRelativeTransform(BoneInMesh.Inverse());
+}
 
 UStaticMeshComponent* CreateAimMesh(ADuckovCharacter* Owner, const TCHAR* Name, UStaticMesh* Mesh)
 {
@@ -123,23 +177,27 @@ ADuckovCharacter::ADuckovCharacter()
     MeleeSwing->SetGenerateOverlapEvents(false);
     MeleeSwing->SetCastShadow(false);
     MeleeSwing->SetVisibility(false);
-    // 총 모형은 처음에 외형 기준점에 두고, 외형이 준비되면 body bone으로 옮긴다(AttachWeaponModel).
+    // 손에 드는 모형은 처음에 외형 기준점에 두고, 외형이 준비되면 각자의 bone으로 옮긴다(AttachWeaponModels).
     static ConstructorHelpers::FObjectFinder<UStaticMesh> Cube(TEXT("/Engine/BasicShapes/Cube.Cube"));
     WeaponModel = CreateDefaultSubobject<USceneComponent>(TEXT("WeaponModel"));
     WeaponModel->SetupAttachment(VisualRoot);
     for (const DuckovCharacterSetup::FWeaponPart& Part : DuckovCharacterSetup::WeaponParts)
     {
-        UStaticMeshComponent* Piece = CreateDefaultSubobject<UStaticMeshComponent>(Part.Name);
-        Piece->SetupAttachment(WeaponModel);
-        Piece->SetStaticMesh(Cube.Object);
+        UStaticMeshComponent* Piece = DuckovCharacterSetup::CreateModelPiece(this, Part.Name, WeaponModel, Cube.Object);
         Piece->SetRelativeLocation(Part.Center);
         Piece->SetRelativeScale3D(Part.Size / 100.f);
-        Piece->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-        Piece->SetGenerateOverlapEvents(false);
-        // SetupAttachment는 등록 때 자식 목록을 채우므로 생성자에서는 부모의 숨김이 조각에 전달되지 않는다. 조각마다 숨긴다.
-        Piece->SetVisibility(false);
     }
     WeaponModel->SetVisibility(false);
+    MeleeModel = CreateDefaultSubobject<USceneComponent>(TEXT("MeleeModel"));
+    MeleeModel->SetupAttachment(VisualRoot);
+    const FVector MeleeAxis = DuckovCharacterSetup::MeleeDirection.GetSafeNormal();
+    for (const DuckovCharacterSetup::FMeleePart& Part : DuckovCharacterSetup::MeleeParts)
+    {
+        UStaticMeshComponent* Piece = DuckovCharacterSetup::CreateModelPiece(this, Part.Name, MeleeModel, Cylinder.Object);
+        Piece->SetRelativeLocationAndRotation(DuckovCharacterSetup::MeleeGrip + MeleeAxis * Part.Offset, FRotationMatrix::MakeFromZ(MeleeAxis).Rotator());
+        Piece->SetRelativeScale3D(FVector(Part.Diameter, Part.Diameter, Part.Length) / 100.f);
+    }
+    MeleeModel->SetVisibility(false);
     CreateInput();
 }
 
@@ -180,19 +238,17 @@ void ADuckovCharacter::BeginPlay()
         UMaterialInstanceDynamic* TracerMaterial = UMaterialInstanceDynamic::Create(Material, this);
         TracerMaterial->SetVectorParameterValue(TEXT("Color"), DuckovCharacterSetup::TracerColor);
         Tracer->SetMaterial(0, TracerMaterial);
-        UMaterialInstanceDynamic* WeaponMaterial = UMaterialInstanceDynamic::Create(Material, this);
-        WeaponMaterial->SetVectorParameterValue(TEXT("Color"), DuckovCharacterSetup::WeaponColor);
-        for (USceneComponent* Child : WeaponModel->GetAttachChildren())
-        {
-            if (UStaticMeshComponent* Piece = Cast<UStaticMeshComponent>(Child)) { Piece->SetMaterial(0, WeaponMaterial); }
-        }
+        DuckovCharacterSetup::PaintModel(WeaponModel, Material, DuckovCharacterSetup::WeaponColor, this);
+        DuckovCharacterSetup::PaintModel(MeleeModel, Material, DuckovCharacterSetup::MeleeColor, this);
     }
     Locomotion = LoadObject<UAnimationAsset>(nullptr, LocomotionAnimationPath);
     if (!Locomotion) { UE_LOG(LogTemp, Warning, TEXT("걷기 애니메이션 없음: %s. reference pose로 표시합니다"), LocomotionAnimationPath); }
     RifleLocomotion = LoadObject<UAnimationAsset>(nullptr, RifleLocomotionAnimationPath);
     if (!RifleLocomotion) { UE_LOG(LogTemp, Warning, TEXT("총을 쥔 애니메이션 없음: %s. 총을 들어도 기본 동작으로 표시합니다"), RifleLocomotionAnimationPath); }
+    MeleeSwingAnimation = LoadObject<UAnimationAsset>(nullptr, MeleeSwingAnimationPath);
+    if (!MeleeSwingAnimation) { UE_LOG(LogTemp, Warning, TEXT("휘두르기 애니메이션 없음: %s. 근접 공격 때 동작 없이 판정만 합니다"), MeleeSwingAnimationPath); }
     // controller가 BeginPlay 전에 장착을 알렸을 수 있다. 그때 고른 동작으로 첫 외형을 준비한다.
-    Appearance->SetBodyAnimation(bWeaponEquipped && RifleLocomotion ? RifleLocomotion : Locomotion);
+    Appearance->SetBodyAnimation(GetLocomotionFor(EquippedWeapon));
     UGameInstance* GameInstance = GetGameInstance();
     UGameSessionSubsystem* Session = GameInstance ? GameInstance->GetSubsystem<UGameSessionSubsystem>() : nullptr;
     if (!Session) { return; }
@@ -287,7 +343,17 @@ bool ADuckovCharacter::TryMelee()
     }
     MeleeSwing->SetVisibility(true);
     GetWorldTimerManager().SetTimer(MeleeSwingTimer, this, &ThisClass::HideMeleeSwing, MeleeSwingDuration, false);
+    // 휘두르기는 몸 전체 동작이라 그동안 이동 동작을 멈추고 한 번 재생한 뒤 되돌린다. 판정은 누른 순간 끝나 있다.
+    if (MeleeSwingAnimation && Appearance->PlayBodyAnimationOnce(MeleeSwingAnimation))
+    {
+        GetWorldTimerManager().SetTimer(SwingTimer, this, &ThisClass::EndSwing, MeleeSwingAnimation->GetPlayLength(), false);
+    }
     return true;
+}
+
+void ADuckovCharacter::EndSwing()
+{
+    if (UAnimationAsset* Current = GetLocomotionFor(EquippedWeapon)) { Appearance->SwitchBodyAnimation(Current); }
 }
 
 void ADuckovCharacter::HideMeleeSwing()
@@ -330,6 +396,7 @@ void ADuckovCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
     GetWorldTimerManager().ClearTimer(MeleeSwingTimer);
     GetWorldTimerManager().ClearTimer(TracerTimer);
+    GetWorldTimerManager().ClearTimer(SwingTimer);
     if (CustomizationModel) { CustomizationModel->OnChanged().Remove(CustomizationHandle); }
     CustomizationModel = nullptr;
     Super::EndPlay(EndPlayReason);
@@ -338,11 +405,14 @@ void ADuckovCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 void ADuckovCharacter::ApplyConfirmedAppearance()
 {
     if (!CustomizationModel) { return; }
-    // 교체되는 이전 body는 적용 중에 없어지므로 총을 잠시 외형 기준점으로 옮겼다가 표시 중인 body에 다시 붙인다.
-    WeaponModel->AttachToComponent(VisualRoot, FAttachmentTransformRules::KeepRelativeTransform);
-    WeaponModel->SetRelativeTransform(FTransform::Identity);
+    // 교체되는 이전 body는 적용 중에 없어지므로 손에 든 모형을 잠시 외형 기준점으로 옮겼다가 표시 중인 body에 다시 붙인다.
+    for (USceneComponent* Model : {WeaponModel.Get(), MeleeModel.Get()})
+    {
+        Model->AttachToComponent(VisualRoot, FAttachmentTransformRules::KeepRelativeTransform);
+        Model->SetRelativeTransform(FTransform::Identity);
+    }
     const ECustomizationFailure Result = Appearance->TryApply(CustomizationModel->GetProfile());
-    AttachWeaponModel();
+    AttachWeaponModels();
     if (Result != ECustomizationFailure::None)
     {
         UE_LOG(LogTemp, Warning, TEXT("캐릭터 외형 적용 실패: %s. 이전 외형을 유지합니다"), *UEnum::GetValueAsString(Result));
@@ -390,26 +460,29 @@ void ADuckovCharacter::Move(const FInputActionValue& Value)
 void ADuckovCharacter::StartSprint() { GetCharacterMovement()->MaxWalkSpeed = SprintSpeed; }
 void ADuckovCharacter::StopSprint() { GetCharacterMovement()->MaxWalkSpeed = WalkSpeed; }
 
-void ADuckovCharacter::AttachWeaponModel()
+void ADuckovCharacter::AttachWeaponModels()
 {
-    // 조각 위치는 mesh 원점 기준이므로, reference pose의 body bone 변환을 되돌려 bone에 붙인다.
-    // 그러면 reference pose에서 제자리이고 애니메이션 중에는 body bone과 함께 움직인다.
     USkeletalMeshComponent* Body = Appearance->GetDisplayedBody();
-    const USkeletalMesh* BodyMesh = Body ? Body->GetSkeletalMeshAsset() : nullptr;
-    const int32 BoneIndex = BodyMesh ? BodyMesh->GetRefSkeleton().FindBoneIndex(DuckovCharacterSetup::WeaponBone) : INDEX_NONE;
-    if (BoneIndex == INDEX_NONE) { return; }
-    const FTransform BoneInMesh = FAnimationRuntime::GetComponentSpaceTransformRefPose(BodyMesh->GetRefSkeleton(), BoneIndex);
-    WeaponModel->AttachToComponent(Body, FAttachmentTransformRules::KeepRelativeTransform, DuckovCharacterSetup::WeaponBone);
-    WeaponModel->SetRelativeTransform(BoneInMesh.Inverse());
+    DuckovCharacterSetup::AttachToBone(WeaponModel, Body, DuckovCharacterSetup::WeaponBone);
+    DuckovCharacterSetup::AttachToBone(MeleeModel, Body, DuckovCharacterSetup::MeleeBone);
 }
 
-void ADuckovCharacter::SetWeaponEquipped(bool bEquipped)
+UAnimationAsset* ADuckovCharacter::GetLocomotionFor(EDuckovWeaponKind Kind) const
 {
-    if (bWeaponEquipped == bEquipped) { return; }
-    bWeaponEquipped = bEquipped;
-    WeaponModel->SetVisibility(bEquipped, true);
+    // 근접 무기는 늘어진 날개 끝에 들려 기본 동작과 함께 흔들린다. 총을 쥔 동작이 없으면 기본 동작으로 둔다.
+    return Kind == EDuckovWeaponKind::Rifle && RifleLocomotion ? RifleLocomotion : Locomotion;
+}
+
+void ADuckovCharacter::SetEquippedWeapon(EDuckovWeaponKind Kind)
+{
+    if (EquippedWeapon == Kind) { return; }
+    EquippedWeapon = Kind;
+    WeaponModel->SetVisibility(Kind == EDuckovWeaponKind::Rifle, true);
+    MeleeModel->SetVisibility(Kind == EDuckovWeaponKind::Melee, true);
+    // 휘두르는 중에 무기가 바뀌면 휘두르기를 끝내고 새 무기의 동작으로 바로 바꾼다.
+    GetWorldTimerManager().ClearTimer(SwingTimer);
     // BeginPlay 전에는 동작 asset이 아직 없다. 그때는 BeginPlay가 이 값을 보고 첫 동작을 고른다.
-    UAnimationAsset* Wanted = bEquipped ? RifleLocomotion : Locomotion;
+    UAnimationAsset* Wanted = GetLocomotionFor(Kind);
     if (Wanted && !Appearance->SwitchBodyAnimation(Wanted))
     {
         UE_LOG(LogTemp, Warning, TEXT("몸 동작을 바꾸지 못했습니다: %s. Skeleton이 body와 다릅니다"), *Wanted->GetPathName());

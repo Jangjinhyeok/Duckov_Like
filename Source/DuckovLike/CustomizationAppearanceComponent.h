@@ -46,6 +46,10 @@ public:
     // 애니메이션으로 표시 중인 body의 재생 asset만 바꾼다(예: 총을 쥔 동작). body·부위·leader pose는 그대로이고 BlendSpace 입력도 유지한다.
     // 표시 중인 body가 없으면 다음 TryApply가 쓸 값만 바꾼다. Animation이 없거나 body Skeleton과 다르면 아무것도 바꾸지 않고 false다.
     bool SwitchBodyAnimation(UAnimationAsset* Animation);
+    // 애니메이션으로 표시 중인 body에서 Animation을 처음부터 한 번 재생한다(예: 휘두르기). 이동 동작(BodyAnimation)은 그대로 기억하며,
+    // 끝난 뒤 되돌리는 것은 호출자가 SwitchBodyAnimation으로 한다. 재생 중인 body가 없거나 Skeleton이 다르면 false다.
+    // 재생 중에 TryApply가 오면 "같은 외형" 판정이 깨져 body를 새로 준비하고 이동 동작으로 돌아간다(결과 상태는 같다).
+    bool PlayBodyAnimationOnce(UAnimationAsset* Animation);
     UAnimationAsset* GetBodyAnimation() const { return BodyAnimation; }
     // BlendSpace의 첫 축 입력이다. 새로 준비하는 body도 이 값으로 시작한다.
     void SetBodyAnimationInput(float Value);

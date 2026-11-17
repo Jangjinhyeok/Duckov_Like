@@ -99,6 +99,15 @@ FItemDefinitionRow ArmorDefinition()
     return Row;
 }
 
+// 근접 무기(방망이)는 소총과 같은 2x1 무기라 같은 무기 slot에 들어간다.
+FItemDefinitionRow MeleeDefinition()
+{
+    FItemDefinitionRow Row;
+    Row.Size = FIntPoint(2, 1);
+    Row.EquipmentType = EItemEquipmentType::Weapon;
+    return Row;
+}
+
 bool MatchesDefinition(const FItemDefinitionRow* Row, const FItemDefinitionRow& Expected)
 {
     return Row && FItemDefinitionRow::StaticStruct()->CompareScriptStruct(Row, &Expected, 0);
@@ -326,6 +335,7 @@ bool FGenerateInventoryAssets::RunTest(const FString& Parameters)
     Table->AddRow(TEXT("SmallBag"), BagDefinition(FIntPoint(4, 4)));
     Table->AddRow(TEXT("LargeBag"), BagDefinition(FIntPoint(6, 4)));
     Table->AddRow(TEXT("Armor"), ArmorDefinition());
+    Table->AddRow(TEXT("Bat"), MeleeDefinition());
     if (!SaveAsset(Table)) { AddError(TEXT("DataTable 저장 실패")); return false; }
 
     if (!CreateInventoryWidgets()) { AddError(TEXT("인벤토리 Widget Blueprint 생성/컴파일/저장 실패")); return false; }
@@ -377,8 +387,10 @@ bool FVerifyInventoryAssets::RunTest(const FString& Parameters)
     UDataTable* Table = LoadObject<UDataTable>(nullptr, TEXT("/Game/Inventory/DT_ItemDefinitions.DT_ItemDefinitions"));
     if (!TestNotNull(TEXT("DataTable"), Table)) { return false; }
     TestEqual(TEXT("DataTable row struct"), Table->RowStruct.Get(), FItemDefinitionRow::StaticStruct());
-    TestEqual(TEXT("정의 행 수"), Table->GetRowNames().Num(), 6);
+    TestEqual(TEXT("정의 행 수"), Table->GetRowNames().Num(), 7);
     TestTrue(TEXT("기존 세 정의의 값 보존, Rifle만 무기"), CheckOriginalDefinitions(Table, EItemEquipmentType::Weapon));
+    TestTrue(TEXT("방망이 2x1, non-stackable, Weapon"), MatchesDefinition(
+        Table->FindRow<FItemDefinitionRow>(TEXT("Bat"), TEXT("에셋 검증"), false), MeleeDefinition()));
     TestTrue(TEXT("방어구 2x2, non-stackable, Armor"), MatchesDefinition(
         Table->FindRow<FItemDefinitionRow>(TEXT("Armor"), TEXT("에셋 검증"), false), ArmorDefinition()));
     TestTrue(TEXT("소형 가방 1x1, non-stackable, capacity 4x4"), MatchesDefinition(
@@ -467,6 +479,7 @@ bool FAddBagDefinitions::RunTest(const FString& Parameters)
 }
 
 // main이 원본 DT를 backup한 뒤 명시적으로 실행한다. Rifle을 무기로 표시하고 방어구 정의를 더한다. 다시 실행해도 같은 결과다.
+// 방망이 이전 DT 전용이다. 이후 DT는 InventoryWeaponAssets.AddMeleeDefinition이 이어받았고, 이 명령은 행 수 검사에서 저장 없이 실패한다.
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAddEquipmentDefinitions, "InventoryEquipmentAssets.AddDefinitions", Flags)
 bool FAddEquipmentDefinitions::RunTest(const FString& Parameters)
 {
@@ -492,6 +505,33 @@ bool FAddEquipmentDefinitions::RunTest(const FString& Parameters)
     }
     TestTrue(TEXT("추가 후 Rifle만 무기로 바뀜"), CheckOriginalDefinitions(Table, EItemEquipmentType::Weapon));
     TestEqual(TEXT("추가 후 정의 행 수"), Table->GetRowNames().Num(), 6);
+    return !HasAnyErrors();
+}
+
+// main이 원본 DT를 backup한 뒤 명시적으로 실행한다. 근접 무기(방망이) 정의를 더한다. 다시 실행해도 같은 결과다.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAddMeleeDefinition, "InventoryWeaponAssets.AddMeleeDefinition", Flags)
+bool FAddMeleeDefinition::RunTest(const FString& Parameters)
+{
+    UDataTable* Table = LoadObject<UDataTable>(nullptr, TEXT("/Game/Inventory/DT_ItemDefinitions.DT_ItemDefinitions"));
+    if (!TestNotNull(TEXT("기존 DataTable"), Table)
+        || !TestTrue(TEXT("정의 struct"), Table->GetRowStruct() == FItemDefinitionRow::StaticStruct())) { return false; }
+    if (!TestTrue(TEXT("기존 세 정의 보존"), CheckOriginalDefinitions(Table, EItemEquipmentType::Weapon))
+        || !TestTrue(TEXT("가방·방어구 정의 보존"),
+            MatchesDefinition(Table->FindRow<FItemDefinitionRow>(TEXT("SmallBag"), TEXT("WeaponAssets"), false), BagDefinition(FIntPoint(4, 4)))
+            && MatchesDefinition(Table->FindRow<FItemDefinitionRow>(TEXT("LargeBag"), TEXT("WeaponAssets"), false), BagDefinition(FIntPoint(6, 4)))
+            && MatchesDefinition(Table->FindRow<FItemDefinitionRow>(TEXT("Armor"), TEXT("WeaponAssets"), false), ArmorDefinition())))
+    {
+        return false;
+    }
+    const FItemDefinitionRow* Bat = Table->FindRow<FItemDefinitionRow>(TEXT("Bat"), TEXT("WeaponAssets"), false);
+    if ((Bat && !TestTrue(TEXT("동명 방망이 정의 충돌 없음"), MatchesDefinition(Bat, MeleeDefinition())))
+        || !TestEqual(TEXT("예상 외 정의 행 없음"), Table->GetRowNames().Num(), Bat ? 7 : 6)) { return false; }
+    if (!Bat)
+    {
+        Table->AddRow(TEXT("Bat"), MeleeDefinition());
+        TestTrue(TEXT("방망이 정의 DT 저장"), SaveAsset(Table));
+    }
+    TestEqual(TEXT("추가 후 정의 행 수"), Table->GetRowNames().Num(), 7);
     return !HasAnyErrors();
 }
 }

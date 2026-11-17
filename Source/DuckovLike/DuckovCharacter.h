@@ -15,11 +15,20 @@ class USpringArmComponent;
 class UStaticMeshComponent;
 struct FInputActionValue;
 
+// 무기 slot에 장착한 무기의 종류다. 캐릭터는 이것으로 손에 든 모형과 동작만 고른다.
+enum class EDuckovWeaponKind : uint8
+{
+    None,
+    Rifle,
+    Melee,
+};
+
 // 지상 플레이 캐릭터다. 화면 기준 WASD 이동과 달리기, 고정 각도 탑다운 카메라를 갖는다.
 // 원작처럼 이동 방향과 무관하게 조준 지점(마우스 커서)을 바라보고 카메라를 그쪽으로 앞당긴다.
 // 조준 지점까지의 선은 레이저 사이트를 켰을 때만 보인다(원작은 총기에 레이저 사이트를 달아야 보인다).
-// 맨손 근접 공격과 총 사격은 바라보는 방향으로 나간다. 피해는 대상의 ability system이 처리한다.
-// 총을 장착하면 가슴 앞에 총 모형이 보이고 날개로 총을 쥔 Idle·Walk를 재생한다. 장착 여부는 controller가 알려 준다.
+// 근접 공격과 총 사격은 바라보는 방향으로 나간다. 피해는 대상의 ability system이 처리한다.
+// 총을 장착하면 가슴 앞에 총 모형이 보이고 날개로 총을 쥔 Idle·Walk를 재생한다.
+// 근접 무기를 장착하면 오른날개 끝에 방망이가 보이고, 근접 공격마다 휘두르기를 한 번 재생한다. 장착한 무기는 controller가 알려 준다.
 // 외형은 세션의 커스터마이징 Model에서 확정된 Profile을 따른다. 위치·이동·공격 간격 외의 게임 상태는 소유하지 않는다(탄창 잔탄도 세션이 갖는다).
 UCLASS()
 class DUCKOVLIKE_API ADuckovCharacter : public ACharacter
@@ -35,10 +44,16 @@ public:
     static constexpr const TCHAR* LocomotionAnimationPath = TEXT("/Game/Character/BS_DuckLocomotion.BS_DuckLocomotion");
     // 같은 축의 총을 쥔 Idle·Walk BlendSpace다. 날개만 다르고 몸·발 동작은 같다.
     static constexpr const TCHAR* RifleLocomotionAnimationPath = TEXT("/Game/Character/BS_DuckLocomotionRifle.BS_DuckLocomotionRifle");
-    // 총을 장착하면 총 모형을 보이고 총을 쥔 동작으로 바꾼다. 해제하면 되돌린다. 같은 값이면 아무것도 하지 않는다.
-    void SetWeaponEquipped(bool bEquipped);
-    bool IsWeaponEquipped() const { return bWeaponEquipped; }
+    // 근접 무기를 한 번 휘두르는 동작이다(반복하지 않음, 10 frame).
+    static constexpr const TCHAR* MeleeSwingAnimationPath = TEXT("/Game/Character/A_DuckMeleeSwing.A_DuckMeleeSwing");
+    // 장착한 무기에 맞는 모형을 보이고 동작을 바꾼다. 총이면 총을 쥔 동작, 근접 무기와 맨손이면 기본 동작이다.
+    // 같은 값이면 아무것도 하지 않는다.
+    void SetEquippedWeapon(EDuckovWeaponKind Kind);
+    EDuckovWeaponKind GetEquippedWeapon() const { return EquippedWeapon; }
     USceneComponent* GetWeaponModel() const { return WeaponModel; }
+    USceneComponent* GetMeleeModel() const { return MeleeModel; }
+    // 휘두르기를 재생하는 중인지다. 끝나면 장착한 무기의 이동 동작으로 돌아간다.
+    bool IsSwingPlaying() const { return GetWorldTimerManager().IsTimerActive(SwingTimer); }
     virtual void Tick(float DeltaSeconds) override;
     // 바라보고 조준할 월드 지점이다. controller가 마우스 커서에서 정한다. 높이는 쓰지 않는다.
     void SetAimPoint(const FVector& WorldPoint);
@@ -53,7 +68,8 @@ public:
     // 실제 앞당김은 r/(1-r)배로 수렴한다. 0.15면 커서를 화면 끝에 둘 때 캐릭터가 창 너비의 약 7% 밀린다(원작 관찰).
     static constexpr float LookAheadRatio = 0.15f;
     static constexpr float MaxLookAhead = 300.f;
-    // 맨손 근접 공격이다. 바라보는 방향 앞의 원 안에 있는 ability system 대상마다 피해를 한 번 준다.
+    // 근접 공격이다. 바라보는 방향 앞의 원 안에 있는 ability system 대상마다 피해를 한 번 준다.
+    // 근접 무기를 들었는지는 호출자(controller)가 확인한다. 휘두르기 동작이 있으면 함께 재생한다.
     // 공격 간격이 지나지 않았으면 아무것도 하지 않고 false다. 벽 너머도 원 안이면 맞는다.
     bool TryMelee();
     UStaticMeshComponent* GetMeleeSwing() const { return MeleeSwing; }
@@ -105,11 +121,17 @@ private:
     // 장착한 총의 모형이다. 기본 도형 조각들을 자식으로 갖고 body의 body bone을 따라 움직인다.
     UPROPERTY(VisibleAnywhere)
     TObjectPtr<USceneComponent> WeaponModel;
-    bool bWeaponEquipped = false;
+    // 근접 무기(방망이) 모형이다. 오른날개 bone을 따라 걸을 때 흔들리고 휘두르기와 함께 돈다.
+    UPROPERTY(VisibleAnywhere)
+    TObjectPtr<USceneComponent> MeleeModel;
+    EDuckovWeaponKind EquippedWeapon = EDuckovWeaponKind::None;
     UPROPERTY(Transient)
     TObjectPtr<UAnimationAsset> Locomotion;
     UPROPERTY(Transient)
     TObjectPtr<UAnimationAsset> RifleLocomotion;
+    UPROPERTY(Transient)
+    TObjectPtr<UAnimationAsset> MeleeSwingAnimation;
+    FTimerHandle SwingTimer;
     FVector AimPoint = FVector::ZeroVector;
     bool bHasAimPoint = false;
     bool bLaserSightEnabled = false;
@@ -124,7 +146,10 @@ private:
     FDelegateHandle CustomizationHandle;
     void CreateInput();
     void ApplyConfirmedAppearance();
-    void AttachWeaponModel();
+    void AttachWeaponModels();
+    // 장착한 무기에 맞는 이동 동작이다. 동작 asset이 없으면 null이다.
+    UAnimationAsset* GetLocomotionFor(EDuckovWeaponKind Kind) const;
+    void EndSwing();
     void Move(const FInputActionValue& Value);
     void StartSprint();
     void StopSprint();

@@ -519,16 +519,27 @@ bool UCustomizationAppearanceComponent::SwitchBodyAnimation(UAnimationAsset* Ani
         const USkeletalMesh* Mesh = DisplayedBody->GetSkeletalMeshAsset();
         if (!Mesh || Animation->GetSkeleton() != Mesh->GetSkeleton()) { return false; }
     }
+    // asset을 바꾸면 재생 위치가 0으로 돌아간다. 이동 동작끼리 바꿀 때만 같은 축의 걸음 위치를 이어 간다.
+    // 한 번 재생 동작(휘두르기)에서 돌아올 때는 그 시간이 이동 동작의 위치와 무관하므로 처음부터 재생한다.
+    const bool bKeepPosition = bPlaying && DisplayedBody->GetSingleNodeInstance()->GetAnimationAsset() == BodyAnimation;
     BodyAnimation = Animation;
     if (bPlaying)
     {
-        // asset을 바꾸면 재생 위치가 0으로 돌아간다. 같은 길이의 동작끼리 바꾸므로 걷던 걸음의 위치를 이어 간다.
         const float Position = DisplayedBody->GetSingleNodeInstance()->GetCurrentTime();
         DisplayedBody->PlayAnimation(Animation, true);
         UAnimSingleNodeInstance* Instance = DisplayedBody->GetSingleNodeInstance();
         Instance->SetBlendSpacePosition(FVector(BodyAnimationInput, 0.0f, 0.0f));
-        Instance->SetPosition(Position, false);
+        if (bKeepPosition) { Instance->SetPosition(Position, false); }
     }
+    return true;
+}
+
+bool UCustomizationAppearanceComponent::PlayBodyAnimationOnce(UAnimationAsset* Animation)
+{
+    if (!Animation || !BodyAnimation || !DisplayedBody || !DisplayedBody->GetSingleNodeInstance()) { return false; }
+    const USkeletalMesh* Mesh = DisplayedBody->GetSkeletalMeshAsset();
+    if (!Mesh || Animation->GetSkeleton() != Mesh->GetSkeleton()) { return false; }
+    DisplayedBody->PlayAnimation(Animation, false);
     return true;
 }
 

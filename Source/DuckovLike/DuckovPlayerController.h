@@ -17,6 +17,7 @@ class UInventoryScreenWidget;
 class ULoadingScreenWidget;
 class UWidgetComponent;
 struct FInventoryChangeSet;
+enum class EDuckovWeaponKind : uint8;
 
 // 베이스먼트와 레이드 맵의 controller다. 세션 인벤토리를 화면과 월드 오브젝트에 잇는다.
 // 지상 캐릭터가 상호작용 범위에 들어오면 F로 창고 열기·출격·loot 획득·탈출을 한다. O는 조작 설명을 펼친다.
@@ -45,7 +46,7 @@ public:
     // 테스트용: L로 빙의한 캐릭터의 레이저 사이트 선을 켜고 끈다. 레이저 사이트 장비가 생기면 장착 상태로 대체한다.
     UFUNCTION(Exec)
     void ToggleLaserSight();
-    // LMB: 무기 slot에 총이 있으면 탄창에서 한 발을 쏘고, 비어 있으면 맨손 근접 공격을 한다.
+    // LMB: 무기 slot에 총이 있으면 탄창에서 한 발을 쏘고, 근접 무기가 있으면 휘둘러 근접 공격을 한다. 비어 있으면 공격하지 않는다.
     // 잔탄이 없거나 재장전 중이면 쏘지 않는다. 메뉴가 열려 있거나 맵 이동·도착 대기 중이면 무시한다.
     UFUNCTION(Exec)
     void Attack();
@@ -107,6 +108,8 @@ private:
     bool IsMenuOpen() const;
     // 무기 slot에 장착한 항목의 InstanceId다. 비어 있으면 INDEX_NONE이다.
     int32 GetEquippedWeaponId() const;
+    // 무기 slot 항목의 종류다(총·근접 무기·없음).
+    EDuckovWeaponKind GetEquippedWeaponKind() const;
     void RefreshAimPoint();
     int32 CountBagAmmo() const;
     void FinishReload();

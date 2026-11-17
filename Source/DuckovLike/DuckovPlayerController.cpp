@@ -48,6 +48,8 @@ TSoftObjectPtr<UDataTable> GetAmmoTable()
     return TSoftObjectPtr<UDataTable>(FSoftObjectPath(TEXT("/Game/Inventory/DT_ItemDefinitions.DT_ItemDefinitions")));
 }
 const FName AmmoRow(TEXT("Ammo"));
+// 근접 무기 정의 row다. 무기 slot의 다른 항목(Rifle)은 총이다.
+const FName MeleeWeaponRow(TEXT("Bat"));
 
 FText GetOutOfAmmoText() { return NSLOCTEXT("DuckovFlow", "OutOfAmmo", "탄약이 없습니다"); }
 FText GetNoBagAmmoText() { return NSLOCTEXT("DuckovFlow", "NoBagAmmo", "가방에 탄약이 없습니다"); }
@@ -134,12 +136,15 @@ void ADuckovPlayerController::Attack()
 {
     ADuckovCharacter* Attacker = Cast<ADuckovCharacter>(GetPawn());
     if (!Attacker || LoadingScreen || IsMenuOpen()) { return; }
-    const int32 WeaponId = GetEquippedWeaponId();
-    if (WeaponId == INDEX_NONE)
+    // 맨손이면 공격하지 않는다. 근접 무기면 휘두르고 총이면 쏜다.
+    const EDuckovWeaponKind Kind = GetEquippedWeaponKind();
+    if (Kind == EDuckovWeaponKind::None) { return; }
+    if (Kind == EDuckovWeaponKind::Melee)
     {
         Attacker->TryMelee();
         return;
     }
+    const int32 WeaponId = GetEquippedWeaponId();
     if (IsReloading()) { return; }
     UGameSessionSubsystem* Session = GetGameInstance()->GetSubsystem<UGameSessionSubsystem>();
     const int32 Rounds = Session->GetMagazineRounds(WeaponId, ADuckovCharacter::RifleMagazineSize);
@@ -160,8 +165,9 @@ void ADuckovPlayerController::Attack()
 void ADuckovPlayerController::Reload()
 {
     if (!Model || LoadingScreen || IsMenuOpen() || IsReloading()) { return; }
+    // 재장전은 총만 한다.
+    if (GetEquippedWeaponKind() != EDuckovWeaponKind::Rifle) { return; }
     const int32 WeaponId = GetEquippedWeaponId();
-    if (WeaponId == INDEX_NONE) { return; }
     const int32 Full = ADuckovCharacter::RifleMagazineSize;
     if (GetGameInstance()->GetSubsystem<UGameSessionSubsystem>()->GetMagazineRounds(WeaponId, Full) >= Full) { return; }
     if (CountBagAmmo() <= 0)
@@ -226,8 +232,9 @@ void ADuckovPlayerController::OnInventoryChanged(const FInventoryChangeSet& Chan
 
 void ADuckovPlayerController::RefreshAmmoHud()
 {
+    // 탄약 표시는 총을 들었을 때만 보인다.
     const int32 WeaponId = GetEquippedWeaponId();
-    if (WeaponId == INDEX_NONE)
+    if (GetEquippedWeaponKind() != EDuckovWeaponKind::Rifle)
     {
         if (Hud) { Hud->HideAmmo(); }
         if (AimCrosshair) { AimCrosshair->SetAmmoState(EAimAmmoState::None); }
@@ -244,7 +251,15 @@ void ADuckovPlayerController::RefreshAmmoHud()
 
 void ADuckovPlayerController::RefreshPawnWeapon()
 {
-    if (ADuckovCharacter* Holder = Cast<ADuckovCharacter>(GetPawn())) { Holder->SetWeaponEquipped(GetEquippedWeaponId() != INDEX_NONE); }
+    if (ADuckovCharacter* Holder = Cast<ADuckovCharacter>(GetPawn())) { Holder->SetEquippedWeapon(GetEquippedWeaponKind()); }
+}
+
+EDuckovWeaponKind ADuckovPlayerController::GetEquippedWeaponKind() const
+{
+    // 무기는 소총과 방망이 두 가지라 정의 row 이름으로 구분한다. 무기 종류가 늘면 정의 데이터에 종류 필드를 둔다.
+    const FInventoryContainer* Weapons = Model ? Model->FindContainer(TEXT("WeaponSlot")) : nullptr;
+    if (!Weapons || Weapons->Items.Num() == 0) { return EDuckovWeaponKind::None; }
+    return Weapons->Items[0].DefinitionRowName == DuckovFlow::MeleeWeaponRow ? EDuckovWeaponKind::Melee : EDuckovWeaponKind::Rifle;
 }
 
 int32 ADuckovPlayerController::GetEquippedWeaponId() const

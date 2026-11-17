@@ -219,6 +219,34 @@ bool FVerifyCharacterAnimationAssets::RunTest(const FString& Parameters)
             && FMath::IsNearlyEqual(Half.FindRef(Walk->GetFName()), 0.5f, 1e-3f));
         TestTrue(*(Prefix + TEXT(": 달리기는 Walk만")), Running.Num() == 1 && FMath::IsNearlyEqual(Running.FindRef(Walk->GetFName()), 1.0f));
     }
+    // 휘두르기는 한 번 재생하는 10 frame 동작이다. rest에서 시작해 rest로 끝나 이동 동작과 이어 붙여도 튀지 않고,
+    // 중간에는 오른날개를 크게 돌려 방망이를 휘두른다. 발은 움직이지 않는다.
+    // rest는 Idle 첫 frame으로 잡고, 압축 데이터가 아니라 원본 key로 비교한다. 방금 추가한 에셋은 압축 데이터가
+    // 아직 준비되지 않아 압축 경로로 읽으면 처음과 끝이 모두 엉뚱한 같은 값(약 145°)으로 나왔다(2026-11-17).
+    const UAnimSequence* Swing = LoadObject<UAnimSequence>(nullptr, ADuckovCharacter::MeleeSwingAnimationPath);
+    const UAnimSequence* Rest = LoadObject<UAnimSequence>(nullptr, IdlePath);
+    if (TestNotNull(TEXT("휘두르기"), Swing) && TestNotNull(TEXT("rest 기준 Idle"), Rest))
+    {
+        TestTrue(TEXT("휘두르기: 공통 Skeleton·30 fps·root motion 없음"), Swing->GetSkeleton() == Skeleton
+            && Swing->GetSamplingFrameRate() == FFrameRate(30, 1) && !Swing->bEnableRootMotion);
+        TestTrue(TEXT("휘두르기 10 frame"), FMath::IsNearlyEqual(Swing->GetPlayLength(), 10.0 / 30.0, 1e-3));
+        auto DegreesFromRest = [&Bones, Swing, Rest](const TCHAR* Name, double Time)
+        {
+            const int32 Index = Bones.FindBoneIndex(Name);
+            FTransform Pose, RestPose;
+            Swing->GetBoneTransform(Pose, FSkeletonPoseBoneIndex(Index), FAnimExtractContext(Time), true);
+            Rest->GetBoneTransform(RestPose, FSkeletonPoseBoneIndex(Index), FAnimExtractContext(0.0), true);
+            return FMath::RadiansToDegrees(Pose.GetRotation().AngularDistance(RestPose.GetRotation()));
+        };
+        for (const TCHAR* Name : {TEXT("root"), TEXT("body"), TEXT("wing_r"), TEXT("foot_l"), TEXT("foot_r")})
+        {
+            const double Start = DegreesFromRest(Name, 0.0);
+            const double End = DegreesFromRest(Name, Swing->GetPlayLength());
+            TestTrue(*FString::Printf(TEXT("휘두르기 처음·끝의 %s는 rest(처음 %.2f°, 끝 %.2f°)"), Name, Start, End), Start < 1.0 && End < 1.0);
+        }
+        TestTrue(TEXT("휘두르는 중 오른날개를 크게 돌림"), DegreesFromRest(TEXT("wing_r"), Swing->GetPlayLength() * 0.55) > 45.0);
+        TestTrue(TEXT("휘두르는 중 발은 그대로"), DegreesFromRest(TEXT("foot_l"), Swing->GetPlayLength() * 0.55) < 1.0);
+    }
     // 총을 쥔 동작은 날개만 다르다. 몸·머리·발은 기본 동작과 같아 총을 들고 바꿔도 걸음이 어긋나지 않는다.
     const TPair<const TCHAR*, const TCHAR*> Pairs[] = {{IdlePath, IdleRiflePath}, {WalkPath, WalkRiflePath}};
     for (const TPair<const TCHAR*, const TCHAR*>& Pair : Pairs)

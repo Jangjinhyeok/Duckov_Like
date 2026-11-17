@@ -16,9 +16,9 @@ UInventoryModel* UGameSessionSubsystem::GetInventoryModel()
     UDataTable* Definitions = LoadObject<UDataTable>(nullptr, TEXT("/Game/Inventory/DT_ItemDefinitions.DT_ItemDefinitions"));
     if (!ensureMsgf(Definitions, TEXT("인벤토리 Definition DataTable이 없습니다"))) { return nullptr; }
     // 데모 맵의 가방 장착 준비가 끝난 상태와 같다: 소형 가방을 장착하고 대형 가방은 보관함에 있다.
-    // 방어구는 장착한 채 시작하고 소총은 창고에 있다. 무기 slot은 비어 있다.
+    // 방어구는 장착한 채 시작하고 소총과 방망이는 창고에 있다. 무기 slot은 비어 있다.
     FInventorySaveRecord Record;
-    Record.NextInstanceId = 7;
+    Record.NextInstanceId = 8;
     const FSoftObjectPath DefinitionPath(Definitions);
     auto AddContainer = [&Record](FName Id, FIntPoint Size) -> FInventoryContainerSaveRecord&
     {
@@ -41,6 +41,8 @@ UInventoryModel* UGameSessionSubsystem::GetInventoryModel()
     AddItem(Stash, 1, TEXT("Rifle"), FIntPoint(4, 1), 1);
     AddItem(Stash, 2, TEXT("Ammo"), FIntPoint(0, 3), 18);
     AddItem(Stash, 5, TEXT("LargeBag"), FIntPoint(0, 0), 1);
+    // 근접 무기는 창고 맨 아래 줄 오른쪽에 둔다. 앞줄의 빈칸은 그대로라 first-fit 보관 순서가 바뀌지 않는다.
+    AddItem(Stash, 7, TEXT("Bat"), FIntPoint(4, 3), 1);
     auto& Bag = AddContainer(TEXT("Bag"), FIntPoint(4, 4));
     AddItem(Bag, 3, TEXT("Medkit"), FIntPoint(2, 2), 2);
     auto& Slot = AddContainer(TEXT("BagSlot"), FIntPoint(1, 1));
